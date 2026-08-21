@@ -45,3 +45,12 @@ nego tokens ./models/qwen3 "hello world"
 ```bash
 nego prompt ./models/qwen3 --system "You are helpful" --user "Hello"
 ```
+
+## Runtime API
+
+```go
+model, err := nego.LoadModel(ctx, nego.ModelOptions{
+    Backend: "openai-compatible",
+    Model:   "qwen3",
+})
+```
