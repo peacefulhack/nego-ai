@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -357,6 +358,30 @@ func TestPromptCommand(t *testing.T) {
 	}
 }
 
+func TestRunCommandUsesLlamaBackend(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"run", "model.gguf", "hello"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fake llama output") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestChatCommandUsesLlamaBackend(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"chat", "model.gguf", "hello"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fake llama output") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
 func writeCLITokenizer(t *testing.T, dir string) {
 	t.Helper()
 	body := `{
@@ -374,4 +399,21 @@ func writeCLITokenizer(t *testing.T, dir string) {
 	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func fakeCLILlamaCommand(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "fake-llama.bat")
+		if err := os.WriteFile(path, []byte("@echo off\necho fake llama output %*\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	path := filepath.Join(dir, "fake-llama.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho fake llama output \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

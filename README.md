@@ -58,3 +58,10 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 ```go
 import _ "github.com/gakon/nego-ai/backends/openai"
 ```
+
+## Local llama.cpp runtime
+
+```bash
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello"
+NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf "Hello"
+```

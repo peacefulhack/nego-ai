@@ -14,6 +14,8 @@ import (
 	"text/tabwriter"
 	"time"
 
+	nego "github.com/gakon/nego-ai"
+	_ "github.com/gakon/nego-ai/backends/llama"
 	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/cache"
@@ -37,6 +39,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runTokens(args[1:], stdout, stderr)
 	case "prompt":
 		return runPrompt(args[1:], stdout, stderr)
+	case "run":
+		return runModel(args[1:], stdout, stderr)
+	case "chat":
+		return runChat(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -221,6 +227,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
 	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
+	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
+	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
 }
 
 func runTokenize(args []string, stdout, stderr io.Writer) int {
@@ -318,6 +326,73 @@ func runPrompt(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprint(stdout, prompt)
+	return 0
+}
+
+func runModel(args []string, stdout, stderr io.Writer) int {
+	var backend string
+	var maxTokens int
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 2 {
+		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
+		return 2
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0]})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	defer model.Close()
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: strings.Join(positionals[1:], " "), MaxTokens: maxTokens})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, out.Text)
+	return 0
+}
+
+func runChat(args []string, stdout, stderr io.Writer) int {
+	var backend string
+	var system string
+	var maxTokens int
+	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.StringVar(&system, "system", "", "system message")
+	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 2 {
+		fmt.Fprintln(stderr, "usage: nego chat <model-path> <message> [flags]")
+		return 2
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0]})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	defer model.Close()
+	var messages []nego.Message
+	if system != "" {
+		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: system})
+	}
+	messages = append(messages, nego.Message{Role: nego.RoleUser, Content: strings.Join(positionals[1:], " ")})
+	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, resp.Message.Content)
 	return 0
 }
 
