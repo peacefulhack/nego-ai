@@ -28,3 +28,7 @@ path, err := hub.DownloadSnapshot(ctx, hub.DownloadSnapshotOptions{
     Include: []string{"*.safetensors", "config.json", "tokenizer.json"},
 })
 ```
+
+```go
+info, err := modelinfo.Inspect("./models/qwen3")
+```
