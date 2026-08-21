@@ -54,3 +54,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
     Model:   "qwen3",
 })
 ```
+
+```go
+import _ "github.com/gakon/nego-ai/backends/openai"
+```
