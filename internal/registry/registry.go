@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -91,6 +92,33 @@ func (s *Store) List() ([]Entry, error) {
 		return entries[i].RepoID < entries[j].RepoID
 	})
 	return entries, nil
+}
+
+func (s *Store) Find(repoID, revision string) (Entry, error) {
+	entries, err := s.List()
+	if err != nil {
+		return Entry{}, err
+	}
+	var matches []Entry
+	for _, entry := range entries {
+		if entry.RepoID != repoID {
+			continue
+		}
+		if revision != "" && entry.Revision != revision {
+			continue
+		}
+		matches = append(matches, entry)
+	}
+	if len(matches) == 0 {
+		if revision != "" {
+			return Entry{}, fmt.Errorf("model %s@%s is not registered locally", repoID, revision)
+		}
+		return Entry{}, fmt.Errorf("model %s is not registered locally", repoID)
+	}
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].DownloadedAt.After(matches[j].DownloadedAt)
+	})
+	return matches[0], nil
 }
 
 func (s *Store) path() string {

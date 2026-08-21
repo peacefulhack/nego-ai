@@ -206,6 +206,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego download <repo-id> [filename] [flags]")
 	fmt.Fprintln(w, "  nego models list [flags]")
+	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
 }
 
 func runModels(args []string, stdout, stderr io.Writer) int {
@@ -216,6 +217,8 @@ func runModels(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "list":
 		return runModelsList(args[1:], stdout, stderr)
+	case "info":
+		return runModelsInfo(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		modelsUsage(stdout)
 		return 0
@@ -224,6 +227,43 @@ func runModels(args []string, stdout, stderr io.Writer) int {
 		modelsUsage(stderr)
 		return 2
 	}
+}
+
+func runModelsInfo(args []string, stdout, stderr io.Writer) int {
+	var cacheDir string
+	var revision string
+	var jsonOutput bool
+
+	fs := flag.NewFlagSet("models info", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
+	fs.StringVar(&revision, "revision", "", "revision to inspect")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego models info <repo-id> [flags]")
+		return 2
+	}
+
+	resolvedCache, err := cache.ResolveCacheDir(cacheDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	entry, err := registry.NewStore(resolvedCache).Find(positionals[0], revision)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(entry)
+		return 0
+	}
+	writeModelInfo(stdout, entry)
+	return 0
 }
 
 func runModelsList(args []string, stdout, stderr io.Writer) int {
@@ -277,6 +317,56 @@ func runModelsList(args []string, stdout, stderr io.Writer) int {
 func modelsUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego models list [flags]")
+	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
+}
+
+func writeModelInfo(w io.Writer, entry registry.Entry) {
+	localPath := entry.LocalDir
+	if localPath == "" {
+		localPath = entry.SnapshotPath
+	}
+	fmt.Fprintf(w, "Repo:        %s\n", entry.RepoID)
+	fmt.Fprintf(w, "Type:        %s\n", entry.RepoType)
+	fmt.Fprintf(w, "Revision:    %s\n", entry.Revision)
+	fmt.Fprintf(w, "Commit:      %s\n", entry.Commit)
+	fmt.Fprintf(w, "Local path:  %s\n", localPath)
+	fmt.Fprintf(w, "Cache path:  %s\n", entry.SnapshotPath)
+	fmt.Fprintf(w, "Files:       %d\n", entry.FileCount)
+	fmt.Fprintf(w, "Size:        %s\n", humanBytes(entry.TotalSize))
+	if !entry.DownloadedAt.IsZero() {
+		fmt.Fprintf(w, "Downloaded:  %s\n", entry.DownloadedAt.Format(time.RFC3339))
+	}
+	keyFiles := importantFiles(entry.Files)
+	if len(keyFiles) > 0 {
+		fmt.Fprintln(w, "Key files:")
+		for _, file := range keyFiles {
+			fmt.Fprintf(w, "  - %s", file.Path)
+			if file.Size > 0 {
+				fmt.Fprintf(w, " (%s)", humanBytes(file.Size))
+			}
+			fmt.Fprintln(w)
+		}
+	}
+}
+
+func importantFiles(files []registry.File) []registry.File {
+	var out []registry.File
+	for _, file := range files {
+		if isImportantModelFile(file.Path) {
+			out = append(out, file)
+		}
+	}
+	return out
+}
+
+func isImportantModelFile(path string) bool {
+	lower := strings.ToLower(path)
+	switch lower {
+	case "config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json":
+		return true
+	default:
+		return strings.HasSuffix(lower, ".safetensors") || strings.HasSuffix(lower, ".gguf") || strings.HasSuffix(lower, ".onnx")
+	}
 }
 
 type terminalProgress struct {

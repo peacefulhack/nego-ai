@@ -176,3 +176,65 @@ func TestModelsListEmpty(t *testing.T) {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 }
+
+func TestModelsInfoShowsRegistryEntry(t *testing.T) {
+	cacheDir := t.TempDir()
+	err := registry.NewStore(cacheDir).Upsert(registry.Entry{
+		RepoID:       "Qwen/Qwen3-0.6B",
+		RepoType:     "model",
+		Revision:     "main",
+		Commit:       "abc123",
+		LocalDir:     "./models/qwen3",
+		SnapshotPath: cacheDir + "/snapshot",
+		FileCount:    2,
+		TotalSize:    2048,
+		DownloadedAt: time.Date(2026, 8, 22, 1, 2, 3, 0, time.UTC),
+		Files: []registry.File{
+			{Path: "config.json", Size: 512},
+			{Path: "model.safetensors", Size: 1536},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"models", "info", "Qwen/Qwen3-0.6B", "--cache-dir", cacheDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Repo:        Qwen/Qwen3-0.6B", "Commit:      abc123", "Local path:  ./models/qwen3", "Key files:", "model.safetensors"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestModelsInfoJSON(t *testing.T) {
+	cacheDir := t.TempDir()
+	err := registry.NewStore(cacheDir).Upsert(registry.Entry{
+		RepoID:       "Qwen/Qwen3-0.6B",
+		RepoType:     "model",
+		Revision:     "main",
+		Commit:       "abc123",
+		SnapshotPath: cacheDir + "/snapshot",
+		FileCount:    1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"models", "info", "Qwen/Qwen3-0.6B", "--cache-dir", cacheDir, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	var entry registry.Entry
+	if err := json.Unmarshal(stdout.Bytes(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Commit != "abc123" {
+		t.Fatalf("unexpected entry: %#v", entry)
+	}
+}
