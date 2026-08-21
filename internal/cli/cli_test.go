@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/gakon/nego-ai/hub"
+	"github.com/gakon/nego-ai/internal/registry"
 )
 
 func TestSplitFlagsAllowsFlagsAfterPositionals(t *testing.T) {
@@ -105,5 +108,71 @@ func TestRenderProgressEntryShowsMaterializing(t *testing.T) {
 	line := renderProgressEntry(entry, "|")
 	if !strings.Contains(line, "Materializing") || !strings.Contains(line, "512.0 MiB/1.0 GiB") {
 		t.Fatalf("unexpected materializing line: %q", line)
+	}
+}
+
+func TestModelsListShowsRegistryEntries(t *testing.T) {
+	cacheDir := t.TempDir()
+	err := registry.NewStore(cacheDir).Upsert(registry.Entry{
+		RepoID:       "Qwen/Qwen3-0.6B",
+		RepoType:     "model",
+		Revision:     "main",
+		Commit:       "abc123",
+		LocalDir:     "./models/qwen3",
+		SnapshotPath: cacheDir + "/models--Qwen--Qwen3-0.6B/snapshots/abc123",
+		FileCount:    3,
+		TotalSize:    1024,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"models", "list", "--cache-dir", cacheDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Qwen/Qwen3-0.6B") || !strings.Contains(out, "./models/qwen3") || !strings.Contains(out, "1.0 KiB") {
+		t.Fatalf("unexpected output: %q", out)
+	}
+}
+
+func TestModelsListJSON(t *testing.T) {
+	cacheDir := t.TempDir()
+	err := registry.NewStore(cacheDir).Upsert(registry.Entry{
+		RepoID:       "Qwen/Qwen3-0.6B",
+		RepoType:     "model",
+		Revision:     "main",
+		Commit:       "abc123",
+		SnapshotPath: cacheDir + "/snapshot",
+		FileCount:    1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"models", "list", "--cache-dir", cacheDir, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	var entries []registry.Entry
+	if err := json.Unmarshal(stdout.Bytes(), &entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].RepoID != "Qwen/Qwen3-0.6B" {
+		t.Fatalf("unexpected entries: %#v", entries)
+	}
+}
+
+func TestModelsListEmpty(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"models", "list", "--cache-dir", t.TempDir()}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "No local models found.") {
+		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 }

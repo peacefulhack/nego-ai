@@ -9,9 +9,12 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"text/tabwriter"
 	"time"
 
 	"github.com/gakon/nego-ai/hub"
+	"github.com/gakon/nego-ai/internal/cache"
+	"github.com/gakon/nego-ai/internal/registry"
 )
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -22,6 +25,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "download":
 		return runDownload(ctx, args[1:], stdout, stderr)
+	case "models":
+		return runModels(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -200,6 +205,78 @@ func exitCode(err error) int {
 func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego download <repo-id> [filename] [flags]")
+	fmt.Fprintln(w, "  nego models list [flags]")
+}
+
+func runModels(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		modelsUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		return runModelsList(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		modelsUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown models command %q\n", args[0])
+		modelsUsage(stderr)
+		return 2
+	}
+}
+
+func runModelsList(args []string, stdout, stderr io.Writer) int {
+	var cacheDir string
+	var jsonOutput bool
+
+	fs := flag.NewFlagSet("models list", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintln(stderr, "usage: nego models list [flags]")
+		return 2
+	}
+
+	resolvedCache, err := cache.ResolveCacheDir(cacheDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	entries, err := registry.NewStore(resolvedCache).List()
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(entries)
+		return 0
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(stdout, "No local models found.")
+		return 0
+	}
+
+	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "REPO\tREVISION\tSIZE\tFILES\tLOCAL PATH")
+	for _, entry := range entries {
+		localPath := entry.LocalDir
+		if localPath == "" {
+			localPath = entry.SnapshotPath
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", entry.RepoID, entry.Revision, humanBytes(entry.TotalSize), entry.FileCount, localPath)
+	}
+	_ = tw.Flush()
+	return 0
+}
+
+func modelsUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego models list [flags]")
 }
 
 type terminalProgress struct {
