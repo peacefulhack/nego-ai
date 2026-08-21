@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -236,5 +238,76 @@ func TestModelsInfoJSON(t *testing.T) {
 	}
 	if entry.Commit != "abc123" {
 		t.Fatalf("unexpected entry: %#v", entry)
+	}
+}
+
+func TestModelsRemoveRequiresYes(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"models", "remove", "Qwen/Qwen3-0.6B", "--cache-dir", t.TempDir()}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "--yes") {
+		t.Fatalf("expected --yes warning, got %q", stderr.String())
+	}
+}
+
+func TestModelsRemoveDeletesLocalFilesAndRegistryOnly(t *testing.T) {
+	cacheDir := t.TempDir()
+	localDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(localDir, "config.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nestedDir := filepath.Join(localDir, "sub")
+	if err := os.MkdirAll(nestedDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nestedDir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	snapshotPath := filepath.Join(cacheDir, "snapshot")
+	if err := os.MkdirAll(snapshotPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(snapshotPath, "config.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := registry.NewStore(cacheDir).Upsert(registry.Entry{
+		RepoID:       "Qwen/Qwen3-0.6B",
+		RepoType:     "model",
+		Revision:     "main",
+		Commit:       "abc123",
+		LocalDir:     localDir,
+		SnapshotPath: snapshotPath,
+		FileCount:    2,
+		Files: []registry.File{
+			{Path: "config.json", Size: 2},
+			{Path: "sub/model.safetensors", Size: 7},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"models", "remove", "Qwen/Qwen3-0.6B", "--cache-dir", cacheDir, "--yes"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(localDir, "config.json")); !os.IsNotExist(err) {
+		t.Fatalf("expected local config to be removed, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(localDir, "sub", "model.safetensors")); !os.IsNotExist(err) {
+		t.Fatalf("expected local weights to be removed, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(snapshotPath, "config.json")); err != nil {
+		t.Fatalf("expected cache snapshot file to remain: %v", err)
+	}
+	entries, err := registry.NewStore(cacheDir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("expected registry to be empty, got %#v", entries)
 	}
 }

@@ -121,6 +121,25 @@ func (s *Store) Find(repoID, revision string) (Entry, error) {
 	return matches[0], nil
 }
 
+func (s *Store) Remove(repoID, revision string) (Entry, error) {
+	target, err := s.Find(repoID, revision)
+	if err != nil {
+		return Entry{}, err
+	}
+	entries, err := s.List()
+	if err != nil {
+		return Entry{}, err
+	}
+	key := entryKey(target.RepoType, target.RepoID, target.Revision)
+	kept := entries[:0]
+	for _, entry := range entries {
+		if entryKey(entry.RepoType, entry.RepoID, entry.Revision) != key {
+			kept = append(kept, entry)
+		}
+	}
+	return target, s.write(kept)
+}
+
 func (s *Store) path() string {
 	return filepath.Join(s.cacheDir, ".nego", "registry.json")
 }

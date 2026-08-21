@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -164,7 +166,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json":
+	case "force", "local-files-only", "quiet", "json", "yes":
 		return true
 	default:
 		return false
@@ -207,6 +209,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego download <repo-id> [filename] [flags]")
 	fmt.Fprintln(w, "  nego models list [flags]")
 	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
+	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
 }
 
 func runModels(args []string, stdout, stderr io.Writer) int {
@@ -219,6 +222,8 @@ func runModels(args []string, stdout, stderr io.Writer) int {
 		return runModelsList(args[1:], stdout, stderr)
 	case "info":
 		return runModelsInfo(args[1:], stdout, stderr)
+	case "remove":
+		return runModelsRemove(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		modelsUsage(stdout)
 		return 0
@@ -227,6 +232,56 @@ func runModels(args []string, stdout, stderr io.Writer) int {
 		modelsUsage(stderr)
 		return 2
 	}
+}
+
+func runModelsRemove(args []string, stdout, stderr io.Writer) int {
+	var cacheDir string
+	var revision string
+	var yes bool
+
+	fs := flag.NewFlagSet("models remove", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
+	fs.StringVar(&revision, "revision", "", "revision to remove")
+	fs.BoolVar(&yes, "yes", false, "confirm removal")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego models remove <repo-id> --yes [flags]")
+		return 2
+	}
+	if !yes {
+		fmt.Fprintln(stderr, "nego: refusing to remove model without --yes")
+		return 2
+	}
+
+	resolvedCache, err := cache.ResolveCacheDir(cacheDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	store := registry.NewStore(resolvedCache)
+	entry, err := store.Find(positionals[0], revision)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := removeManagedLocalFiles(entry); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if _, err := store.Remove(positionals[0], revision); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Removed %s", entry.RepoID)
+	if entry.Revision != "" {
+		fmt.Fprintf(stdout, "@%s", entry.Revision)
+	}
+	fmt.Fprintln(stdout)
+	return 0
 }
 
 func runModelsInfo(args []string, stdout, stderr io.Writer) int {
@@ -318,6 +373,41 @@ func modelsUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego models list [flags]")
 	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
+	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
+}
+
+func removeManagedLocalFiles(entry registry.Entry) error {
+	if entry.LocalDir == "" || len(entry.Files) == 0 {
+		return nil
+	}
+	localRoot, err := filepath.Abs(entry.LocalDir)
+	if err != nil {
+		return err
+	}
+	for _, file := range entry.Files {
+		path, err := cache.SafeJoin(localRoot, file.Path)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		cleanupEmptyParents(filepath.Dir(path), localRoot)
+	}
+	return nil
+}
+
+func cleanupEmptyParents(start, root string) {
+	current := start
+	for {
+		if current == root || current == "." || current == string(filepath.Separator) {
+			return
+		}
+		if err := os.Remove(current); err != nil {
+			return
+		}
+		current = filepath.Dir(current)
+	}
 }
 
 func writeModelInfo(w io.Writer, entry registry.Entry) {
