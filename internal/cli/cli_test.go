@@ -311,3 +311,50 @@ func TestModelsRemoveDeletesLocalFilesAndRegistryOnly(t *testing.T) {
 		t.Fatalf("expected registry to be empty, got %#v", entries)
 	}
 }
+
+func TestTokenizeCommand(t *testing.T) {
+	dir := t.TempDir()
+	writeCLITokenizer(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"tokenize", dir, "hello world!"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "1 2 3" {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestTokensCommand(t *testing.T) {
+	dir := t.TempDir()
+	writeCLITokenizer(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"tokens", dir, "hello world!"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "3" {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func writeCLITokenizer(t *testing.T, dir string) {
+	t.Helper()
+	body := `{
+		"model": {
+			"type": "WordLevel",
+			"unk_token": "[UNK]",
+			"vocab": {
+				"[UNK]": 0,
+				"hello": 1,
+				"Ġworld": 2,
+				"!": 3
+			}
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

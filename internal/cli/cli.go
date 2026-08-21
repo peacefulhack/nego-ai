@@ -17,6 +17,7 @@ import (
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/cache"
 	"github.com/gakon/nego-ai/internal/registry"
+	"github.com/gakon/nego-ai/tokenizer"
 )
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -29,6 +30,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runDownload(ctx, args[1:], stdout, stderr)
 	case "models":
 		return runModels(args[1:], stdout, stderr)
+	case "tokenize":
+		return runTokenize(args[1:], stdout, stderr)
+	case "tokens":
+		return runTokens(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -210,6 +215,64 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego models list [flags]")
 	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
 	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
+	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
+	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
+}
+
+func runTokenize(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("tokenize", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 2 {
+		fmt.Fprintln(stderr, "usage: nego tokenize <model-path> <text> [flags]")
+		return 2
+	}
+	tok, err := tokenizer.Load(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	ids, err := tok.Encode(strings.Join(positionals[1:], " "))
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(map[string]any{"tokens": ids, "count": len(ids)})
+		return 0
+	}
+	for i, id := range ids {
+		if i > 0 {
+			fmt.Fprint(stdout, " ")
+		}
+		fmt.Fprint(stdout, id)
+	}
+	fmt.Fprintln(stdout)
+	return 0
+}
+
+func runTokens(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 2 {
+		fmt.Fprintln(stderr, "usage: nego tokens <model-path> <text>")
+		return 2
+	}
+	tok, err := tokenizer.Load(args[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	count, err := tok.Count(strings.Join(args[1:], " "))
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, count)
+	return 0
 }
 
 func runModels(args []string, stdout, stderr io.Writer) int {
