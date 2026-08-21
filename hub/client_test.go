@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/gakon/nego-ai/internal/registry"
 )
 
 func TestDownloadFile(t *testing.T) {
@@ -51,6 +53,16 @@ func TestDownloadFile(t *testing.T) {
 	}
 	if string(data) != body {
 		t.Fatalf("unexpected file content: %q", data)
+	}
+	entries, err := registry.NewStore(cacheDir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected one registry entry, got %#v", entries)
+	}
+	if entries[0].RepoID != "Qwen/Qwen3-0.6B" || entries[0].Commit != "abc123" || entries[0].FileCount != 1 {
+		t.Fatalf("unexpected registry entry: %#v", entries[0])
 	}
 }
 
@@ -109,5 +121,15 @@ func TestDownloadSnapshotWithFilters(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(localDir, "flax_model.msgpack")); !os.IsNotExist(err) {
 		t.Fatalf("excluded file exists or stat failed differently: %v", err)
+	}
+	entries, err := registry.NewStore(cacheDir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected one registry entry, got %#v", entries)
+	}
+	if entries[0].FileCount != 2 || entries[0].TotalSize != 25 {
+		t.Fatalf("unexpected registry sizes: %#v", entries[0])
 	}
 }
