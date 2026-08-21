@@ -23,9 +23,19 @@ profile.cov
 # Go workspace file
 go.work
 go.work.sum
+.gocache/
 
 # env file
 .env
+
+# Downloaded model artifacts
+models/
+
+# Codex local files
+.codex/
+.agents/
+codex-*.log
+*.codex.patch
 
 # Editor/IDE
 # .idea/
