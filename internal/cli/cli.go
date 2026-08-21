@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/cache"
 	"github.com/gakon/nego-ai/internal/registry"
@@ -34,6 +35,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runTokenize(args[1:], stdout, stderr)
 	case "tokens":
 		return runTokens(args[1:], stdout, stderr)
+	case "prompt":
+		return runPrompt(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -171,7 +174,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt":
 		return true
 	default:
 		return false
@@ -217,6 +220,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
 	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
+	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
 }
 
 func runTokenize(args []string, stdout, stderr io.Writer) int {
@@ -272,6 +276,48 @@ func runTokens(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, count)
+	return 0
+}
+
+func runPrompt(args []string, stdout, stderr io.Writer) int {
+	var system string
+	var users repeatedFlag
+	var assistants repeatedFlag
+	var noGenerationPrompt bool
+
+	fs := flag.NewFlagSet("prompt", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&system, "system", "", "system message")
+	fs.Var(&users, "user", "user message, repeatable")
+	fs.Var(&assistants, "assistant", "assistant message, repeatable")
+	fs.BoolVar(&noGenerationPrompt, "no-generation-prompt", false, "do not append assistant generation prompt")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || (system == "" && len(users) == 0 && len(assistants) == 0) {
+		fmt.Fprintln(stderr, "usage: nego prompt <model-path> --user <text> [flags]")
+		return 2
+	}
+	var messages []chattemplate.Message
+	if system != "" {
+		messages = append(messages, chattemplate.Message{Role: chattemplate.RoleSystem, Content: system})
+	}
+	maxLen := max(len(users), len(assistants))
+	for i := 0; i < maxLen; i++ {
+		if i < len(users) {
+			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleUser, Content: users[i]})
+		}
+		if i < len(assistants) {
+			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleAssistant, Content: assistants[i]})
+		}
+	}
+	prompt, err := chattemplate.Render(positionals[0], messages, chattemplate.Options{AddGenerationPrompt: !noGenerationPrompt})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, prompt)
 	return 0
 }
 

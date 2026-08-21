@@ -39,3 +39,9 @@ info, err := modelinfo.Inspect("./models/qwen3")
 nego tokenize ./models/qwen3 "hello world"
 nego tokens ./models/qwen3 "hello world"
 ```
+
+## Prompt rendering
+
+```bash
+nego prompt ./models/qwen3 --system "You are helpful" --user "Hello"
+```

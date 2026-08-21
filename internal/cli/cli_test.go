@@ -340,6 +340,23 @@ func TestTokensCommand(t *testing.T) {
 	}
 }
 
+func TestPromptCommand(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "chat_template.jinja"), []byte("<|im_start|>{{ role }}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"prompt", dir, "--system", "You are helpful", "--user", "Hello"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "<|im_start|>system\nYou are helpful<|im_end|>") || !strings.Contains(out, "<|im_start|>assistant\n") {
+		t.Fatalf("unexpected prompt: %q", out)
+	}
+}
+
 func writeCLITokenizer(t *testing.T, dir string) {
 	t.Helper()
 	body := `{
