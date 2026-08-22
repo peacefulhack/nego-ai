@@ -85,3 +85,10 @@ resp, err := nego.Embed(ctx, model, nego.EmbeddingRequest{
 chunks := rag.ChunkText(document, rag.ChunkOptions{MaxRunes: 800, Overlap: 80})
 index := rag.NewIndex()
 ```
+
+## Dataset utilities
+
+```go
+rows, err := datasets.ReadJSONL(reader)
+train, test := datasets.Split(rows, 0.2, 42)
+```
