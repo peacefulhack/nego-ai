@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	nego "github.com/gakon/nego-ai"
+	"github.com/gakon/nego-ai/modelinfo"
 )
 
 const BackendName = "llama.cpp"
@@ -29,6 +30,10 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if opts.Path == "" {
 		return nil, fmt.Errorf("model path is required for %s backend", BackendName)
 	}
+	modelPath, err := modelinfo.ResolveRuntimeFile(opts.Path, "gguf")
+	if err != nil {
+		return nil, fmt.Errorf("resolve llama.cpp model: %w", err)
+	}
 	command := b.Command
 	if command == "" {
 		command = os.Getenv("NEGO_LLAMA_CLI")
@@ -39,7 +44,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if err := validateCommand(command); err != nil {
 		return nil, err
 	}
-	return &Model{command: command, modelPath: opts.Path, options: opts.Options}, nil
+	return &Model{command: command, modelPath: modelPath, options: opts.Options}, nil
 }
 
 type Model struct {

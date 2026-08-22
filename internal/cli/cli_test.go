@@ -413,8 +413,9 @@ func TestPromptCommand(t *testing.T) {
 
 func TestRunCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"run", "model.gguf", "hello"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"run", modelPath, "hello"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -425,10 +426,11 @@ func TestRunCommandUsesLlamaBackend(t *testing.T) {
 
 func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
 	var stdout, stderr bytes.Buffer
 	code := Run(context.Background(), []string{
 		"run",
-		"model.gguf",
+		modelPath,
 		"hello",
 		"--max-tokens",
 		"8",
@@ -459,8 +461,9 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 
 func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"chat", "model.gguf", "hello"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"chat", modelPath, "hello"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -489,8 +492,10 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 
 func TestRunCommandUsesConfigFile(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
 	configPath := filepath.Join(t.TempDir(), "nego.json")
-	if err := os.WriteFile(configPath, []byte(`{"path":"model.gguf","prompt":"hello","max_tokens":4}`), 0o644); err != nil {
+	body := `{"path":` + strconv.Quote(modelPath) + `,"prompt":"hello","max_tokens":4}`
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
@@ -505,8 +510,10 @@ func TestRunCommandUsesConfigFile(t *testing.T) {
 
 func TestChatCommandUsesConfigFile(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
 	configPath := filepath.Join(t.TempDir(), "nego.json")
-	if err := os.WriteFile(configPath, []byte(`{"path":"model.gguf","system":"Helpful","prompt":"hello"}`), 0o644); err != nil {
+	body := `{"path":` + strconv.Quote(modelPath) + `,"system":"Helpful","prompt":"hello"}`
+	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
@@ -642,6 +649,15 @@ func fakeCLILlamaCommand(t *testing.T) string {
 	}
 	path := filepath.Join(dir, "fake-llama.sh")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\necho fake llama output \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fakeCLIGGUF(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(path, []byte("gguf"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return path

@@ -13,7 +13,7 @@ import (
 
 func TestGenerateUsesLlamaCommand(t *testing.T) {
 	command := fakeLlamaCommand(t)
-	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{Path: "model.gguf"})
+	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestGenerateUsesLlamaCommand(t *testing.T) {
 
 func TestChatUsesGeneratedOutput(t *testing.T) {
 	command := fakeLlamaCommand(t)
-	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{Path: "model.gguf"})
+	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestChatUsesGeneratedOutput(t *testing.T) {
 func TestGeneratePassesRuntimeOptions(t *testing.T) {
 	command := fakeLlamaCommand(t)
 	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{
-		Path: "model.gguf",
+		Path: fakeGGUF(t),
 		Options: map[string]string{
 			"threads":    "4",
 			"ctx_size":   "2048",
@@ -74,7 +74,7 @@ func TestGeneratePassesRuntimeOptions(t *testing.T) {
 
 func TestStreamChatStreamsProcessOutput(t *testing.T) {
 	command := fakeLlamaCommand(t)
-	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{Path: "model.gguf"})
+	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,12 +98,32 @@ func TestStreamChatStreamsProcessOutput(t *testing.T) {
 }
 
 func TestLoadReportsMissingCommand(t *testing.T) {
-	_, err := Backend{Command: "definitely-missing-nego-llama-command"}.Load(context.Background(), nego.ModelOptions{Path: "model.gguf"})
+	_, err := Backend{Command: "definitely-missing-nego-llama-command"}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
 	if err == nil {
 		t.Fatal("expected missing command error")
 	}
 	if !strings.Contains(err.Error(), "set NEGO_LLAMA_CLI") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadResolvesGGUFInDirectory(t *testing.T) {
+	command := fakeLlamaCommand(t)
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.Text, modelPath) {
+		t.Fatalf("expected resolved model path %q in output: %q", modelPath, out.Text)
 	}
 }
 
@@ -119,6 +139,15 @@ func fakeLlamaCommand(t *testing.T) string {
 	}
 	path := filepath.Join(dir, "fake-llama.sh")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\necho fake llama output \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fakeGGUF(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(path, []byte("gguf"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return path
