@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	nego "github.com/gakon/nego-ai"
+	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/modelinfo"
 )
 
@@ -44,13 +45,14 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if err := validateCommand(command); err != nil {
 		return nil, err
 	}
-	return &Model{command: command, modelPath: modelPath, options: opts.Options}, nil
+	return &Model{command: command, modelPath: modelPath, promptPath: promptPath(opts.Path, modelPath, opts.Options), options: opts.Options}, nil
 }
 
 type Model struct {
-	command   string
-	modelPath string
-	options   map[string]string
+	command    string
+	modelPath  string
+	promptPath string
+	options    map[string]string
 }
 
 func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
@@ -69,8 +71,12 @@ func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.G
 }
 
 func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
+	prompt, err := m.renderChatPrompt(req.Messages)
+	if err != nil {
+		return nil, err
+	}
 	out, err := m.Generate(ctx, nego.GenerateRequest{
-		Prompt:      chatPrompt(req.Messages),
+		Prompt:      prompt,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
 		TopP:        req.TopP,
@@ -85,8 +91,13 @@ func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatRespo
 
 func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stream, error) {
 	ctx, cancel := context.WithCancel(ctx)
+	prompt, err := m.renderChatPrompt(req.Messages)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	genReq := nego.GenerateRequest{
-		Prompt:      chatPrompt(req.Messages),
+		Prompt:      prompt,
 		MaxTokens:   req.MaxTokens,
 		Temperature: req.Temperature,
 		TopP:        req.TopP,
@@ -118,6 +129,13 @@ func (m *Model) Close() error {
 	return nil
 }
 
+func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {
+	if m.promptPath == "" {
+		return chatPrompt(messages), nil
+	}
+	return chattemplate.Render(m.promptPath, messages, chattemplate.Options{AddGenerationPrompt: true})
+}
+
 func chatPrompt(messages []nego.Message) string {
 	var b strings.Builder
 	for _, message := range messages {
@@ -125,6 +143,21 @@ func chatPrompt(messages []nego.Message) string {
 	}
 	b.WriteString("ASSISTANT: ")
 	return b.String()
+}
+
+func promptPath(inputPath, modelPath string, options map[string]string) string {
+	if value := options["template_path"]; value != "" {
+		return value
+	}
+	if inputPath != "" {
+		if info, err := os.Stat(inputPath); err == nil && info.IsDir() {
+			return inputPath
+		}
+	}
+	if modelPath != "" {
+		return filepath.Dir(modelPath)
+	}
+	return ""
 }
 
 func (m *Model) args(prompt string, req nego.GenerateRequest) []string {

@@ -84,6 +84,8 @@ NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego serve ./models/model.gguf --addr :8080
 ```
 
+When a GGUF file lives beside `chat_template.jinja` or `tokenizer_config.json`, the llama.cpp backend uses that template for chat prompts.
+
 ## Embeddings
 
 ```bash

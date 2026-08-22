@@ -127,6 +127,29 @@ func TestLoadResolvesGGUFInDirectory(t *testing.T) {
 	}
 }
 
+func TestChatUsesSidecarTemplate(t *testing.T) {
+	command := fakeLlamaCommand(t)
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "chat_template.jinja"), []byte("[INST] {{ message }} [/INST]"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{Path: modelPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: []nego.Message{{Role: nego.RoleUser, Content: "hello"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resp.Message.Content, "[INST] hello [/INST]") {
+		t.Fatalf("expected Llama-style prompt in output: %q", resp.Message.Content)
+	}
+}
+
 func fakeLlamaCommand(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
