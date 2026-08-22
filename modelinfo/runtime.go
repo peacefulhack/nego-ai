@@ -43,12 +43,12 @@ func FindRuntimeFile(path string, kinds ...string) (*RuntimeFile, error) {
 		return &RuntimeFile{Path: absPath, Kind: kind, Size: stat.Size()}, nil
 	}
 
-	info, err := Inspect(absPath)
+	files, err := inspectFiles(absPath)
 	if err != nil {
 		return nil, err
 	}
-	candidates := make([]RuntimeFile, 0, len(info.Files))
-	for _, file := range info.Files {
+	candidates := make([]RuntimeFile, 0, len(files))
+	for _, file := range files {
 		if allowed[file.Kind] {
 			candidates = append(candidates, RuntimeFile{
 				Path: filepath.Join(absPath, filepath.FromSlash(file.Path)),

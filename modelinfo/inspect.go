@@ -14,6 +14,7 @@ type Info struct {
 	Architectures    []string       `json:"architectures,omitempty"`
 	Config           map[string]any `json:"config,omitempty"`
 	GenerationConfig map[string]any `json:"generation_config,omitempty"`
+	GGUF             *GGUFInfo      `json:"gguf,omitempty"`
 	Files            []File         `json:"files,omitempty"`
 }
 
@@ -29,6 +30,26 @@ func Inspect(path string) (*Info, error) {
 		return nil, err
 	}
 	info := &Info{Path: root}
+	stat, err := os.Stat(root)
+	if err != nil {
+		return nil, err
+	}
+	if !stat.IsDir() {
+		kind := fileKind(root)
+		if kind != "" {
+			info.Files = []File{{Path: filepath.Base(root), Size: stat.Size(), Kind: kind}}
+		}
+		if kind == "gguf" {
+			gguf, err := InspectGGUF(root)
+			if err != nil {
+				return nil, err
+			}
+			info.GGUF = gguf
+			applyGGUFModelFields(info, gguf)
+		}
+		return info, nil
+	}
+
 	config, err := readJSON(filepath.Join(root, "config.json"))
 	if err != nil {
 		return nil, err
@@ -48,6 +69,14 @@ func Inspect(path string) (*Info, error) {
 		return nil, err
 	}
 	info.Files = files
+	if path := firstFileKind(root, files, "gguf"); path != "" {
+		gguf, err := InspectGGUF(path)
+		if err != nil {
+			return nil, err
+		}
+		info.GGUF = gguf
+		applyGGUFModelFields(info, gguf)
+	}
 	return info, nil
 }
 
@@ -139,4 +168,22 @@ func stringSlice(value any) []string {
 		}
 	}
 	return out
+}
+
+func firstFileKind(root string, files []File, kind string) string {
+	for _, file := range files {
+		if file.Kind == kind {
+			return filepath.Join(root, filepath.FromSlash(file.Path))
+		}
+	}
+	return ""
+}
+
+func applyGGUFModelFields(info *Info, gguf *GGUFInfo) {
+	if info.ModelType == "" {
+		info.ModelType = gguf.Architecture
+	}
+	if len(info.Architectures) == 0 && gguf.Architecture != "" {
+		info.Architectures = []string{gguf.Architecture}
+	}
 }

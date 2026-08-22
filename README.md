@@ -44,6 +44,11 @@ path, err := hub.DownloadSnapshot(ctx, hub.DownloadSnapshotOptions{
 info, err := modelinfo.Inspect("./models/qwen3")
 ```
 
+```bash
+nego inspect ./models/model.gguf
+nego inspect ./models/model.gguf --json
+```
+
 ## Tokenizer
 
 ```bash

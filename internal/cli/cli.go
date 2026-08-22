@@ -26,6 +26,7 @@ import (
 	"github.com/gakon/nego-ai/internal/cache"
 	"github.com/gakon/nego-ai/internal/registry"
 	"github.com/gakon/nego-ai/internal/version"
+	"github.com/gakon/nego-ai/modelinfo"
 	"github.com/gakon/nego-ai/server"
 	"github.com/gakon/nego-ai/tokenizer"
 	"github.com/gakon/nego-ai/training"
@@ -49,6 +50,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runTokens(args[1:], stdout, stderr)
 	case "prompt":
 		return runPrompt(args[1:], stdout, stderr)
+	case "inspect":
+		return runInspect(args[1:], stdout, stderr)
 	case "run":
 		return runModel(args[1:], stdout, stderr)
 	case "chat":
@@ -251,6 +254,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
 	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
+	fmt.Fprintln(w, "  nego inspect <model-path> [flags]")
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
 	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
@@ -541,6 +545,83 @@ func runPrompt(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprint(stdout, prompt)
 	return 0
+}
+
+func runInspect(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("inspect", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego inspect <model-path> [flags]")
+		return 2
+	}
+	info, err := modelinfo.Inspect(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(info)
+		return 0
+	}
+	writeInspectInfo(stdout, info)
+	return 0
+}
+
+func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
+	fmt.Fprintf(w, "Path:        %s\n", info.Path)
+	if info.ModelType != "" {
+		fmt.Fprintf(w, "Model type:  %s\n", info.ModelType)
+	}
+	if len(info.Architectures) > 0 {
+		fmt.Fprintf(w, "Architecture:%s\n", " "+strings.Join(info.Architectures, ", "))
+	}
+	if info.GGUF != nil {
+		fmt.Fprintln(w, "GGUF:")
+		fmt.Fprintf(w, "  Version:       %d\n", info.GGUF.Version)
+		fmt.Fprintf(w, "  Tensors:       %d\n", info.GGUF.TensorCount)
+		fmt.Fprintf(w, "  Metadata:      %d\n", info.GGUF.MetadataCount)
+		if info.GGUF.Quantization != "" {
+			fmt.Fprintf(w, "  Quantization:  %s\n", info.GGUF.Quantization)
+		}
+		if info.GGUF.ContextLength > 0 {
+			fmt.Fprintf(w, "  Context:       %d\n", info.GGUF.ContextLength)
+		}
+		if info.GGUF.EmbeddingLength > 0 {
+			fmt.Fprintf(w, "  Embedding:     %d\n", info.GGUF.EmbeddingLength)
+		}
+		if info.GGUF.BlockCount > 0 {
+			fmt.Fprintf(w, "  Blocks:        %d\n", info.GGUF.BlockCount)
+		}
+		if info.GGUF.VocabSize > 0 {
+			fmt.Fprintf(w, "  Vocab:         %d\n", info.GGUF.VocabSize)
+		}
+		if info.GGUF.ChatTemplate != "" {
+			fmt.Fprintln(w, "  Chat template: yes")
+		}
+	}
+	if len(info.Files) > 0 {
+		var total int64
+		for _, file := range info.Files {
+			total += file.Size
+		}
+		fmt.Fprintf(w, "Files:       %d (%s)\n", len(info.Files), humanBytes(total))
+		for _, file := range info.Files {
+			fmt.Fprintf(w, "  - %s", file.Path)
+			if file.Kind != "" {
+				fmt.Fprintf(w, " [%s]", file.Kind)
+			}
+			if file.Size > 0 {
+				fmt.Fprintf(w, " %s", humanBytes(file.Size))
+			}
+			fmt.Fprintln(w)
+		}
+	}
 }
 
 func runModel(args []string, stdout, stderr io.Writer) int {

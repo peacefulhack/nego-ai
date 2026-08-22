@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -411,6 +412,42 @@ func TestPromptCommand(t *testing.T) {
 	}
 }
 
+func TestInspectCommandShowsGGUFMetadata(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"inspect", modelPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Model type:  llama", "Quantization:  mostly_q4_k_m", "Context:       4096", "Chat template: yes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestInspectCommandJSON(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"inspect", modelPath, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var body struct {
+		GGUF struct {
+			Architecture  string `json:"architecture"`
+			ContextLength uint64 `json:"context_length"`
+		} `json:"gguf"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.GGUF.Architecture != "llama" || body.GGUF.ContextLength != 4096 {
+		t.Fatalf("unexpected json: %s", stdout.String())
+	}
+}
+
 func TestRunCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
@@ -661,6 +698,70 @@ func fakeCLIGGUF(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func fakeInspectGGUF(t *testing.T) string {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteString("GGUF")
+	for _, value := range []any{uint32(3), uint64(2), uint64(5)} {
+		if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeInspectGGUFStringKV(t, &buf, "general.architecture", "llama")
+	writeInspectGGUFUint32KV(t, &buf, "general.file_type", 15)
+	writeInspectGGUFUint32KV(t, &buf, "llama.context_length", 4096)
+	writeInspectGGUFStringKV(t, &buf, "tokenizer.chat_template", "[INST] {{ message }} [/INST]")
+	writeInspectGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
+	path := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeInspectGGUFStringKV(t *testing.T, buf *bytes.Buffer, key, value string) {
+	t.Helper()
+	writeInspectGGUFString(t, buf, key)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(8)); err != nil {
+		t.Fatal(err)
+	}
+	writeInspectGGUFString(t, buf, value)
+}
+
+func writeInspectGGUFUint32KV(t *testing.T, buf *bytes.Buffer, key string, value uint32) {
+	t.Helper()
+	writeInspectGGUFString(t, buf, key)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(4)); err != nil {
+		t.Fatal(err)
+	}
+	if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeInspectGGUFStringArrayKV(t *testing.T, buf *bytes.Buffer, key string, values []string) {
+	t.Helper()
+	writeInspectGGUFString(t, buf, key)
+	for _, value := range []any{uint32(9), uint32(8), uint64(len(values))} {
+		if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, value := range values {
+		writeInspectGGUFString(t, buf, value)
+	}
+}
+
+func writeInspectGGUFString(t *testing.T, buf *bytes.Buffer, value string) {
+	t.Helper()
+	if err := binary.Write(buf, binary.LittleEndian, uint64(len(value))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buf.WriteString(value); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func fakeConverterCommand(t *testing.T) string {
