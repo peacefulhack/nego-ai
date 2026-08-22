@@ -156,6 +156,9 @@ nego train job.json
 
 ```bash
 nego eval suite.json
+nego eval suite.json --json > results.json
+nego eval report results.json
+nego eval compare baseline.json candidate.json
 ```
 
 ## Config workflow

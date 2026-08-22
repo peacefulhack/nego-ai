@@ -280,6 +280,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
 	fmt.Fprintln(w, "  nego embed <text> --endpoint <url> --model <name> [flags]")
 	fmt.Fprintln(w, "  nego eval <suite.json> [flags]")
+	fmt.Fprintln(w, "  nego eval report <report.json> [flags]")
+	fmt.Fprintln(w, "  nego eval compare <baseline.json> <candidate.json> [flags]")
 	fmt.Fprintln(w, "  nego version [flags]")
 	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
@@ -409,7 +411,20 @@ type evalConfig struct {
 	Cases    []evals.Case `json:"cases"`
 }
 
+const maxEvalReportBytes = 64 << 20
+
 func runEval(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "report":
+			return runEvalReport(args[1:], stdout, stderr)
+		case "compare":
+			return runEvalCompare(args[1:], stdout, stderr)
+		case "help", "-h", "--help":
+			evalUsage(stdout)
+			return 0
+		}
+	}
 	var jsonOutput bool
 	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -467,6 +482,128 @@ func runEval(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func runEvalReport(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("eval report", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego eval report <report.json> [flags]")
+		return 2
+	}
+	report, err := readEvalReport(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	summary := evals.Summarize(report)
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(summary)
+		return 0
+	}
+	writeEvalSummary(stdout, summary)
+	return 0
+}
+
+func runEvalCompare(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("eval compare", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 2 {
+		fmt.Fprintln(stderr, "usage: nego eval compare <baseline.json> <candidate.json> [flags]")
+		return 2
+	}
+	baseline, err := readEvalReport(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	candidate, err := readEvalReport(positionals[1])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	comparison := evals.Compare(baseline, candidate)
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(comparison)
+		return 0
+	}
+	fmt.Fprintln(stdout, "Baseline:")
+	writeEvalSummary(stdout, comparison.Baseline)
+	fmt.Fprintln(stdout, "Candidate:")
+	writeEvalSummary(stdout, comparison.Candidate)
+	if len(comparison.Improvements) > 0 {
+		fmt.Fprintln(stdout, "Improvements:")
+		for _, delta := range comparison.Improvements {
+			fmt.Fprintf(stdout, "  PASS %s\n", delta.Name)
+		}
+	}
+	if len(comparison.Regressions) > 0 {
+		fmt.Fprintln(stdout, "Regressions:")
+		for _, delta := range comparison.Regressions {
+			fmt.Fprintf(stdout, "  FAIL %s", delta.Name)
+			if delta.CandidateError != "" {
+				fmt.Fprintf(stdout, " - %s", delta.CandidateError)
+			}
+			fmt.Fprintln(stdout)
+		}
+	}
+	if len(comparison.Regressions) > 0 {
+		return 1
+	}
+	return 0
+}
+
+func readEvalReport(path string) (evals.Report, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return evals.Report{}, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxEvalReportBytes+1))
+	if err != nil {
+		return evals.Report{}, err
+	}
+	if len(data) > maxEvalReportBytes {
+		return evals.Report{}, fmt.Errorf("eval report exceeds %s", humanBytes(maxEvalReportBytes))
+	}
+	var report evals.Report
+	if err := json.Unmarshal(data, &report); err != nil {
+		return evals.Report{}, err
+	}
+	return report, nil
+}
+
+func writeEvalSummary(w io.Writer, summary evals.Summary) {
+	fmt.Fprintf(w, "Passed:   %d\n", summary.Passed)
+	fmt.Fprintf(w, "Failed:   %d\n", summary.Failed)
+	fmt.Fprintf(w, "Total:    %d\n", summary.Total)
+	fmt.Fprintf(w, "PassRate: %.2f%%\n", summary.PassRate*100)
+	fmt.Fprintf(w, "Duration: %s\n", summary.Duration)
+	if len(summary.FailedCases) > 0 {
+		fmt.Fprintln(w, "Failed cases:")
+		for _, name := range summary.FailedCases {
+			fmt.Fprintf(w, "  - %s\n", name)
+		}
+	}
+}
+
+func evalUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego eval <suite.json> [flags]")
+	fmt.Fprintln(w, "  nego eval report <report.json> [flags]")
+	fmt.Fprintln(w, "  nego eval compare <baseline.json> <candidate.json> [flags]")
 }
 
 func runTokenize(args []string, stdout, stderr io.Writer) int {

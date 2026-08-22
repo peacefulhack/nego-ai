@@ -32,12 +32,83 @@ type Report struct {
 	Results []CaseResult `json:"results"`
 }
 
+type Summary struct {
+	Passed      int           `json:"passed"`
+	Failed      int           `json:"failed"`
+	Total       int           `json:"total"`
+	Duration    time.Duration `json:"duration"`
+	PassRate    float64       `json:"pass_rate"`
+	FailedCases []string      `json:"failed_cases,omitempty"`
+}
+
+type Comparison struct {
+	Baseline     Summary     `json:"baseline"`
+	Candidate    Summary     `json:"candidate"`
+	Regressions  []CaseDelta `json:"regressions,omitempty"`
+	Improvements []CaseDelta `json:"improvements,omitempty"`
+	Changed      []CaseDelta `json:"changed,omitempty"`
+}
+
+type CaseDelta struct {
+	Name            string `json:"name"`
+	BaselinePassed  bool   `json:"baseline_passed"`
+	CandidatePassed bool   `json:"candidate_passed"`
+	BaselineError   string `json:"baseline_error,omitempty"`
+	CandidateError  string `json:"candidate_error,omitempty"`
+}
+
 type CaseResult struct {
 	Name     string        `json:"name"`
 	Passed   bool          `json:"passed"`
 	Output   string        `json:"output"`
 	Error    string        `json:"error,omitempty"`
 	Duration time.Duration `json:"duration"`
+}
+
+func Summarize(report Report) Summary {
+	summary := Summary{Passed: report.Passed, Failed: report.Failed, Total: len(report.Results)}
+	for _, result := range report.Results {
+		summary.Duration += result.Duration
+		if !result.Passed {
+			summary.FailedCases = append(summary.FailedCases, result.Name)
+		}
+	}
+	if summary.Total > 0 {
+		summary.PassRate = float64(summary.Passed) / float64(summary.Total)
+	}
+	return summary
+}
+
+func Compare(baseline, candidate Report) Comparison {
+	comparison := Comparison{
+		Baseline:  Summarize(baseline),
+		Candidate: Summarize(candidate),
+	}
+	baselineByName := make(map[string]CaseResult, len(baseline.Results))
+	for _, result := range baseline.Results {
+		baselineByName[result.Name] = result
+	}
+	for _, candidateResult := range candidate.Results {
+		baselineResult, ok := baselineByName[candidateResult.Name]
+		if !ok || baselineResult.Passed == candidateResult.Passed {
+			continue
+		}
+		delta := CaseDelta{
+			Name:            candidateResult.Name,
+			BaselinePassed:  baselineResult.Passed,
+			CandidatePassed: candidateResult.Passed,
+			BaselineError:   baselineResult.Error,
+			CandidateError:  candidateResult.Error,
+		}
+		comparison.Changed = append(comparison.Changed, delta)
+		if baselineResult.Passed && !candidateResult.Passed {
+			comparison.Regressions = append(comparison.Regressions, delta)
+		}
+		if !baselineResult.Passed && candidateResult.Passed {
+			comparison.Improvements = append(comparison.Improvements, delta)
+		}
+	}
+	return comparison
 }
 
 func Run(ctx context.Context, model nego.Model, suite Suite) Report {

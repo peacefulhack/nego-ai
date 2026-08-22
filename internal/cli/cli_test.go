@@ -775,6 +775,39 @@ func TestEvalCommand(t *testing.T) {
 	}
 }
 
+func TestEvalReportAndCompareCommands(t *testing.T) {
+	dir := t.TempDir()
+	baselinePath := filepath.Join(dir, "baseline.json")
+	candidatePath := filepath.Join(dir, "candidate.json")
+	baseline := `{"passed":1,"failed":1,"results":[{"name":"fixed","passed":false,"error":"bad"},{"name":"regressed","passed":true}]}`
+	candidate := `{"passed":1,"failed":1,"results":[{"name":"fixed","passed":true},{"name":"regressed","passed":false,"error":"worse"}]}`
+	if err := os.WriteFile(baselinePath, []byte(baseline), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidatePath, []byte(candidate), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"eval", "report", candidatePath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("report code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "PassRate: 50.00%") || !strings.Contains(stdout.String(), "regressed") {
+		t.Fatalf("unexpected report output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"eval", "compare", baselinePath, candidatePath}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("compare code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Improvements:") || !strings.Contains(stdout.String(), "Regressions:") {
+		t.Fatalf("unexpected compare output: %q", stdout.String())
+	}
+}
+
 func TestVersionCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run(context.Background(), []string{"version"}, &stdout, &stderr)
