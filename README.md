@@ -81,6 +81,11 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 import _ "github.com/gakon/nego-ai/backends/openai"
 ```
 
+```bash
+nego backends list
+nego backends info llama.cpp
+```
+
 ## Local llama.cpp runtime
 
 ```bash

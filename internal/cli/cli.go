@@ -54,6 +54,8 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runModels(args[1:], stdout, stderr)
 	case "runs":
 		return runRuns(args[1:], stdout, stderr)
+	case "backends":
+		return runBackends(args[1:], stdout, stderr)
 	case "dataset":
 		return runDataset(args[1:], stdout, stderr)
 	case "cache":
@@ -269,6 +271,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
 	fmt.Fprintln(w, "  nego runs list <runs.jsonl> [flags]")
 	fmt.Fprintln(w, "  nego runs show <runs.jsonl> <id> [flags]")
+	fmt.Fprintln(w, "  nego backends list [flags]")
+	fmt.Fprintln(w, "  nego backends info <name> [flags]")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
@@ -1481,6 +1485,108 @@ func runRuns(args []string, stdout, stderr io.Writer) int {
 		runsUsage(stderr)
 		return 2
 	}
+}
+
+func runBackends(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		backendsUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		return runBackendsList(args[1:], stdout, stderr)
+	case "info":
+		return runBackendsInfo(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		backendsUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown backends command %q\n", args[0])
+		backendsUsage(stderr)
+		return 2
+	}
+}
+
+func runBackendsList(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("backends list", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 0 {
+		fmt.Fprintln(stderr, "usage: nego backends list [flags]")
+		return 2
+	}
+	infos := nego.ListBackends()
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(infos)
+		return 0
+	}
+	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tCAPABILITIES\tREQUIRED")
+	for _, info := range infos {
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", info.Name, strings.Join(info.Capabilities, ", "), strings.Join(info.Required, ", "))
+	}
+	_ = tw.Flush()
+	return 0
+}
+
+func runBackendsInfo(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("backends info", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego backends info <name> [flags]")
+		return 2
+	}
+	info, ok := nego.BackendInfoByName(positionals[0])
+	if !ok {
+		fmt.Fprintf(stderr, "nego: backend %q is not registered\n", positionals[0])
+		return 4
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(info)
+		return 0
+	}
+	writeBackendInfo(stdout, info)
+	return 0
+}
+
+func writeBackendInfo(w io.Writer, info nego.BackendInfo) {
+	fmt.Fprintf(w, "Name:        %s\n", info.Name)
+	if info.Description != "" {
+		fmt.Fprintf(w, "Description: %s\n", info.Description)
+	}
+	if len(info.Capabilities) > 0 {
+		fmt.Fprintf(w, "Capabilities:%s\n", " "+strings.Join(info.Capabilities, ", "))
+	}
+	if len(info.Required) > 0 {
+		fmt.Fprintf(w, "Required:    %s\n", strings.Join(info.Required, ", "))
+	}
+	if len(info.Options) > 0 {
+		fmt.Fprintln(w, "Options:")
+		for _, option := range info.Options {
+			if option.Description == "" {
+				fmt.Fprintf(w, "  - %s\n", option.Name)
+				continue
+			}
+			fmt.Fprintf(w, "  - %s: %s\n", option.Name, option.Description)
+		}
+	}
+}
+
+func backendsUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego backends list [flags]")
+	fmt.Fprintln(w, "  nego backends info <name> [flags]")
 }
 
 func runDataset(args []string, stdout, stderr io.Writer) int {

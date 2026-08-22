@@ -27,6 +27,21 @@ type Backend struct {
 	Command string
 }
 
+func (b Backend) Info() nego.BackendInfo {
+	return nego.BackendInfo{
+		Name:         BackendName,
+		Description:  "Local llama.cpp runner for GGUF models using llama-cli.",
+		Capabilities: []string{"generate", "chat", "stream_chat"},
+		Required:     []string{"path", "llama-cli or NEGO_LLAMA_CLI"},
+		Options: []nego.BackendOption{
+			{Name: "threads", Description: "CPU thread count passed as -t"},
+			{Name: "ctx_size", Description: "context size passed as -c"},
+			{Name: "gpu_layers", Description: "GPU layer count passed as -ngl"},
+			{Name: "template_path", Description: "directory or file path for chat template sidecars"},
+		},
+	}
+}
+
 func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, error) {
 	if opts.Path == "" {
 		return nil, fmt.Errorf("model path is required for %s backend", BackendName)

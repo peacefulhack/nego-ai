@@ -681,6 +681,45 @@ func TestRunsListAndShow(t *testing.T) {
 	}
 }
 
+func TestBackendsCommands(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"backends", "list"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("list code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "llama.cpp") || !strings.Contains(out, "openai-compatible") {
+		t.Fatalf("unexpected list output: %q", out)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"backends", "info", "llama.cpp"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("info code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "GGUF") || !strings.Contains(stdout.String(), "ctx_size") {
+		t.Fatalf("unexpected info output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"backends", "info", "openai-compatible", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json info code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var info struct {
+		Name         string   `json:"name"`
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if info.Name != "openai-compatible" || len(info.Capabilities) == 0 {
+		t.Fatalf("unexpected backend info: %s", stdout.String())
+	}
+}
+
 func TestDatasetCommands(t *testing.T) {
 	dir := t.TempDir()
 	dataPath := filepath.Join(dir, "data.jsonl")
