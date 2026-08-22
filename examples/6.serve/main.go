@@ -13,7 +13,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("usage: serve <model-path>")
+		log.Fatal("usage: go run ./examples/6.serve <model-path>")
 	}
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
 		Backend: "llama.cpp",

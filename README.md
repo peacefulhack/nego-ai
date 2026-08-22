@@ -15,10 +15,14 @@ Runnable Go examples live in `examples/`.
 
 For an end-to-end numbered workflow, read [docs/workflow.md](docs/workflow.md). It walks through download, inspect, dataset preparation, context checks, chat, eval, training job JSON, conversion, serving, and planned sharing steps.
 
-The matching runnable example lives in [examples/workflow](examples/workflow):
+Numbered runnable examples live in [examples](examples):
 
 ```bash
-go run ./examples/workflow
+go run ./examples/1.download
+go run ./examples/3.prepare-dataset
+go run ./examples/4.eval
+go run ./examples/5.train
+go run ./examples/8.share-trained-model
 ```
 
 ## Download models

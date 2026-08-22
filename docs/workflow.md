@@ -19,7 +19,7 @@ Some late workflow steps are marked as planned because Nego does not implement d
 11. Serve locally.
 12. Package or share the model.
 
-Runnable example code and supporting files live in `examples/workflow/`.
+Runnable example code and supporting files live in numbered folders under `examples/`.
 
 ## 1. Download a Base Model
 
@@ -89,13 +89,13 @@ prompt,completion,split
 Inspect the dataset:
 
 ```bash
-nego dataset inspect examples/workflow/completion-data.csv
+nego dataset inspect examples/3.prepare-dataset/completion-data.csv
 ```
 
 Convert CSV to JSONL while keeping only the fields needed for completion training:
 
 ```bash
-nego dataset convert examples/workflow/completion-data.csv \
+nego dataset convert examples/3.prepare-dataset/completion-data.csv \
   --out data/completion.jsonl \
   --select prompt,completion \
   --require prompt,completion
@@ -117,7 +117,7 @@ nego dataset validate data/completion.jsonl --format completion
 Filter rows for a subset:
 
 ```bash
-nego dataset filter examples/workflow/completion-data.csv \
+nego dataset filter examples/3.prepare-dataset/completion-data.csv \
   --where split=train \
   --select prompt,completion \
   --out data/train-only.jsonl
@@ -289,7 +289,7 @@ Create an eval suite:
 Run the suite and save a baseline report:
 
 ```bash
-nego eval examples/workflow/eval-suite.json --json > reports/baseline.json
+nego eval examples/4.eval/eval-suite.json --json > reports/baseline.json
 ```
 
 Read the report:
@@ -329,7 +329,7 @@ Minimal `job.json` shape:
 Run it:
 
 ```bash
-nego train examples/workflow/train-job.json
+nego train examples/5.train/train-job.json
 ```
 
 The command prints stdout/stderr from the training process and exits non-zero if the process fails.
@@ -346,7 +346,7 @@ nego check ./outputs/qwen3-sft
 Run the same eval suite against the trained model and compare with the baseline. Update the suite `path` to point at the trained model first, for example `./outputs/qwen3-sft.gguf`.
 
 ```bash
-nego eval examples/workflow/eval-suite.json --json > reports/trained.json
+nego eval examples/4.eval/eval-suite.json --json > reports/trained.json
 nego eval compare reports/baseline.json reports/trained.json
 ```
 
@@ -424,14 +424,15 @@ nego hub upload ./outputs/qwen3-sft --repo username/qwen3-sft
 
 ## Current Support Summary
 
-1. Download: implemented.
-2. Inspect/check: implemented.
-3. Dataset inspect/convert/filter/validate/split/sample: implemented.
-4. Tokenize/tokens/context: implemented.
-5. Prompt rendering: implemented.
-6. Run/chat/interactive session: implemented.
-7. Eval report/compare: implemented.
-8. Train external job runner: implemented.
-9. Convert GGUF through external converter: implemented.
-10. Serve local model: implemented.
-11. Package/share/upload: planned.
+1. Download a base model: implemented.
+2. Inspect the downloaded model: implemented.
+3. Prepare a dataset: implemented.
+4. Check tokenizer and context budget: implemented.
+5. Render a chat prompt: implemented.
+6. Chat or run the model: implemented.
+7. Run a baseline eval: implemented.
+8. Train or fine-tune with a job JSON file: implemented as an external job runner.
+9. Inspect and evaluate the trained output: implemented.
+10. Convert or optimize the model: implemented through an external GGUF converter.
+11. Serve locally: implemented.
+12. Package or share the model: planned.
