@@ -21,3 +21,11 @@ go run ./examples/8.share-trained-model
 ```
 
 Examples that call real model backends need local model files or backend environment variables.
+
+For local GGUF models, GPU acceleration is controlled by runtime flags such as:
+
+```bash
+nego run ./models/model.gguf "Hello" --gpu full --flash-attn
+nego chat ./models/model.gguf "Hello" --gpu off
+nego serve ./models/model.gguf --gpu full --main-gpu 0 --tensor-split 3,1
+```

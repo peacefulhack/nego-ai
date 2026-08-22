@@ -36,7 +36,12 @@ func (b Backend) Info() nego.BackendInfo {
 		Options: []nego.BackendOption{
 			{Name: "threads", Description: "CPU thread count passed as -t"},
 			{Name: "ctx_size", Description: "context size passed as -c"},
+			{Name: "gpu", Description: "GPU mode: off, auto, or full"},
 			{Name: "gpu_layers", Description: "GPU layer count passed as -ngl"},
+			{Name: "main_gpu", Description: "main GPU index passed as --main-gpu"},
+			{Name: "tensor_split", Description: "comma-separated GPU tensor split passed as --tensor-split"},
+			{Name: "split_mode", Description: "multi-GPU split mode passed as --split-mode"},
+			{Name: "flash_attn", Description: "enable llama.cpp flash attention with -fa"},
 			{Name: "template_path", Description: "directory or file path for chat template sidecars"},
 		},
 	}
@@ -200,10 +205,45 @@ func (m *Model) args(prompt string, req nego.GenerateRequest) []string {
 	if value := m.options["ctx_size"]; value != "" {
 		args = append(args, "-c", value)
 	}
-	if value := m.options["gpu_layers"]; value != "" {
+	if value := gpuLayers(m.options); value != "" {
 		args = append(args, "-ngl", value)
 	}
+	if value := m.options["main_gpu"]; value != "" {
+		args = append(args, "--main-gpu", value)
+	}
+	if value := m.options["tensor_split"]; value != "" {
+		args = append(args, "--tensor-split", value)
+	}
+	if value := m.options["split_mode"]; value != "" {
+		args = append(args, "--split-mode", value)
+	}
+	if boolOption(m.options["flash_attn"]) {
+		args = append(args, "-fa")
+	}
 	return args
+}
+
+func gpuLayers(options map[string]string) string {
+	if value := options["gpu_layers"]; value != "" {
+		return value
+	}
+	switch strings.ToLower(strings.TrimSpace(options["gpu"])) {
+	case "off", "none", "false", "0":
+		return "0"
+	case "auto", "full", "all", "true", "1":
+		return "999"
+	default:
+		return ""
+	}
+}
+
+func boolOption(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "t", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 type stream struct {

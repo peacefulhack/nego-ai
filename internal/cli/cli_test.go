@@ -585,14 +585,36 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 		"2048",
 		"--gpu-layers",
 		"20",
+		"--gpu",
+		"full",
+		"--main-gpu",
+		"1",
+		"--tensor-split",
+		"3,1",
+		"--split-mode",
+		"layer",
+		"--flash-attn",
 	}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20"} {
+	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected %q in output: %q", want, stdout.String())
 		}
+	}
+}
+
+func TestRunCommandRejectsInvalidGPUMode(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--gpu", "fastest"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "gpu must be one of") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
 
@@ -882,16 +904,48 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		"threads":    "2",
 		"ctx_size":   "1024",
 		"gpu_layers": "8",
+		"gpu":        "off",
 		"custom":     "value",
-	}, 4, 2048, 0)
+	}, runtimeFlagOptions{
+		threads:        4,
+		ctxSize:        2048,
+		gpuMode:        "full",
+		mainGPU:        1,
+		tensorSplit:    "3,1",
+		splitMode:      "layer",
+		flashAttention: true,
+	})
 	want := map[string]string{
-		"threads":    "4",
-		"ctx_size":   "2048",
-		"gpu_layers": "8",
-		"custom":     "value",
+		"threads":      "4",
+		"ctx_size":     "2048",
+		"gpu_layers":   "8",
+		"gpu":          "full",
+		"main_gpu":     "1",
+		"tensor_split": "3,1",
+		"split_mode":   "layer",
+		"flash_attn":   "true",
+		"custom":       "value",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("runtimeOptions = %#v, want %#v", got, want)
+	}
+}
+
+func TestValidateRuntimeOptions(t *testing.T) {
+	if err := validateRuntimeOptions(map[string]string{"gpu": "full", "split_mode": "row", "gpu_layers": "32"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRuntimeOptions(map[string]string{"gpu": "fastest"}); err == nil {
+		t.Fatal("expected invalid gpu mode error")
+	}
+	if err := validateRuntimeOptions(map[string]string{"gpu_layers": "many"}); err == nil {
+		t.Fatal("expected invalid gpu_layers error")
+	}
+	if err := validateRuntimeOptions(map[string]string{"main_gpu": "-1"}); err == nil {
+		t.Fatal("expected invalid main_gpu error")
+	}
+	if err := validateRuntimeOptions(map[string]string{"flash_attn": "maybe"}); err == nil {
+		t.Fatal("expected invalid flash_attn error")
 	}
 }
 

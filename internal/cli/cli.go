@@ -225,7 +225,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn":
 		return true
 	default:
 		return false
@@ -1003,6 +1003,11 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var threads int
 	var ctxSize int
 	var gpuLayers int
+	var gpuMode string
+	var mainGPU int
+	var tensorSplit string
+	var splitMode string
+	var flashAttention bool
 	var configFile string
 	var logPath string
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -1016,6 +1021,11 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&threads, "threads", 0, "llama.cpp CPU threads")
 	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
 	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
+	fs.StringVar(&gpuMode, "gpu", "", "llama.cpp GPU mode: off, auto, or full")
+	fs.IntVar(&mainGPU, "main-gpu", -1, "llama.cpp main GPU index")
+	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
+	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
+	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
 	fs.StringVar(&configFile, "f", "", "run config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
 	parseArgs, positionals := splitFlags(args)
@@ -1060,7 +1070,20 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
 		return 2
 	}
-	options := runtimeOptions(cfg.Options, threads, ctxSize, gpuLayers)
+	options := runtimeOptions(cfg.Options, runtimeFlagOptions{
+		threads:        threads,
+		ctxSize:        ctxSize,
+		gpuLayers:      gpuLayers,
+		gpuMode:        gpuMode,
+		mainGPU:        mainGPU,
+		tensorSplit:    tensorSplit,
+		splitMode:      splitMode,
+		flashAttention: flashAttention,
+	})
+	if err := validateRuntimeOptions(options); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	started := time.Now().UTC()
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
@@ -1098,6 +1121,11 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var threads int
 	var ctxSize int
 	var gpuLayers int
+	var gpuMode string
+	var mainGPU int
+	var tensorSplit string
+	var splitMode string
+	var flashAttention bool
 	var configFile string
 	var logPath string
 	var sessionPath string
@@ -1115,6 +1143,11 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.IntVar(&threads, "threads", 0, "llama.cpp CPU threads")
 	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
 	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
+	fs.StringVar(&gpuMode, "gpu", "", "llama.cpp GPU mode: off, auto, or full")
+	fs.IntVar(&mainGPU, "main-gpu", -1, "llama.cpp main GPU index")
+	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
+	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
+	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
 	fs.StringVar(&configFile, "f", "", "chat config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
 	fs.StringVar(&sessionPath, "session", "", "load and save chat history JSON")
@@ -1205,7 +1238,20 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	options := runtimeOptions(cfg.Options, threads, ctxSize, gpuLayers)
+	options := runtimeOptions(cfg.Options, runtimeFlagOptions{
+		threads:        threads,
+		ctxSize:        ctxSize,
+		gpuLayers:      gpuLayers,
+		gpuMode:        gpuMode,
+		mainGPU:        mainGPU,
+		tensorSplit:    tensorSplit,
+		splitMode:      splitMode,
+		flashAttention: flashAttention,
+	})
+	if err := validateRuntimeOptions(options); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -1533,26 +1579,88 @@ func copyStringMap(values map[string]string) map[string]string {
 	return out
 }
 
-func runtimeOptions(base map[string]string, threads, ctxSize, gpuLayers int) map[string]string {
-	options := make(map[string]string, len(base)+3)
+type runtimeFlagOptions struct {
+	threads        int
+	ctxSize        int
+	gpuLayers      int
+	gpuMode        string
+	mainGPU        int
+	tensorSplit    string
+	splitMode      string
+	flashAttention bool
+}
+
+func runtimeOptions(base map[string]string, flags runtimeFlagOptions) map[string]string {
+	options := make(map[string]string, len(base)+8)
 	for key, value := range base {
 		if value != "" {
 			options[key] = value
 		}
 	}
-	if threads > 0 {
-		options["threads"] = strconv.Itoa(threads)
+	if flags.threads > 0 {
+		options["threads"] = strconv.Itoa(flags.threads)
 	}
-	if ctxSize > 0 {
-		options["ctx_size"] = strconv.Itoa(ctxSize)
+	if flags.ctxSize > 0 {
+		options["ctx_size"] = strconv.Itoa(flags.ctxSize)
 	}
-	if gpuLayers > 0 {
-		options["gpu_layers"] = strconv.Itoa(gpuLayers)
+	if flags.gpuLayers > 0 {
+		options["gpu_layers"] = strconv.Itoa(flags.gpuLayers)
+	}
+	if flags.gpuMode != "" {
+		options["gpu"] = flags.gpuMode
+	}
+	if flags.mainGPU >= 0 {
+		options["main_gpu"] = strconv.Itoa(flags.mainGPU)
+	}
+	if flags.tensorSplit != "" {
+		options["tensor_split"] = flags.tensorSplit
+	}
+	if flags.splitMode != "" {
+		options["split_mode"] = flags.splitMode
+	}
+	if flags.flashAttention {
+		options["flash_attn"] = "true"
 	}
 	if len(options) == 0 {
 		return nil
 	}
 	return options
+}
+
+func validateRuntimeOptions(options map[string]string) error {
+	if len(options) == 0 {
+		return nil
+	}
+	for _, key := range []string{"threads", "ctx_size", "gpu_layers", "main_gpu"} {
+		if value := options[key]; value != "" {
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("%s must be an integer", key)
+			}
+			if (key == "threads" || key == "ctx_size") && n <= 0 {
+				return fmt.Errorf("%s must be greater than 0", key)
+			}
+			if (key == "gpu_layers" || key == "main_gpu") && n < 0 {
+				return fmt.Errorf("%s must be greater than or equal to 0", key)
+			}
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(options["gpu"])) {
+	case "", "off", "none", "false", "0", "auto", "full", "all", "true", "1":
+	default:
+		return fmt.Errorf("gpu must be one of off, auto, or full")
+	}
+	switch strings.ToLower(strings.TrimSpace(options["split_mode"])) {
+	case "", "none", "layer", "row":
+	default:
+		return fmt.Errorf("split_mode must be one of none, layer, or row")
+	}
+	switch strings.ToLower(strings.TrimSpace(options["flash_attn"])) {
+	case "", "1", "t", "true", "yes", "y", "on", "0", "f", "false", "no", "n", "off":
+	default:
+		return fmt.Errorf("flash_attn must be a boolean")
+	}
+	return nil
 }
 
 func runServe(args []string, stdout, stderr io.Writer) int {
@@ -1562,6 +1670,11 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	var threads int
 	var ctxSize int
 	var gpuLayers int
+	var gpuMode string
+	var mainGPU int
+	var tensorSplit string
+	var splitMode string
+	var flashAttention bool
 
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -1571,6 +1684,11 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&threads, "threads", 0, "llama.cpp CPU threads")
 	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
 	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
+	fs.StringVar(&gpuMode, "gpu", "", "llama.cpp GPU mode: off, auto, or full")
+	fs.IntVar(&mainGPU, "main-gpu", -1, "llama.cpp main GPU index")
+	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
+	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
+	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -1579,7 +1697,25 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
 		return 2
 	}
-	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0], Options: runtimeOptions(nil, threads, ctxSize, gpuLayers)})
+	options := runtimeOptions(nil, runtimeFlagOptions{
+		threads:        threads,
+		ctxSize:        ctxSize,
+		gpuLayers:      gpuLayers,
+		gpuMode:        gpuMode,
+		mainGPU:        mainGPU,
+		tensorSplit:    tensorSplit,
+		splitMode:      splitMode,
+		flashAttention: flashAttention,
+	})
+	if err := validateRuntimeOptions(options); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
+		Backend: backend,
+		Path:    positionals[0],
+		Options: options,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1

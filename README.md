@@ -104,6 +104,8 @@ nego backends info llama.cpp
 NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/gguf-model-dir "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --threads 8 --ctx-size 4096 --gpu-layers 32
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --gpu full --flash-attn
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --gpu full --main-gpu 0 --tensor-split 3,1 --split-mode layer
 NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --log runs.jsonl
 NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf --interactive

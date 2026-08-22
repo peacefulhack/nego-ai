@@ -18,6 +18,10 @@ func main() {
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
 		Backend: "llama.cpp",
 		Path:    os.Args[1],
+		Options: map[string]string{
+			"gpu":        "full",
+			"flash_attn": "true",
+		},
 	})
 	if err != nil {
 		log.Fatal(err)

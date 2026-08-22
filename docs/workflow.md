@@ -201,6 +201,28 @@ Run one prompt:
 nego run ./models/model.gguf "Explain Go in one paragraph."
 ```
 
+Run with GPU acceleration when your `llama-cli` build supports CUDA, Metal, Vulkan, ROCm, or another llama.cpp GPU backend:
+
+```bash
+nego run ./models/model.gguf "Explain Go in one paragraph." --gpu full --flash-attn
+```
+
+Force CPU-only:
+
+```bash
+nego run ./models/model.gguf "Explain Go in one paragraph." --gpu off
+```
+
+Use explicit multi-GPU placement:
+
+```bash
+nego run ./models/model.gguf "Explain Go in one paragraph." \
+  --gpu full \
+  --main-gpu 0 \
+  --tensor-split 3,1 \
+  --split-mode layer
+```
+
 Run one chat request:
 
 ```bash
@@ -374,7 +396,7 @@ nego convert gguf ./outputs/qwen3-sft \
 Serve a local model through Nego's HTTP server:
 
 ```bash
-nego serve ./outputs/qwen3-sft.gguf --addr :8080
+nego serve ./outputs/qwen3-sft.gguf --addr :8080 --gpu full --flash-attn
 ```
 
 Then point an OpenAI-compatible client at:
