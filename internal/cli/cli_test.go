@@ -385,6 +385,38 @@ func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	}
 }
 
+func TestRunCommandUsesConfigFile(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	configPath := filepath.Join(t.TempDir(), "nego.json")
+	if err := os.WriteFile(configPath, []byte(`{"path":"model.gguf","prompt":"hello","max_tokens":4}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"run", "-f", configPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fake llama output") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestChatCommandUsesConfigFile(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	configPath := filepath.Join(t.TempDir(), "nego.json")
+	if err := os.WriteFile(configPath, []byte(`{"path":"model.gguf","system":"Helpful","prompt":"hello"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"chat", "-f", configPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fake llama output") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
 func TestEmbedCommand(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/embeddings" {

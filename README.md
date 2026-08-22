@@ -98,3 +98,10 @@ train, test := datasets.Split(rows, 0.2, 42)
 ```bash
 nego eval suite.json
 ```
+
+## Config workflow
+
+```bash
+nego run -f nego.json
+nego chat -f nego.json
+```

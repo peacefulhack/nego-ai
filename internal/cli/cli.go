@@ -414,25 +414,46 @@ func runPrompt(args []string, stdout, stderr io.Writer) int {
 func runModel(args []string, stdout, stderr io.Writer) int {
 	var backend string
 	var maxTokens int
+	var configFile string
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	fs.StringVar(&configFile, "f", "", "run config file")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
-	if len(positionals) < 2 {
+	cfg, err := loadRuntimeConfig(configFile)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if cfg.Backend != "" {
+		backend = cfg.Backend
+	}
+	if cfg.MaxTokens > 0 && maxTokens == 0 {
+		maxTokens = cfg.MaxTokens
+	}
+	path := cfg.Path
+	prompt := cfg.Prompt
+	if len(positionals) > 0 {
+		path = positionals[0]
+	}
+	if len(positionals) > 1 {
+		prompt = strings.Join(positionals[1:], " ")
+	}
+	if path == "" || prompt == "" {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
 		return 2
 	}
-	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0]})
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
 	defer model.Close()
-	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: strings.Join(positionals[1:], " "), MaxTokens: maxTokens})
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: prompt, MaxTokens: maxTokens})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
@@ -445,30 +466,54 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	var backend string
 	var system string
 	var maxTokens int
+	var configFile string
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
 	fs.StringVar(&system, "system", "", "system message")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	fs.StringVar(&configFile, "f", "", "chat config file")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
-	if len(positionals) < 2 {
+	cfg, err := loadRuntimeConfig(configFile)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if cfg.Backend != "" {
+		backend = cfg.Backend
+	}
+	if cfg.System != "" && system == "" {
+		system = cfg.System
+	}
+	if cfg.MaxTokens > 0 && maxTokens == 0 {
+		maxTokens = cfg.MaxTokens
+	}
+	path := cfg.Path
+	if len(positionals) > 0 {
+		path = positionals[0]
+	}
+	messages := append([]nego.Message(nil), cfg.Messages...)
+	if system != "" && len(messages) == 0 {
+		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: system})
+	}
+	if len(positionals) > 1 {
+		messages = append(messages, nego.Message{Role: nego.RoleUser, Content: strings.Join(positionals[1:], " ")})
+	} else if cfg.Prompt != "" && len(messages) == 0 {
+		messages = append(messages, nego.Message{Role: nego.RoleUser, Content: cfg.Prompt})
+	}
+	if path == "" || len(messages) == 0 {
 		fmt.Fprintln(stderr, "usage: nego chat <model-path> <message> [flags]")
 		return 2
 	}
-	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0]})
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
 	defer model.Close()
-	var messages []nego.Message
-	if system != "" {
-		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: system})
-	}
-	messages = append(messages, nego.Message{Role: nego.RoleUser, Content: strings.Join(positionals[1:], " ")})
 	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -476,6 +521,33 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprint(stdout, resp.Message.Content)
 	return 0
+}
+
+type runtimeConfig struct {
+	Backend   string         `json:"backend"`
+	Path      string         `json:"path"`
+	Endpoint  string         `json:"endpoint"`
+	Model     string         `json:"model"`
+	APIKey    string         `json:"api_key"`
+	System    string         `json:"system"`
+	Prompt    string         `json:"prompt"`
+	Messages  []nego.Message `json:"messages"`
+	MaxTokens int            `json:"max_tokens"`
+}
+
+func loadRuntimeConfig(path string) (runtimeConfig, error) {
+	if path == "" {
+		return runtimeConfig{}, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return runtimeConfig{}, err
+	}
+	var cfg runtimeConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return runtimeConfig{}, err
+	}
+	return cfg, nil
 }
 
 func runServe(args []string, stdout, stderr io.Writer) int {
