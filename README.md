@@ -85,11 +85,19 @@ import _ "github.com/gakon/nego-ai/backends/openai"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/gguf-model-dir "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --threads 8 --ctx-size 4096 --gpu-layers 32
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --log runs.jsonl
 NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego serve ./models/model.gguf --addr :8080
 ```
 
 When a GGUF file lives beside `chat_template.jinja` or `tokenizer_config.json`, the llama.cpp backend uses that template for chat prompts.
+
+Run logs include prompts and outputs, so keep `runs.jsonl` private when working with sensitive data.
+
+```bash
+nego runs list runs.jsonl
+nego runs show runs.jsonl <id>
+```
 
 ## Embeddings
 

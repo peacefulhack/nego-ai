@@ -496,6 +496,28 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 	}
 }
 
+func TestRunCommandAppendsRunLog(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
+	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--log", logPath, "--max-tokens", "4"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `"command":"run"`) || !strings.Contains(text, `"prompt":"hello"`) || !strings.Contains(text, `"max_tokens":4`) {
+		t.Fatalf("unexpected log: %s", text)
+	}
+	if strings.Contains(text, "api_key") {
+		t.Fatalf("log should not include api key: %s", text)
+	}
+}
+
 func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
@@ -506,6 +528,54 @@ func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "fake llama output") {
 		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestRunsListAndShow(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
+	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--log", logPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("chat code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"runs", "list", logPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("list code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "COMMAND") || !strings.Contains(out, "chat") {
+		t.Fatalf("unexpected list output: %q", out)
+	}
+
+	var entries []struct {
+		ID string `json:"id"`
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"runs", "list", logPath, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json list code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].ID == "" {
+		t.Fatalf("unexpected entries: %s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"runs", "show", logPath, entries[0].ID}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("show code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Messages:") || !strings.Contains(stdout.String(), "Output:") {
+		t.Fatalf("unexpected show output: %q", stdout.String())
 	}
 }
 
@@ -524,6 +594,13 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("runtimeOptions = %#v, want %#v", got, want)
+	}
+}
+
+func TestRuntimeLogEntrySanitizesEndpoint(t *testing.T) {
+	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, nil, 0, nil, nil)
+	if entry.Endpoint != "https://example.com/v1" {
+		t.Fatalf("Endpoint = %q", entry.Endpoint)
 	}
 }
 

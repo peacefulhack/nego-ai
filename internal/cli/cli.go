@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,6 +28,7 @@ import (
 	"github.com/gakon/nego-ai/internal/registry"
 	"github.com/gakon/nego-ai/internal/version"
 	"github.com/gakon/nego-ai/modelinfo"
+	"github.com/gakon/nego-ai/runs"
 	"github.com/gakon/nego-ai/server"
 	"github.com/gakon/nego-ai/tokenizer"
 	"github.com/gakon/nego-ai/training"
@@ -42,6 +44,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runDownload(ctx, args[1:], stdout, stderr)
 	case "models":
 		return runModels(args[1:], stdout, stderr)
+	case "runs":
+		return runRuns(args[1:], stdout, stderr)
 	case "cache":
 		return runCache(args[1:], stdout, stderr)
 	case "tokenize":
@@ -249,6 +253,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego models list [flags]")
 	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
 	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
+	fmt.Fprintln(w, "  nego runs list <runs.jsonl> [flags]")
+	fmt.Fprintln(w, "  nego runs show <runs.jsonl> <id> [flags]")
 	fmt.Fprintln(w, "  nego cache usage [flags]")
 	fmt.Fprintln(w, "  nego cache gc --yes [flags]")
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
@@ -635,6 +641,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var ctxSize int
 	var gpuLayers int
 	var configFile string
+	var logPath string
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
@@ -647,6 +654,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
 	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
 	fs.StringVar(&configFile, "f", "", "run config file")
+	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -674,6 +682,9 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	if len(stop) == 0 {
 		stop = append(stop, cfg.Stop...)
 	}
+	if cfg.Log != "" && logPath == "" {
+		logPath = cfg.Log
+	}
 	path := cfg.Path
 	prompt := cfg.Prompt
 	if len(positionals) > 0 {
@@ -687,18 +698,29 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	options := runtimeOptions(cfg.Options, threads, ctxSize, gpuLayers)
+	started := time.Now().UTC()
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topP, stop, seed, options, err)); logErr != nil {
+			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
+		}
 		return 1
 	}
 	defer model.Close()
 	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: prompt, MaxTokens: maxTokens, Temperature: temperature, TopP: topP, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topP, stop, seed, options, err)); logErr != nil {
+			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
+		}
 		return 1
 	}
 	fmt.Fprint(stdout, out.Text)
+	if err := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, out.Text, started, maxTokens, temperature, topP, stop, seed, options, nil)); err != nil {
+		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
@@ -714,6 +736,7 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	var ctxSize int
 	var gpuLayers int
 	var configFile string
+	var logPath string
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
@@ -727,6 +750,7 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
 	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
 	fs.StringVar(&configFile, "f", "", "chat config file")
+	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -757,6 +781,9 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	if len(stop) == 0 {
 		stop = append(stop, cfg.Stop...)
 	}
+	if cfg.Log != "" && logPath == "" {
+		logPath = cfg.Log
+	}
 	path := cfg.Path
 	if len(positionals) > 0 {
 		path = positionals[0]
@@ -775,18 +802,29 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	options := runtimeOptions(cfg.Options, threads, ctxSize, gpuLayers)
+	started := time.Now().UTC()
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topP, stop, seed, options, err)); logErr != nil {
+			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
+		}
 		return 1
 	}
 	defer model.Close()
 	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens, Temperature: temperature, TopP: topP, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topP, stop, seed, options, err)); logErr != nil {
+			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
+		}
 		return 1
 	}
 	fmt.Fprint(stdout, resp.Message.Content)
+	if err := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, resp.Message.Content, started, maxTokens, temperature, topP, stop, seed, options, nil)); err != nil {
+		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
@@ -805,6 +843,7 @@ type runtimeConfig struct {
 	TopP        float64           `json:"top_p"`
 	Stop        []string          `json:"stop"`
 	Seed        int64             `json:"seed"`
+	Log         string            `json:"log"`
 }
 
 func loadRuntimeConfig(path string) (runtimeConfig, error) {
@@ -820,6 +859,64 @@ func loadRuntimeConfig(path string) (runtimeConfig, error) {
 		return runtimeConfig{}, err
 	}
 	return cfg, nil
+}
+
+func appendRuntimeLog(path string, entry runs.Entry) error {
+	if path == "" {
+		return nil
+	}
+	return runs.Append(path, entry)
+}
+
+func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, messages []nego.Message, output string, started time.Time, maxTokens int, temperature, topP float64, stop []string, seed int64, options map[string]string, runErr error) runs.Entry {
+	entry := runs.Entry{
+		ID:          runs.NewID(),
+		Command:     command,
+		Backend:     backend,
+		Path:        path,
+		Model:       modelID,
+		Endpoint:    sanitizeEndpoint(endpoint),
+		Prompt:      prompt,
+		Messages:    messages,
+		Output:      output,
+		StartedAt:   started,
+		DurationMS:  time.Since(started).Milliseconds(),
+		MaxTokens:   maxTokens,
+		Temperature: temperature,
+		TopP:        topP,
+		Stop:        append([]string(nil), stop...),
+		Seed:        seed,
+		Options:     copyStringMap(options),
+	}
+	if runErr != nil {
+		entry.Error = runErr.Error()
+	}
+	return entry
+}
+
+func sanitizeEndpoint(endpoint string) string {
+	if endpoint == "" {
+		return ""
+	}
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func copyStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 func runtimeOptions(base map[string]string, threads, ctxSize, gpuLayers int) map[string]string {
@@ -929,6 +1026,137 @@ func runEmbed(args []string, stdout, stderr io.Writer) int {
 	}
 	_ = json.NewEncoder(stdout).Encode(resp)
 	return 0
+}
+
+func runRuns(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		runsUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		return runRunsList(args[1:], stdout, stderr)
+	case "show":
+		return runRunsShow(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		runsUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown runs command %q\n", args[0])
+		runsUsage(stderr)
+		return 2
+	}
+}
+
+func runRunsList(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("runs list", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego runs list <runs.jsonl> [flags]")
+		return 2
+	}
+	entries, err := runs.Read(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(entries)
+		return 0
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(stdout, "No runs found.")
+		return 0
+	}
+	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "ID\tTIME\tCOMMAND\tBACKEND\tMODEL/PATH\tSTATUS\tDURATION")
+	for _, entry := range entries {
+		status := "ok"
+		if entry.Error != "" {
+			status = "error"
+		}
+		target := entry.Model
+		if target == "" {
+			target = entry.Path
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%dms\n", entry.ID, entry.StartedAt.Format(time.RFC3339), entry.Command, entry.Backend, target, status, entry.DurationMS)
+	}
+	_ = tw.Flush()
+	return 0
+}
+
+func runRunsShow(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("runs show", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 2 {
+		fmt.Fprintln(stderr, "usage: nego runs show <runs.jsonl> <id> [flags]")
+		return 2
+	}
+	entries, err := runs.Read(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	entry, ok := runs.Find(entries, positionals[1])
+	if !ok {
+		fmt.Fprintf(stderr, "nego: run %q not found\n", positionals[1])
+		return 4
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(entry)
+		return 0
+	}
+	writeRunInfo(stdout, entry)
+	return 0
+}
+
+func runsUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego runs list <runs.jsonl> [flags]")
+	fmt.Fprintln(w, "  nego runs show <runs.jsonl> <id> [flags]")
+}
+
+func writeRunInfo(w io.Writer, entry runs.Entry) {
+	fmt.Fprintf(w, "ID:        %s\n", entry.ID)
+	fmt.Fprintf(w, "Command:   %s\n", entry.Command)
+	fmt.Fprintf(w, "Started:   %s\n", entry.StartedAt.Format(time.RFC3339))
+	fmt.Fprintf(w, "Duration:  %dms\n", entry.DurationMS)
+	if entry.Backend != "" {
+		fmt.Fprintf(w, "Backend:   %s\n", entry.Backend)
+	}
+	if entry.Model != "" {
+		fmt.Fprintf(w, "Model:     %s\n", entry.Model)
+	}
+	if entry.Path != "" {
+		fmt.Fprintf(w, "Path:      %s\n", entry.Path)
+	}
+	if entry.Error != "" {
+		fmt.Fprintf(w, "Error:     %s\n", entry.Error)
+	}
+	if entry.Prompt != "" {
+		fmt.Fprintf(w, "Prompt:\n%s\n", entry.Prompt)
+	}
+	if len(entry.Messages) > 0 {
+		fmt.Fprintln(w, "Messages:")
+		for _, message := range entry.Messages {
+			fmt.Fprintf(w, "  %s: %s\n", message.Role, message.Content)
+		}
+	}
+	if entry.Output != "" {
+		fmt.Fprintf(w, "Output:\n%s\n", entry.Output)
+	}
 }
 
 func runModels(args []string, stdout, stderr io.Writer) int {
