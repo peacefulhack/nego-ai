@@ -470,6 +470,17 @@ func TestEvalCommand(t *testing.T) {
 	}
 }
 
+func TestVersionCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"version"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "nego dev") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
 func writeCLITokenizer(t *testing.T, dir string) {
 	t.Helper()
 	body := `{

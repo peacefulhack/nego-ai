@@ -2,6 +2,13 @@
 
 A Go-native toolkit for working with AI models, from downloading and caching model files to building chat, inference, and training workflows.
 
+## Build
+
+```bash
+go build -o nego ./cmd/nego
+nego version
+```
+
 ## Download models
 
 ```bash

@@ -23,6 +23,7 @@ import (
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/cache"
 	"github.com/gakon/nego-ai/internal/registry"
+	"github.com/gakon/nego-ai/internal/version"
 	"github.com/gakon/nego-ai/server"
 	"github.com/gakon/nego-ai/tokenizer"
 )
@@ -53,6 +54,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runEmbed(args[1:], stdout, stderr)
 	case "eval":
 		return runEval(args[1:], stdout, stderr)
+	case "version":
+		return runVersion(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -242,6 +245,24 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
 	fmt.Fprintln(w, "  nego embed <text> --endpoint <url> --model <name> [flags]")
 	fmt.Fprintln(w, "  nego eval <suite.json> [flags]")
+	fmt.Fprintln(w, "  nego version [flags]")
+}
+
+func runVersion(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("version", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	info := version.Info()
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(info)
+		return 0
+	}
+	fmt.Fprintf(stdout, "nego %s\ncommit %s\nbuilt %s\n", info["version"], info["commit"], info["date"])
+	return 0
 }
 
 type evalConfig struct {
