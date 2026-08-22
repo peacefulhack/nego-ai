@@ -55,6 +55,7 @@ nego check ./models/model.gguf
 ```bash
 nego tokenize ./models/qwen3 "hello world"
 nego tokens ./models/qwen3 "hello world"
+nego context ./models/qwen3 "hello world" --max-context 4096
 ```
 
 ```go

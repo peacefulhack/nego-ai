@@ -62,6 +62,8 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runTokenize(args[1:], stdout, stderr)
 	case "tokens":
 		return runTokens(args[1:], stdout, stderr)
+	case "context":
+		return runContext(args[1:], stdout, stderr)
 	case "prompt":
 		return runPrompt(args[1:], stdout, stderr)
 	case "inspect":
@@ -275,6 +277,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego cache gc --yes [flags]")
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
 	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
+	fmt.Fprintln(w, "  nego context <model-path> <text> [flags]")
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
 	fmt.Fprintln(w, "  nego inspect <model-path> [flags]")
 	fmt.Fprintln(w, "  nego check <model-path> [flags]")
@@ -665,6 +668,112 @@ func runTokens(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runContext(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	var maxContext int
+	var text string
+	var system string
+	var users repeatedFlag
+	var assistants repeatedFlag
+
+	fs := flag.NewFlagSet("context", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.IntVar(&maxContext, "max-context", 0, "maximum context tokens")
+	fs.StringVar(&text, "text", "", "raw text to count")
+	fs.StringVar(&system, "system", "", "system message")
+	fs.Var(&users, "user", "user message, repeatable")
+	fs.Var(&assistants, "assistant", "assistant message, repeatable")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 1 {
+		fmt.Fprintln(stderr, "usage: nego context <model-path> <text> [flags]")
+		return 2
+	}
+	modelPath := positionals[0]
+	if text == "" && len(positionals) > 1 {
+		text = strings.Join(positionals[1:], " ")
+	}
+	prompt := text
+	messages := buildPromptMessages(system, users, assistants)
+	if prompt == "" && len(messages) > 0 {
+		rendered, err := chattemplate.Render(modelPath, messages, chattemplate.Options{AddGenerationPrompt: true})
+		if err != nil {
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			return 1
+		}
+		prompt = rendered
+	}
+	if prompt == "" {
+		fmt.Fprintln(stderr, "usage: nego context <model-path> <text> [flags]")
+		return 2
+	}
+	tok, err := tokenizer.Load(modelPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	tokenCount, err := tok.Count(prompt)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if maxContext == 0 {
+		if report, err := modelinfo.Check(modelPath); err == nil && report.ContextLength > 0 {
+			maxContext = int(report.ContextLength)
+		}
+	}
+	result := contextBudgetResult{
+		Tokens:     tokenCount,
+		MaxContext: maxContext,
+		Fits:       maxContext == 0 || tokenCount <= maxContext,
+	}
+	if maxContext > 0 {
+		result.Remaining = maxContext - tokenCount
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(result)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Tokens:      %d\n", result.Tokens)
+	if result.MaxContext > 0 {
+		fmt.Fprintf(stdout, "Max context: %d\n", result.MaxContext)
+		fmt.Fprintf(stdout, "Remaining:   %d\n", result.Remaining)
+	}
+	if result.Fits {
+		fmt.Fprintln(stdout, "Fits:        yes")
+		return 0
+	}
+	fmt.Fprintln(stdout, "Fits:        no")
+	return 1
+}
+
+type contextBudgetResult struct {
+	Tokens     int  `json:"tokens"`
+	MaxContext int  `json:"max_context,omitempty"`
+	Remaining  int  `json:"remaining,omitempty"`
+	Fits       bool `json:"fits"`
+}
+
+func buildPromptMessages(system string, users, assistants []string) []chattemplate.Message {
+	var messages []chattemplate.Message
+	if system != "" {
+		messages = append(messages, chattemplate.Message{Role: chattemplate.RoleSystem, Content: system})
+	}
+	maxLen := max(len(users), len(assistants))
+	for i := 0; i < maxLen; i++ {
+		if i < len(users) {
+			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleUser, Content: users[i]})
+		}
+		if i < len(assistants) {
+			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleAssistant, Content: assistants[i]})
+		}
+	}
+	return messages
+}
+
 func runPrompt(args []string, stdout, stderr io.Writer) int {
 	var system string
 	var users repeatedFlag
@@ -685,19 +794,7 @@ func runPrompt(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego prompt <model-path> --user <text> [flags]")
 		return 2
 	}
-	var messages []chattemplate.Message
-	if system != "" {
-		messages = append(messages, chattemplate.Message{Role: chattemplate.RoleSystem, Content: system})
-	}
-	maxLen := max(len(users), len(assistants))
-	for i := 0; i < maxLen; i++ {
-		if i < len(users) {
-			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleUser, Content: users[i]})
-		}
-		if i < len(assistants) {
-			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleAssistant, Content: assistants[i]})
-		}
-	}
+	messages := buildPromptMessages(system, users, assistants)
 	prompt, err := chattemplate.Render(positionals[0], messages, chattemplate.Options{AddGenerationPrompt: !noGenerationPrompt})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)

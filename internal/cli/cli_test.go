@@ -395,6 +395,50 @@ func TestTokensCommand(t *testing.T) {
 	}
 }
 
+func TestContextCommand(t *testing.T) {
+	dir := t.TempDir()
+	writeCLITokenizer(t, dir)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"context", dir, "hello world!", "--max-context", "4"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Tokens:      3") || !strings.Contains(stdout.String(), "Fits:        yes") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"context", dir, "hello world!", "--max-context", "2", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var result struct {
+		Tokens int  `json:"tokens"`
+		Fits   bool `json:"fits"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Tokens != 3 || result.Fits {
+		t.Fatalf("unexpected json: %s", stdout.String())
+	}
+}
+
+func TestContextCommandOverflowExitCode(t *testing.T) {
+	dir := t.TempDir()
+	writeCLITokenizer(t, dir)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"context", dir, "hello world!", "--max-context", "2"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Fits:        no") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
 func TestPromptCommand(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "chat_template.jinja"), []byte("<|im_start|>{{ role }}"), 0o644); err != nil {
