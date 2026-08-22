@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	nego "github.com/gakon/nego-ai"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/registry"
 )
@@ -612,6 +613,24 @@ func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	}
 }
 
+func TestChatCommandSavesSession(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
+	sessionPath := filepath.Join(t.TempDir(), "chat.json")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--save", sessionPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	session := readCLIChatSession(t, sessionPath)
+	if session.Path != modelPath || len(session.Messages) != 2 {
+		t.Fatalf("unexpected session: %#v", session)
+	}
+	if session.Messages[0].Role != nego.RoleUser || session.Messages[1].Role != nego.RoleAssistant {
+		t.Fatalf("unexpected messages: %#v", session.Messages)
+	}
+}
+
 func TestChatInteractiveStreamsTurns(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
@@ -630,6 +649,35 @@ func TestChatInteractiveStreamsTurns(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"command":"chat"`) || !strings.Contains(string(data), `"messages"`) {
 		t.Fatalf("unexpected log: %s", string(data))
+	}
+}
+
+func TestChatInteractiveResumesSession(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
+	sessionPath := filepath.Join(t.TempDir(), "chat.json")
+	initial := chatSession{
+		Backend: "llama.cpp",
+		Path:    modelPath,
+		Messages: []nego.Message{
+			{Role: nego.RoleUser, Content: "hello"},
+			{Role: nego.RoleAssistant, Content: "hi"},
+		},
+	}
+	if err := saveChatSession(sessionPath, initial); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := RunWithIO(context.Background(), []string{"chat", "--session", sessionPath, "--interactive"}, strings.NewReader("again\n/exit\n"), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	session := readCLIChatSession(t, sessionPath)
+	if session.Path != modelPath || len(session.Messages) != 4 {
+		t.Fatalf("unexpected resumed session: %#v", session)
+	}
+	if session.Messages[2].Content != "again" {
+		t.Fatalf("unexpected resumed messages: %#v", session.Messages)
 	}
 }
 
@@ -836,6 +884,13 @@ func TestRuntimeLogEntrySanitizesEndpoint(t *testing.T) {
 	}
 }
 
+func TestChatSessionSanitizesEndpoint(t *testing.T) {
+	session := chatSession{}.withMessages("openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", nil)
+	if session.Endpoint != "https://example.com/v1" {
+		t.Fatalf("Endpoint = %q", session.Endpoint)
+	}
+}
+
 func TestRunCommandUsesConfigFile(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
@@ -1031,6 +1086,19 @@ func fakeCLILlamaCommand(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func readCLIChatSession(t *testing.T, path string) chatSession {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var session chatSession
+	if err := json.Unmarshal(data, &session); err != nil {
+		t.Fatal(err)
+	}
+	return session
 }
 
 func fakeCLIGGUF(t *testing.T) string {

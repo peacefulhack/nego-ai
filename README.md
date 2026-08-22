@@ -95,12 +95,14 @@ NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --threads
 NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --log runs.jsonl
 NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf --interactive
+NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf --interactive --session chats/qwen.json
 NEGO_LLAMA_CLI=/path/to/llama-cli nego serve ./models/model.gguf --addr :8080
 ```
 
 When a GGUF file lives beside `chat_template.jinja` or `tokenizer_config.json`, the llama.cpp backend uses that template for chat prompts.
 
 Run logs include prompts and outputs, so keep `runs.jsonl` private when working with sensitive data.
+Chat sessions also include message history, so keep session JSON files private.
 
 ```bash
 nego runs list runs.jsonl

@@ -232,6 +232,16 @@ func isBoolFlag(arg string) bool {
 	}
 }
 
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	wasSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			wasSet = true
+		}
+	})
+	return wasSet
+}
+
 func printError(w io.Writer, err error) {
 	var hubErr *hub.Error
 	if errors.As(err, &hubErr) {
@@ -424,6 +434,7 @@ type evalConfig struct {
 }
 
 const maxEvalReportBytes = 64 << 20
+const maxChatSessionBytes = 16 << 20
 
 func runEval(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
@@ -1062,6 +1073,8 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var gpuLayers int
 	var configFile string
 	var logPath string
+	var sessionPath string
+	var savePath string
 	var interactive bool
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -1077,11 +1090,14 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
 	fs.StringVar(&configFile, "f", "", "chat config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
+	fs.StringVar(&sessionPath, "session", "", "load and save chat history JSON")
+	fs.StringVar(&savePath, "save", "", "save chat history JSON without loading it")
 	fs.BoolVar(&interactive, "interactive", false, "start an interactive chat session")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
+	backendSetByFlag := flagWasSet(fs, "backend")
 	cfg, err := loadRuntimeConfig(configFile)
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -1111,11 +1127,43 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if cfg.Log != "" && logPath == "" {
 		logPath = cfg.Log
 	}
+	if cfg.Session != "" && sessionPath == "" {
+		sessionPath = cfg.Session
+	}
+	if cfg.Save != "" && savePath == "" {
+		savePath = cfg.Save
+	}
+	if sessionPath != "" && savePath != "" {
+		fmt.Fprintln(stderr, "nego: use either --session or --save, not both")
+		return 2
+	}
 	path := cfg.Path
 	if len(positionals) > 0 {
 		path = positionals[0]
 	}
+	session, loadedSession, err := loadChatSession(sessionPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if loadedSession {
+		if session.Backend != "" && cfg.Backend == "" && !backendSetByFlag {
+			backend = session.Backend
+		}
+		if path == "" {
+			path = session.Path
+		}
+		if cfg.Endpoint == "" {
+			cfg.Endpoint = sanitizeEndpoint(session.Endpoint)
+		}
+		if cfg.Model == "" {
+			cfg.Model = session.Model
+		}
+	}
 	messages := append([]nego.Message(nil), cfg.Messages...)
+	if loadedSession {
+		messages = append([]nego.Message(nil), session.Messages...)
+	}
 	if system != "" && len(messages) == 0 {
 		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: system})
 	}
@@ -1156,6 +1204,8 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			seed:        seed,
 			options:     options,
 			logPath:     logPath,
+			sessionPath: sessionSavePath(sessionPath, savePath),
+			session:     session,
 		})
 	}
 	started := time.Now().UTC()
@@ -1168,6 +1218,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprint(stdout, resp.Message.Content)
+	messages = append(messages, resp.Message)
+	session = session.withMessages(backend, path, cfg.Endpoint, cfg.Model, messages)
+	if err := saveChatSession(sessionSavePath(sessionPath, savePath), session); err != nil {
+		fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
+		return 1
+	}
 	if err := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, resp.Message.Content, started, maxTokens, temperature, topP, stop, seed, options, nil)); err != nil {
 		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 		return 1
@@ -1189,6 +1245,8 @@ type interactiveChatOptions struct {
 	seed        int64
 	options     map[string]string
 	logPath     string
+	sessionPath string
+	session     chatSession
 }
 
 func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Model, opts interactiveChatOptions) int {
@@ -1196,6 +1254,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 	if opts.system != "" && len(messages) == 0 {
 		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: opts.system})
 	}
+	session := opts.session
 	scanner := bufio.NewScanner(stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	fmt.Fprintln(stderr, "Interactive chat. Type /exit to quit, /reset to clear history.")
@@ -1214,6 +1273,11 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 			messages = nil
 			if opts.system != "" {
 				messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: opts.system})
+			}
+			session.Messages = messages
+			if err := saveChatSession(opts.sessionPath, session.withMessages(opts.backend, opts.path, opts.endpoint, opts.modelID, messages)); err != nil {
+				fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
+				return 1
 			}
 			fmt.Fprintln(stderr, "history reset")
 			continue
@@ -1255,6 +1319,11 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 		fmt.Fprintln(stdout)
 		reply := output.String()
 		messages = append(messages, nego.Message{Role: nego.RoleAssistant, Content: reply})
+		session = session.withMessages(opts.backend, opts.path, opts.endpoint, opts.modelID, messages)
+		if err := saveChatSession(opts.sessionPath, session); err != nil {
+			fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
+			return 1
+		}
 		if err := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, reply, started, opts.maxTokens, opts.temperature, opts.topP, opts.stop, opts.seed, opts.options, nil)); err != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 			return 1
@@ -1283,6 +1352,85 @@ type runtimeConfig struct {
 	Stop        []string          `json:"stop"`
 	Seed        int64             `json:"seed"`
 	Log         string            `json:"log"`
+	Session     string            `json:"session"`
+	Save        string            `json:"save"`
+}
+
+type chatSession struct {
+	Backend  string         `json:"backend,omitempty"`
+	Path     string         `json:"path,omitempty"`
+	Endpoint string         `json:"endpoint,omitempty"`
+	Model    string         `json:"model,omitempty"`
+	Created  time.Time      `json:"created_at,omitempty"`
+	Updated  time.Time      `json:"updated_at,omitempty"`
+	Messages []nego.Message `json:"messages"`
+}
+
+func (s chatSession) withMessages(backend, path, endpoint, modelID string, messages []nego.Message) chatSession {
+	s.Backend = backend
+	s.Path = path
+	s.Endpoint = sanitizeEndpoint(endpoint)
+	s.Model = modelID
+	s.Messages = append([]nego.Message(nil), messages...)
+	return s
+}
+
+func sessionSavePath(sessionPath, savePath string) string {
+	if sessionPath != "" {
+		return sessionPath
+	}
+	return savePath
+}
+
+func loadChatSession(path string) (chatSession, bool, error) {
+	if path == "" {
+		return chatSession{}, false, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return chatSession{}, false, nil
+		}
+		return chatSession{}, false, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxChatSessionBytes+1))
+	if err != nil {
+		return chatSession{}, false, err
+	}
+	if len(data) > maxChatSessionBytes {
+		return chatSession{}, false, fmt.Errorf("chat session exceeds %s", humanBytes(maxChatSessionBytes))
+	}
+	var session chatSession
+	if err := json.Unmarshal(data, &session); err != nil {
+		return chatSession{}, false, err
+	}
+	return session, true, nil
+}
+
+func saveChatSession(path string, session chatSession) error {
+	if path == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	if session.Created.IsZero() {
+		session.Created = now
+	}
+	session.Updated = now
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(session)
 }
 
 func loadRuntimeConfig(path string) (runtimeConfig, error) {
