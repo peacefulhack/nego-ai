@@ -66,6 +66,8 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runPrompt(args[1:], stdout, stderr)
 	case "inspect":
 		return runInspect(args[1:], stdout, stderr)
+	case "check":
+		return runCheck(args[1:], stdout, stderr)
 	case "run":
 		return runModel(args[1:], stdout, stderr)
 	case "chat":
@@ -275,6 +277,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
 	fmt.Fprintln(w, "  nego inspect <model-path> [flags]")
+	fmt.Fprintln(w, "  nego check <model-path> [flags]")
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
 	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
@@ -777,6 +780,74 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 				fmt.Fprintf(w, " %s", humanBytes(file.Size))
 			}
 			fmt.Fprintln(w)
+		}
+	}
+}
+
+func runCheck(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego check <model-path> [flags]")
+		return 2
+	}
+	report, err := modelinfo.Check(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(report)
+		return 0
+	}
+	writeCheckReport(stdout, report)
+	return 0
+}
+
+func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
+	fmt.Fprintf(w, "Path:          %s\n", report.Path)
+	if report.ModelType != "" {
+		fmt.Fprintf(w, "Model type:    %s\n", report.ModelType)
+	}
+	if report.Architecture != "" {
+		fmt.Fprintf(w, "Architecture:  %s\n", report.Architecture)
+	}
+	if report.RuntimeFile != nil {
+		fmt.Fprintf(w, "Runtime file:  %s [%s]\n", report.RuntimeFile.Path, report.RuntimeFile.Kind)
+	}
+	if report.ContextLength > 0 {
+		fmt.Fprintf(w, "Context:       %d\n", report.ContextLength)
+	}
+	if report.Quantization != "" {
+		fmt.Fprintf(w, "Quantization:  %s\n", report.Quantization)
+	}
+	if report.ChatTemplate {
+		fmt.Fprintln(w, "Chat template: yes")
+	} else {
+		fmt.Fprintln(w, "Chat template: no")
+	}
+	fmt.Fprintln(w, "Backends:")
+	for _, backend := range report.Backends {
+		status := "no"
+		if backend.Compatible {
+			status = "yes"
+		}
+		fmt.Fprintf(w, "  - %s: %s", backend.Name, status)
+		if backend.Reason != "" {
+			fmt.Fprintf(w, " (%s)", backend.Reason)
+		}
+		fmt.Fprintln(w)
+	}
+	if len(report.Warnings) > 0 {
+		fmt.Fprintln(w, "Warnings:")
+		for _, warning := range report.Warnings {
+			fmt.Fprintf(w, "  - %s\n", warning)
 		}
 	}
 }

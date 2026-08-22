@@ -47,6 +47,7 @@ info, err := modelinfo.Inspect("./models/qwen3")
 ```bash
 nego inspect ./models/model.gguf
 nego inspect ./models/model.gguf --json
+nego check ./models/model.gguf
 ```
 
 ## Tokenizer
