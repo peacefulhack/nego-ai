@@ -131,6 +131,8 @@ train, test := datasets.Split(rows, 0.2, 42)
 ```bash
 nego dataset inspect data.jsonl
 nego dataset validate data.jsonl --format chat
+nego dataset convert data.csv --out data.jsonl --select prompt,completion --require prompt,completion
+nego dataset filter data.jsonl --where split=train --out train-only.jsonl
 nego dataset sample data.jsonl --n 5
 nego dataset split data.jsonl --train-out train.jsonl --test-out test.jsonl --test-size 0.1
 ```

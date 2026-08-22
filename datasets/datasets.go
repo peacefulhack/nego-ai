@@ -14,6 +14,22 @@ import (
 
 type Row map[string]any
 
+type FilterOp string
+
+const (
+	FilterExists      FilterOp = "exists"
+	FilterEqual       FilterOp = "eq"
+	FilterNotEqual    FilterOp = "ne"
+	FilterContains    FilterOp = "contains"
+	FilterNotContains FilterOp = "not_contains"
+)
+
+type Filter struct {
+	Field string
+	Op    FilterOp
+	Value string
+}
+
 func ReadJSONL(r io.Reader) ([]Row, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
@@ -111,6 +127,75 @@ func Split(rows []Row, testRatio float64, seed int64) ([]Row, []Row) {
 	return train, test
 }
 
+func SelectFields(rows []Row, fields []string) []Row {
+	if len(fields) == 0 {
+		return append([]Row(nil), rows...)
+	}
+	selected := make([]Row, 0, len(rows))
+	for _, row := range rows {
+		out := make(Row, len(fields))
+		for _, field := range fields {
+			if value, ok := row[field]; ok {
+				out[field] = value
+			}
+		}
+		selected = append(selected, out)
+	}
+	return selected
+}
+
+func RequireFields(rows []Row, fields []string) []Row {
+	if len(fields) == 0 {
+		return append([]Row(nil), rows...)
+	}
+	filtered := make([]Row, 0, len(rows))
+	for _, row := range rows {
+		if hasRequiredFields(row, fields) {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
+}
+
+func ParseFilter(expr string) (Filter, error) {
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return Filter{}, fmt.Errorf("empty filter expression")
+	}
+	for _, op := range []struct {
+		text string
+		op   FilterOp
+	}{
+		{"!~", FilterNotContains},
+		{"!=", FilterNotEqual},
+		{"~", FilterContains},
+		{"=", FilterEqual},
+	} {
+		if idx := strings.Index(expr, op.text); idx >= 0 {
+			field := strings.TrimSpace(expr[:idx])
+			value := strings.TrimSpace(expr[idx+len(op.text):])
+			if field == "" {
+				return Filter{}, fmt.Errorf("filter %q is missing a field", expr)
+			}
+			return Filter{Field: field, Op: op.op, Value: value}, nil
+		}
+	}
+	return Filter{Field: expr, Op: FilterExists}, nil
+}
+
+func FilterRows(rows []Row, filters []Filter) []Row {
+	if len(filters) == 0 {
+		return append([]Row(nil), rows...)
+	}
+	filtered := make([]Row, 0, len(rows))
+	for _, row := range rows {
+		if matchFilters(row, filters) {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
+}
+
 func ValidateRequiredFields(rows []Row, fields ...string) error {
 	for i, row := range rows {
 		for _, field := range fields {
@@ -120,6 +205,60 @@ func ValidateRequiredFields(rows []Row, fields ...string) error {
 		}
 	}
 	return nil
+}
+
+func hasRequiredFields(row Row, fields []string) bool {
+	for _, field := range fields {
+		value, ok := row[field]
+		if !ok || strings.TrimSpace(valueString(value)) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func matchFilters(row Row, filters []Filter) bool {
+	for _, filter := range filters {
+		value, ok := row[filter.Field]
+		switch filter.Op {
+		case FilterExists:
+			if !ok || strings.TrimSpace(valueString(value)) == "" {
+				return false
+			}
+		case FilterEqual:
+			if !ok || valueString(value) != filter.Value {
+				return false
+			}
+		case FilterNotEqual:
+			if ok && valueString(value) == filter.Value {
+				return false
+			}
+		case FilterContains:
+			if !ok || !strings.Contains(valueString(value), filter.Value) {
+				return false
+			}
+		case FilterNotContains:
+			if ok && strings.Contains(valueString(value), filter.Value) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func valueString(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case fmt.Stringer:
+		return typed.String()
+	default:
+		return fmt.Sprint(typed)
+	}
 }
 
 func ValidateFormat(rows []Row, format string) error {

@@ -709,6 +709,36 @@ func TestDatasetCommands(t *testing.T) {
 		t.Fatalf("validate code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 
+	csvPath := filepath.Join(dir, "data.csv")
+	if err := os.WriteFile(csvPath, []byte("prompt,completion,split\nhi,hello,train\nbye,later,test\n,missing,train\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	convertedOut := filepath.Join(dir, "converted.jsonl")
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "convert", csvPath, "--out", convertedOut, "--select", "prompt,completion", "--require", "prompt,completion"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("convert code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	convertedData, err := os.ReadFile(convertedOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	converted := string(convertedData)
+	if strings.Count(strings.TrimSpace(converted), "\n")+1 != 2 || strings.Contains(converted, "split") {
+		t.Fatalf("unexpected converted output: %q", converted)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "filter", csvPath, "--where", "split=train", "--where", "prompt", "--select", "prompt", "--out", "-"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("filter code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Count(strings.TrimSpace(stdout.String()), "\n")+1 != 1 || !strings.Contains(stdout.String(), `"prompt":"hi"`) {
+		t.Fatalf("unexpected filter output: %q", stdout.String())
+	}
+
 	stdout.Reset()
 	stderr.Reset()
 	code = Run(context.Background(), []string{"dataset", "sample", dataPath, "--n", "2"}, &stdout, &stderr)

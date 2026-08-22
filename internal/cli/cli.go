@@ -271,6 +271,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego runs show <runs.jsonl> <id> [flags]")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset sample <file> [flags]")
 	fmt.Fprintln(w, "  nego cache usage [flags]")
@@ -1491,6 +1493,10 @@ func runDataset(args []string, stdout, stderr io.Writer) int {
 		return runDatasetInspect(args[1:], stdout, stderr)
 	case "validate":
 		return runDatasetValidate(args[1:], stdout, stderr)
+	case "convert":
+		return runDatasetConvert(args[1:], stdout, stderr)
+	case "filter":
+		return runDatasetFilter(args[1:], stdout, stderr)
 	case "split":
 		return runDatasetSplit(args[1:], stdout, stderr)
 	case "sample":
@@ -1563,6 +1569,88 @@ func runDatasetValidate(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "Valid %s dataset: %d rows\n", format, len(rows))
+	return 0
+}
+
+func runDatasetConvert(args []string, stdout, stderr io.Writer) int {
+	var output string
+	var format string
+	var selectFields string
+	var requireFields string
+	fs := flag.NewFlagSet("dataset convert", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&output, "out", "", "output JSONL file, or - for stdout")
+	fs.StringVar(&format, "format", "jsonl", "output format: jsonl")
+	fs.StringVar(&selectFields, "select", "", "comma-separated fields to keep")
+	fs.StringVar(&requireFields, "require", "", "comma-separated fields that must be present and non-empty")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || output == "" {
+		fmt.Fprintln(stderr, "usage: nego dataset convert <file> --out <file> [flags]")
+		return 2
+	}
+	if strings.ToLower(format) != "jsonl" {
+		fmt.Fprintf(stderr, "nego: unsupported output format %q\n", format)
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	rows = datasets.RequireFields(rows, splitCommaFields(requireFields))
+	rows = datasets.SelectFields(rows, splitCommaFields(selectFields))
+	if err := writeDatasetRows(output, rows, stdout); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if output != "-" {
+		fmt.Fprintf(stdout, "Converted: %d rows -> %s\n", len(rows), output)
+	}
+	return 0
+}
+
+func runDatasetFilter(args []string, stdout, stderr io.Writer) int {
+	var output string
+	var where repeatedFlag
+	var selectFields string
+	var requireFields string
+	fs := flag.NewFlagSet("dataset filter", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&output, "out", "", "output JSONL file, or - for stdout")
+	fs.Var(&where, "where", "filter expression, repeatable: field, field=value, field!=value, field~text, field!~text")
+	fs.StringVar(&selectFields, "select", "", "comma-separated fields to keep")
+	fs.StringVar(&requireFields, "require", "", "comma-separated fields that must be present and non-empty")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || output == "" {
+		fmt.Fprintln(stderr, "usage: nego dataset filter <file> --where <expr> --out <file> [flags]")
+		return 2
+	}
+	filters, err := parseDatasetFilters(where)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	rows = datasets.RequireFields(rows, splitCommaFields(requireFields))
+	rows = datasets.FilterRows(rows, filters)
+	rows = datasets.SelectFields(rows, splitCommaFields(selectFields))
+	if err := writeDatasetRows(output, rows, stdout); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if output != "-" {
+		fmt.Fprintf(stdout, "Filtered: %d rows -> %s\n", len(rows), output)
+	}
 	return 0
 }
 
@@ -1650,6 +1738,8 @@ func datasetUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset sample <file> [flags]")
 }
@@ -1712,6 +1802,40 @@ func writeDatasetFile(path string, rows []datasets.Row) error {
 	}
 	defer file.Close()
 	return datasets.WriteJSONL(file, rows)
+}
+
+func writeDatasetRows(path string, rows []datasets.Row, stdout io.Writer) error {
+	if path == "-" {
+		return datasets.WriteJSONL(stdout, rows)
+	}
+	return writeDatasetFile(path, rows)
+}
+
+func splitCommaFields(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	fields := make([]string, 0, len(parts))
+	for _, part := range parts {
+		field := strings.TrimSpace(part)
+		if field != "" {
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
+func parseDatasetFilters(values []string) ([]datasets.Filter, error) {
+	filters := make([]datasets.Filter, 0, len(values))
+	for _, value := range values {
+		filter, err := datasets.ParseFilter(value)
+		if err != nil {
+			return nil, err
+		}
+		filters = append(filters, filter)
+	}
+	return filters, nil
 }
 
 func runRunsList(args []string, stdout, stderr io.Writer) int {

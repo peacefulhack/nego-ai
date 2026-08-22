@@ -34,6 +34,48 @@ func TestSplit(t *testing.T) {
 	}
 }
 
+func TestSelectAndRequireFields(t *testing.T) {
+	rows := []Row{
+		{"prompt": "hi", "completion": "hello", "meta": "keep out"},
+		{"prompt": "bye", "completion": "", "meta": "drop"},
+	}
+	required := RequireFields(rows, []string{"prompt", "completion"})
+	if len(required) != 1 || required[0]["prompt"] != "hi" {
+		t.Fatalf("required = %#v", required)
+	}
+	selected := SelectFields(required, []string{"prompt", "completion"})
+	if _, ok := selected[0]["meta"]; ok {
+		t.Fatalf("unexpected meta field: %#v", selected[0])
+	}
+}
+
+func TestParseAndFilterRows(t *testing.T) {
+	rows := []Row{
+		{"split": "train", "prompt": "hello world"},
+		{"split": "test", "prompt": "bye"},
+		{"split": "train", "prompt": "skip this"},
+	}
+	eq, err := ParseFilter("split=train")
+	if err != nil {
+		t.Fatal(err)
+	}
+	notContains, err := ParseFilter("prompt!~skip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered := FilterRows(rows, []Filter{eq, notContains})
+	if len(filtered) != 1 || filtered[0]["prompt"] != "hello world" {
+		t.Fatalf("filtered = %#v", filtered)
+	}
+	exists, err := ParseFilter("prompt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(FilterRows(rows, []Filter{exists})) != 3 {
+		t.Fatalf("exists filter did not match all prompt rows")
+	}
+}
+
 func TestValidateRequiredFields(t *testing.T) {
 	if err := ValidateRequiredFields([]Row{{"prompt": "hi"}}, "prompt"); err != nil {
 		t.Fatal(err)
