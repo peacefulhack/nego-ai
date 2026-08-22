@@ -30,6 +30,10 @@ go.work.sum
 
 # Downloaded model artifacts
 models/
+data/
+reports/
+chats/
+outputs/
 
 # Codex local files
 .codex/

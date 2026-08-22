@@ -1,0 +1,19 @@
+{
+  "name": "qwen3-sft",
+  "command": "python",
+  "args": [
+    "scripts/train_lora.py",
+    "--model",
+    "./models/qwen3",
+    "--train-file",
+    "data/train.jsonl",
+    "--eval-file",
+    "data/test.jsonl",
+    "--output-dir",
+    "./outputs/qwen3-sft"
+  ],
+  "env": {
+    "TOKENIZERS_PARALLELISM": "false"
+  },
+  "work_dir": "."
+}
