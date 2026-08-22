@@ -10,10 +10,12 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gakon/nego-ai/internal/cache"
 	"github.com/gakon/nego-ai/internal/hfhub"
 	"github.com/gakon/nego-ai/internal/patterns"
+	"github.com/gakon/nego-ai/internal/registry"
 )
 
 func (c *Client) DownloadFile(ctx context.Context, opts DownloadFileOptions) (string, error) {
@@ -51,7 +53,25 @@ func (c *Client) DownloadFile(ctx context.Context, opts DownloadFileOptions) (st
 		return "", err
 	}
 	if !opts.Force && cache.FileExists(snapshotPath) {
-		return c.finishCachedFile(ctx, opts, snapshotPath, cfg.progress, meta)
+		path, err := c.finishCachedFile(ctx, opts, snapshotPath, cfg.progress, meta)
+		if err != nil {
+			return "", err
+		}
+		if err := c.recordRegistry(cfg.cacheDir, registry.Entry{
+			RepoID:       opts.RepoID,
+			RepoType:     repoType,
+			Revision:     revision,
+			Commit:       commit,
+			LocalDir:     opts.LocalDir,
+			SnapshotPath: cache.SnapshotDir(cfg.cacheDir, repoType, opts.RepoID, commit),
+			FileCount:    1,
+			TotalSize:    meta.Size,
+			Files:        []registry.File{{Path: opts.Filename, Size: meta.Size}},
+			DownloadedAt: time.Now().UTC(),
+		}); err != nil {
+			return "", err
+		}
+		return path, nil
 	}
 
 	path, err := c.downloadOne(ctx, api, cfg.cacheDir, repoType, opts.RepoID, commit, commit, opts.Filename, *meta, opts.Force, cfg.progress)
@@ -63,6 +83,20 @@ func (c *Client) DownloadFile(ctx context.Context, opts DownloadFileOptions) (st
 		if err != nil {
 			return "", err
 		}
+	}
+	if err := c.recordRegistry(cfg.cacheDir, registry.Entry{
+		RepoID:       opts.RepoID,
+		RepoType:     repoType,
+		Revision:     revision,
+		Commit:       commit,
+		LocalDir:     opts.LocalDir,
+		SnapshotPath: cache.SnapshotDir(cfg.cacheDir, repoType, opts.RepoID, commit),
+		FileCount:    1,
+		TotalSize:    meta.Size,
+		Files:        []registry.File{{Path: opts.Filename, Size: meta.Size}},
+		DownloadedAt: time.Now().UTC(),
+	}); err != nil {
+		return "", err
 	}
 	c.report(cfg.progress, ProgressEvent{RepoID: opts.RepoID, Filename: opts.Filename, State: "complete", Destination: path})
 	return path, nil
@@ -189,6 +223,30 @@ func (c *Client) DownloadSnapshot(ctx context.Context, opts DownloadSnapshotOpti
 			}
 		}
 		snapshotRoot = opts.LocalDir
+	}
+	registryFiles := make([]registry.File, 0, len(selected))
+	var totalSize int64
+	for _, file := range selected {
+		size := file.Size
+		if size == 0 && file.LFS != nil {
+			size = file.LFS.Size
+		}
+		totalSize += size
+		registryFiles = append(registryFiles, registry.File{Path: file.Path, Size: size})
+	}
+	if err := c.recordRegistry(cfg.cacheDir, registry.Entry{
+		RepoID:       opts.RepoID,
+		RepoType:     repoType,
+		Revision:     revision,
+		Commit:       commit,
+		LocalDir:     opts.LocalDir,
+		SnapshotPath: cache.SnapshotDir(cfg.cacheDir, repoType, opts.RepoID, commit),
+		FileCount:    len(selected),
+		TotalSize:    totalSize,
+		Files:        registryFiles,
+		DownloadedAt: time.Now().UTC(),
+	}); err != nil {
+		return "", err
 	}
 	c.report(cfg.progress, ProgressEvent{
 		RepoID:      opts.RepoID,
@@ -383,6 +441,10 @@ func (c *Client) report(reporter ProgressReporter, event ProgressEvent) {
 	if reporter != nil {
 		reporter.ReportProgress(event)
 	}
+}
+
+func (c *Client) recordRegistry(cacheDir string, entry registry.Entry) error {
+	return registry.NewStore(cacheDir).Upsert(entry)
 }
 
 func validateFileOptions(opts *DownloadFileOptions) error {

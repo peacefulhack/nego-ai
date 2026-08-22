@@ -7,11 +7,20 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"text/tabwriter"
 	"time"
 
+	nego "github.com/gakon/nego-ai"
+	_ "github.com/gakon/nego-ai/backends/llama"
+	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/hub"
+	"github.com/gakon/nego-ai/internal/cache"
+	"github.com/gakon/nego-ai/internal/registry"
+	"github.com/gakon/nego-ai/tokenizer"
 )
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -22,6 +31,18 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "download":
 		return runDownload(ctx, args[1:], stdout, stderr)
+	case "models":
+		return runModels(args[1:], stdout, stderr)
+	case "tokenize":
+		return runTokenize(args[1:], stdout, stderr)
+	case "tokens":
+		return runTokens(args[1:], stdout, stderr)
+	case "prompt":
+		return runPrompt(args[1:], stdout, stderr)
+	case "run":
+		return runModel(args[1:], stdout, stderr)
+	case "chat":
+		return runChat(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -159,7 +180,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt":
 		return true
 	default:
 		return false
@@ -200,6 +221,426 @@ func exitCode(err error) int {
 func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego download <repo-id> [filename] [flags]")
+	fmt.Fprintln(w, "  nego models list [flags]")
+	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
+	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
+	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
+	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
+	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
+	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
+	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
+}
+
+func runTokenize(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("tokenize", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 2 {
+		fmt.Fprintln(stderr, "usage: nego tokenize <model-path> <text> [flags]")
+		return 2
+	}
+	tok, err := tokenizer.Load(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	ids, err := tok.Encode(strings.Join(positionals[1:], " "))
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(map[string]any{"tokens": ids, "count": len(ids)})
+		return 0
+	}
+	for i, id := range ids {
+		if i > 0 {
+			fmt.Fprint(stdout, " ")
+		}
+		fmt.Fprint(stdout, id)
+	}
+	fmt.Fprintln(stdout)
+	return 0
+}
+
+func runTokens(args []string, stdout, stderr io.Writer) int {
+	if len(args) < 2 {
+		fmt.Fprintln(stderr, "usage: nego tokens <model-path> <text>")
+		return 2
+	}
+	tok, err := tokenizer.Load(args[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	count, err := tok.Count(strings.Join(args[1:], " "))
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, count)
+	return 0
+}
+
+func runPrompt(args []string, stdout, stderr io.Writer) int {
+	var system string
+	var users repeatedFlag
+	var assistants repeatedFlag
+	var noGenerationPrompt bool
+
+	fs := flag.NewFlagSet("prompt", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&system, "system", "", "system message")
+	fs.Var(&users, "user", "user message, repeatable")
+	fs.Var(&assistants, "assistant", "assistant message, repeatable")
+	fs.BoolVar(&noGenerationPrompt, "no-generation-prompt", false, "do not append assistant generation prompt")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || (system == "" && len(users) == 0 && len(assistants) == 0) {
+		fmt.Fprintln(stderr, "usage: nego prompt <model-path> --user <text> [flags]")
+		return 2
+	}
+	var messages []chattemplate.Message
+	if system != "" {
+		messages = append(messages, chattemplate.Message{Role: chattemplate.RoleSystem, Content: system})
+	}
+	maxLen := max(len(users), len(assistants))
+	for i := 0; i < maxLen; i++ {
+		if i < len(users) {
+			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleUser, Content: users[i]})
+		}
+		if i < len(assistants) {
+			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleAssistant, Content: assistants[i]})
+		}
+	}
+	prompt, err := chattemplate.Render(positionals[0], messages, chattemplate.Options{AddGenerationPrompt: !noGenerationPrompt})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, prompt)
+	return 0
+}
+
+func runModel(args []string, stdout, stderr io.Writer) int {
+	var backend string
+	var maxTokens int
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 2 {
+		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
+		return 2
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0]})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	defer model.Close()
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: strings.Join(positionals[1:], " "), MaxTokens: maxTokens})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, out.Text)
+	return 0
+}
+
+func runChat(args []string, stdout, stderr io.Writer) int {
+	var backend string
+	var system string
+	var maxTokens int
+	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.StringVar(&system, "system", "", "system message")
+	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 2 {
+		fmt.Fprintln(stderr, "usage: nego chat <model-path> <message> [flags]")
+		return 2
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0]})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	defer model.Close()
+	var messages []nego.Message
+	if system != "" {
+		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: system})
+	}
+	messages = append(messages, nego.Message{Role: nego.RoleUser, Content: strings.Join(positionals[1:], " ")})
+	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, resp.Message.Content)
+	return 0
+}
+
+func runModels(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		modelsUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		return runModelsList(args[1:], stdout, stderr)
+	case "info":
+		return runModelsInfo(args[1:], stdout, stderr)
+	case "remove":
+		return runModelsRemove(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		modelsUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown models command %q\n", args[0])
+		modelsUsage(stderr)
+		return 2
+	}
+}
+
+func runModelsRemove(args []string, stdout, stderr io.Writer) int {
+	var cacheDir string
+	var revision string
+	var yes bool
+
+	fs := flag.NewFlagSet("models remove", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
+	fs.StringVar(&revision, "revision", "", "revision to remove")
+	fs.BoolVar(&yes, "yes", false, "confirm removal")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego models remove <repo-id> --yes [flags]")
+		return 2
+	}
+	if !yes {
+		fmt.Fprintln(stderr, "nego: refusing to remove model without --yes")
+		return 2
+	}
+
+	resolvedCache, err := cache.ResolveCacheDir(cacheDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	store := registry.NewStore(resolvedCache)
+	entry, err := store.Find(positionals[0], revision)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := removeManagedLocalFiles(entry); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if _, err := store.Remove(positionals[0], revision); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Removed %s", entry.RepoID)
+	if entry.Revision != "" {
+		fmt.Fprintf(stdout, "@%s", entry.Revision)
+	}
+	fmt.Fprintln(stdout)
+	return 0
+}
+
+func runModelsInfo(args []string, stdout, stderr io.Writer) int {
+	var cacheDir string
+	var revision string
+	var jsonOutput bool
+
+	fs := flag.NewFlagSet("models info", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
+	fs.StringVar(&revision, "revision", "", "revision to inspect")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego models info <repo-id> [flags]")
+		return 2
+	}
+
+	resolvedCache, err := cache.ResolveCacheDir(cacheDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	entry, err := registry.NewStore(resolvedCache).Find(positionals[0], revision)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(entry)
+		return 0
+	}
+	writeModelInfo(stdout, entry)
+	return 0
+}
+
+func runModelsList(args []string, stdout, stderr io.Writer) int {
+	var cacheDir string
+	var jsonOutput bool
+
+	fs := flag.NewFlagSet("models list", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 0 {
+		fmt.Fprintln(stderr, "usage: nego models list [flags]")
+		return 2
+	}
+
+	resolvedCache, err := cache.ResolveCacheDir(cacheDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	entries, err := registry.NewStore(resolvedCache).List()
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(entries)
+		return 0
+	}
+	if len(entries) == 0 {
+		fmt.Fprintln(stdout, "No local models found.")
+		return 0
+	}
+
+	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "REPO\tREVISION\tSIZE\tFILES\tLOCAL PATH")
+	for _, entry := range entries {
+		localPath := entry.LocalDir
+		if localPath == "" {
+			localPath = entry.SnapshotPath
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", entry.RepoID, entry.Revision, humanBytes(entry.TotalSize), entry.FileCount, localPath)
+	}
+	_ = tw.Flush()
+	return 0
+}
+
+func modelsUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego models list [flags]")
+	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
+	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
+}
+
+func removeManagedLocalFiles(entry registry.Entry) error {
+	if entry.LocalDir == "" || len(entry.Files) == 0 {
+		return nil
+	}
+	localRoot, err := filepath.Abs(entry.LocalDir)
+	if err != nil {
+		return err
+	}
+	for _, file := range entry.Files {
+		path, err := cache.SafeJoin(localRoot, file.Path)
+		if err != nil {
+			return err
+		}
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		cleanupEmptyParents(filepath.Dir(path), localRoot)
+	}
+	return nil
+}
+
+func cleanupEmptyParents(start, root string) {
+	current := start
+	for {
+		if current == root || current == "." || current == string(filepath.Separator) {
+			return
+		}
+		if err := os.Remove(current); err != nil {
+			return
+		}
+		current = filepath.Dir(current)
+	}
+}
+
+func writeModelInfo(w io.Writer, entry registry.Entry) {
+	localPath := entry.LocalDir
+	if localPath == "" {
+		localPath = entry.SnapshotPath
+	}
+	fmt.Fprintf(w, "Repo:        %s\n", entry.RepoID)
+	fmt.Fprintf(w, "Type:        %s\n", entry.RepoType)
+	fmt.Fprintf(w, "Revision:    %s\n", entry.Revision)
+	fmt.Fprintf(w, "Commit:      %s\n", entry.Commit)
+	fmt.Fprintf(w, "Local path:  %s\n", localPath)
+	fmt.Fprintf(w, "Cache path:  %s\n", entry.SnapshotPath)
+	fmt.Fprintf(w, "Files:       %d\n", entry.FileCount)
+	fmt.Fprintf(w, "Size:        %s\n", humanBytes(entry.TotalSize))
+	if !entry.DownloadedAt.IsZero() {
+		fmt.Fprintf(w, "Downloaded:  %s\n", entry.DownloadedAt.Format(time.RFC3339))
+	}
+	keyFiles := importantFiles(entry.Files)
+	if len(keyFiles) > 0 {
+		fmt.Fprintln(w, "Key files:")
+		for _, file := range keyFiles {
+			fmt.Fprintf(w, "  - %s", file.Path)
+			if file.Size > 0 {
+				fmt.Fprintf(w, " (%s)", humanBytes(file.Size))
+			}
+			fmt.Fprintln(w)
+		}
+	}
+}
+
+func importantFiles(files []registry.File) []registry.File {
+	var out []registry.File
+	for _, file := range files {
+		if isImportantModelFile(file.Path) {
+			out = append(out, file)
+		}
+	}
+	return out
+}
+
+func isImportantModelFile(path string) bool {
+	lower := strings.ToLower(path)
+	switch lower {
+	case "config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json":
+		return true
+	default:
+		return strings.HasSuffix(lower, ".safetensors") || strings.HasSuffix(lower, ".gguf") || strings.HasSuffix(lower, ".onnx")
+	}
 }
 
 type terminalProgress struct {
