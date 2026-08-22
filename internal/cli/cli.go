@@ -27,6 +27,7 @@ import (
 	"github.com/gakon/nego-ai/internal/version"
 	"github.com/gakon/nego-ai/server"
 	"github.com/gakon/nego-ai/tokenizer"
+	"github.com/gakon/nego-ai/training"
 )
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -61,6 +62,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runVersion(args[1:], stdout, stderr)
 	case "convert":
 		return runConvert(args[1:], stdout, stderr)
+	case "train":
+		return runTrain(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -254,6 +257,52 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego eval <suite.json> [flags]")
 	fmt.Fprintln(w, "  nego version [flags]")
 	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
+	fmt.Fprintln(w, "  nego train <job.json> [flags]")
+}
+
+func runTrain(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("train", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego train <job.json> [flags]")
+		return 2
+	}
+	data, err := os.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	var spec training.JobSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	result, err := training.Run(context.Background(), spec)
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(result)
+	} else {
+		status := "failed"
+		if result.Success {
+			status = "completed"
+		}
+		fmt.Fprintf(stdout, "Training job %s: %s (%s)\n", result.Name, status, result.Duration)
+		if result.Stdout != "" {
+			fmt.Fprint(stdout, result.Stdout)
+		}
+		if result.Stderr != "" {
+			fmt.Fprint(stderr, result.Stderr)
+		}
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
 }
 
 func runConvert(args []string, stdout, stderr io.Writer) int {

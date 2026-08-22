@@ -542,6 +542,22 @@ func TestConvertGGUFCommand(t *testing.T) {
 	}
 }
 
+func TestTrainCommand(t *testing.T) {
+	jobPath := filepath.Join(t.TempDir(), "job.json")
+	body := `{"name":"test","command":` + strconv.Quote(fakeTrainingCommand(t)) + `,"args":["hello"]}`
+	if err := os.WriteFile(jobPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"train", jobPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "training hello") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
 func writeCLITokenizer(t *testing.T, dir string) {
 	t.Helper()
 	body := `{
@@ -590,6 +606,23 @@ func fakeConverterCommand(t *testing.T) string {
 	}
 	path := filepath.Join(dir, "convert.sh")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nwhile [ \"$1\" != \"\" ]; do if [ \"$1\" = \"--outfile\" ]; then echo gguf > \"$2\"; exit 0; fi; shift; done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fakeTrainingCommand(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "train.bat")
+		if err := os.WriteFile(path, []byte("@echo off\necho training %*\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	path := filepath.Join(dir, "train.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho training \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return path

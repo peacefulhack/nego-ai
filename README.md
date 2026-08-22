@@ -121,6 +121,12 @@ nego cache gc --yes
 nego convert gguf ./models/qwen3 --out ./models/qwen3.gguf --converter /path/to/convert_hf_to_gguf.py
 ```
 
+## Training orchestration
+
+```bash
+nego train job.json
+```
+
 ## Eval
 
 ```bash
