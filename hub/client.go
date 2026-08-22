@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -256,6 +257,122 @@ func (c *Client) DownloadSnapshot(ctx context.Context, opts DownloadSnapshotOpti
 		Destination: snapshotRoot,
 	})
 	return snapshotRoot, nil
+}
+
+func (c *Client) ListFiles(ctx context.Context, opts ListFilesOptions) ([]FileInfo, error) {
+	if err := validateCommon(opts.RepoID, opts.RepoType); err != nil {
+		return nil, err
+	}
+	cfg, err := c.config("", opts.Token, nil)
+	if err != nil {
+		return nil, err
+	}
+	api := c.api(cfg.token)
+	repoType := string(normalizeRepoType(opts.RepoType))
+	revision := normalizeRevision(opts.Revision)
+	files, err := api.ListRepoTree(ctx, repoType, opts.RepoID, revision)
+	if err != nil {
+		return nil, wrapHFError(err)
+	}
+	out := make([]FileInfo, 0, len(files))
+	for _, file := range files {
+		out = append(out, FileInfo{
+			Path: file.Path,
+			Type: file.Type,
+			Size: file.Size,
+		})
+	}
+	return out, nil
+}
+
+func (c *Client) ResolveGGUFFile(ctx context.Context, opts ResolveGGUFFileOptions) (*GGUFFile, error) {
+	if err := validateCommon(opts.RepoID, opts.RepoType); err != nil {
+		return nil, err
+	}
+	repoType := normalizeRepoType(opts.RepoType)
+	if repoType != RepoTypeModel {
+		return nil, invalidOptions("GGUF runtime download only supports model repos")
+	}
+	revision := normalizeRevision(opts.Revision)
+	var lastErr error
+	for _, repoID := range ggufRepoCandidates(opts.RepoID, opts.GGUFRepo) {
+		if err := validateCommon(repoID, repoType); err != nil {
+			return nil, err
+		}
+		if opts.Filename != "" {
+			if !strings.HasSuffix(strings.ToLower(opts.Filename), ".gguf") {
+				return nil, invalidOptions("GGUF filename must end with .gguf")
+			}
+			return &GGUFFile{RepoID: repoID, Filename: opts.Filename}, nil
+		}
+		files, err := c.ListFiles(ctx, ListFilesOptions{
+			RepoID:   repoID,
+			RepoType: repoType,
+			Revision: revision,
+			Token:    opts.Token,
+		})
+		if err != nil {
+			if IsNotFound(err) && opts.GGUFRepo == "" {
+				lastErr = err
+				continue
+			}
+			return nil, err
+		}
+		file, ok := chooseGGUFFile(files, opts.Quant)
+		if ok {
+			return &GGUFFile{RepoID: repoID, Filename: file.Path, Size: file.Size}, nil
+		}
+		lastErr = notFound("no GGUF file matching quant %q found in %s", normalizeQuant(opts.Quant), repoID)
+		if opts.GGUFRepo != "" {
+			break
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, notFound("no GGUF repo found for %s", opts.RepoID)
+}
+
+func ggufRepoCandidates(repoID, override string) []string {
+	if override != "" {
+		return []string{override}
+	}
+	if strings.HasSuffix(strings.ToLower(repoID), "-gguf") {
+		return []string{repoID}
+	}
+	return []string{repoID + "-GGUF", repoID}
+}
+
+func chooseGGUFFile(files []FileInfo, quant string) (FileInfo, bool) {
+	quant = normalizeQuant(quant)
+	var candidates []FileInfo
+	for _, file := range files {
+		if file.Type != "file" || !strings.HasSuffix(strings.ToLower(file.Path), ".gguf") {
+			continue
+		}
+		if quant != "" && !strings.Contains(normalizeQuant(file.Path), quant) {
+			continue
+		}
+		candidates = append(candidates, file)
+	}
+	if len(candidates) == 0 {
+		return FileInfo{}, false
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Size != candidates[j].Size {
+			return candidates[i].Size < candidates[j].Size
+		}
+		return candidates[i].Path < candidates[j].Path
+	})
+	return candidates[0], true
+}
+
+func normalizeQuant(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = "Q4_K_M"
+	}
+	return strings.NewReplacer("-", "_", ".", "_").Replace(strings.ToUpper(value))
 }
 
 type clientConfig struct {

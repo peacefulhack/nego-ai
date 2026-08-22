@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gakon/nego-ai/internal/registry"
@@ -63,6 +64,78 @@ func TestDownloadFile(t *testing.T) {
 	}
 	if entries[0].RepoID != "Qwen/Qwen3-0.6B" || entries[0].Commit != "abc123" || entries[0].FileCount != 1 {
 		t.Fatalf("unexpected registry entry: %#v", entries[0])
+	}
+}
+
+func TestResolveGGUFFileChoosesPreferredQuantFromSameOwnerRepo(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/models/Qwen/Qwen3-0.6B-GGUF/tree/main":
+			_, _ = w.Write([]byte(`[
+				{"type":"file","path":"Qwen3-0.6B-Q8_0.gguf","size":805},
+				{"type":"file","path":"Qwen3-0.6B-Q4_K_M.gguf","size":484},
+				{"type":"file","path":"README.md","size":12}
+			]`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(WithEndpoint(server.URL))
+	got, err := client.ResolveGGUFFile(context.Background(), ResolveGGUFFileOptions{
+		RepoID: "Qwen/Qwen3-0.6B",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RepoID != "Qwen/Qwen3-0.6B-GGUF" || got.Filename != "Qwen3-0.6B-Q4_K_M.gguf" {
+		t.Fatalf("unexpected GGUF selection: %#v", got)
+	}
+}
+
+func TestResolveGGUFFileFallsBackToOriginalRepo(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/models/acme/tiny-GGUF/tree/main":
+			http.NotFound(w, r)
+		case "/api/models/acme/tiny/tree/main":
+			_, _ = w.Write([]byte(`[{"type":"file","path":"tiny-q4_k_m.gguf","size":128}]`))
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(WithEndpoint(server.URL))
+	got, err := client.ResolveGGUFFile(context.Background(), ResolveGGUFFileOptions{RepoID: "acme/tiny"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RepoID != "acme/tiny" || got.Filename != "tiny-q4_k_m.gguf" {
+		t.Fatalf("unexpected GGUF selection: %#v", got)
+	}
+}
+
+func TestResolveGGUFFileUsesOverrideAndFilename(t *testing.T) {
+	got, err := NewClient().ResolveGGUFFile(context.Background(), ResolveGGUFFileOptions{
+		RepoID:   "Qwen/Qwen3-0.6B",
+		GGUFRepo: "unsloth/Qwen3-0.6B-GGUF",
+		Filename: "Qwen3-0.6B-Q4_K_M.gguf",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RepoID != "unsloth/Qwen3-0.6B-GGUF" || got.Filename != "Qwen3-0.6B-Q4_K_M.gguf" {
+		t.Fatalf("unexpected GGUF selection: %#v", got)
+	}
+}
+
+func TestResolveGGUFFileDoesNotGuessThirdPartyRepos(t *testing.T) {
+	got := ggufRepoCandidates("Qwen/Qwen3-0.6B", "")
+	joined := strings.Join(got, ",")
+	if strings.Contains(joined, "unsloth/") || strings.Contains(joined, "bartowski/") {
+		t.Fatalf("unexpected third-party GGUF candidates: %#v", got)
 	}
 }
 

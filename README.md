@@ -32,6 +32,8 @@ nego download Qwen/Qwen3-0.6B --local-dir ./models/qwen3
 nego download Qwen/Qwen3-0.6B tokenizer.json --local-dir ./models/qwen3
 nego download Qwen/Qwen3-0.6B --include "*.safetensors" --exclude "*.msgpack"
 nego download Qwen/Qwen3-0.6B --revision main --token "$HF_TOKEN"
+nego download Qwen/Qwen3-0.6B --gguf --local-dir ./models/qwen3-gguf
+nego download Qwen/Qwen3-0.6B --gguf --gguf-repo unsloth/Qwen3-0.6B-GGUF --quant Q4_K_M --local-dir ./models/qwen3-gguf
 ```
 
 ## Go API
@@ -49,6 +51,16 @@ path, err := hub.DownloadSnapshot(ctx, hub.DownloadSnapshotOptions{
     RepoID:   "Qwen/Qwen3-0.6B",
     LocalDir: "./models/qwen3",
     Include: []string{"*.safetensors", "config.json", "tokenizer.json"},
+})
+
+gguf, err := hub.ResolveGGUFFile(ctx, hub.ResolveGGUFFileOptions{
+    RepoID: "Qwen/Qwen3-0.6B",
+    Quant:  "Q4_K_M",
+})
+path, err := hub.DownloadFile(ctx, hub.DownloadFileOptions{
+    RepoID:   gguf.RepoID,
+    Filename: gguf.Filename,
+    LocalDir: "./models/qwen3-gguf",
 })
 ```
 

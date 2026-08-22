@@ -113,7 +113,9 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	var include repeatedFlag
 	var exclude repeatedFlag
 	var localDir, cacheDir, revision, token, repoType string
+	var ggufRepo, ggufFile, quant string
 	var force, localOnly, quiet, jsonOutput bool
+	var gguf bool
 	var workers int
 
 	fs := flag.NewFlagSet("download", flag.ContinueOnError)
@@ -127,6 +129,10 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	fs.BoolVar(&localOnly, "local-files-only", false, "only use local files")
 	fs.BoolVar(&quiet, "quiet", false, "disable progress output")
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.BoolVar(&gguf, "gguf", false, "download a llama.cpp-ready GGUF file")
+	fs.StringVar(&ggufRepo, "gguf-repo", "", "GGUF repo id to use instead of auto-detecting same-owner -GGUF")
+	fs.StringVar(&ggufFile, "gguf-file", "", "specific GGUF filename to download")
+	fs.StringVar(&quant, "quant", "Q4_K_M", "GGUF quantization to prefer")
 	fs.IntVar(&workers, "workers", 0, "maximum concurrent snapshot downloads")
 	fs.Var(&include, "include", "include glob pattern, repeatable")
 	fs.Var(&exclude, "exclude", "exclude glob pattern, repeatable")
@@ -151,7 +157,57 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	commonRepoType := hub.RepoType(repoType)
 	var path string
 	var err error
-	if len(positionals) == 2 {
+	var resolvedGGUF *hub.GGUFFile
+	if ggufRepo != "" || ggufFile != "" || flagWasSet(fs, "quant") {
+		gguf = true
+	}
+	if gguf {
+		if len(include) > 0 || len(exclude) > 0 {
+			fmt.Fprintln(stderr, "nego: --gguf cannot be combined with --include or --exclude; use --gguf-file or --quant")
+			return 2
+		}
+		if commonRepoType != hub.RepoTypeModel {
+			fmt.Fprintln(stderr, "nego: --gguf only supports model repos")
+			return 2
+		}
+		if len(positionals) == 2 {
+			if ggufFile != "" && ggufFile != positionals[1] {
+				fmt.Fprintln(stderr, "nego: pass either [filename] or --gguf-file, not both")
+				return 2
+			}
+			ggufFile = positionals[1]
+		}
+		if localOnly && ggufFile == "" {
+			fmt.Fprintln(stderr, "nego: --local-files-only with --gguf requires [filename] or --gguf-file")
+			return 2
+		}
+		if reporter != nil {
+			reporter.ReportProgress(hub.ProgressEvent{RepoID: positionals[0], State: "resolving"})
+		}
+		resolvedGGUF, err = client.ResolveGGUFFile(ctx, hub.ResolveGGUFFileOptions{
+			RepoID:   positionals[0],
+			RepoType: commonRepoType,
+			Revision: revision,
+			Token:    token,
+			GGUFRepo: ggufRepo,
+			Filename: ggufFile,
+			Quant:    quant,
+		})
+		if err == nil {
+			path, err = client.DownloadFile(ctx, hub.DownloadFileOptions{
+				RepoID:         resolvedGGUF.RepoID,
+				Filename:       resolvedGGUF.Filename,
+				RepoType:       commonRepoType,
+				Revision:       revision,
+				LocalDir:       localDir,
+				CacheDir:       cacheDir,
+				Token:          token,
+				Force:          force,
+				LocalFilesOnly: localOnly,
+				Progress:       reporter,
+			})
+		}
+	} else if len(positionals) == 2 {
 		path, err = client.DownloadFile(ctx, hub.DownloadFileOptions{
 			RepoID:         positionals[0],
 			Filename:       positionals[1],
@@ -188,11 +244,19 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return exitCode(err)
 	}
 	if jsonOutput {
-		_ = json.NewEncoder(stdout).Encode(map[string]string{"path": path})
+		result := map[string]string{"path": path}
+		if resolvedGGUF != nil {
+			result["repo"] = resolvedGGUF.RepoID
+			result["file"] = resolvedGGUF.Filename
+		}
+		_ = json.NewEncoder(stdout).Encode(result)
 	} else if quiet {
 		fmt.Fprintln(stdout, path)
 	} else {
 		fmt.Fprintf(stdout, "Saved to: %s\n", path)
+		if resolvedGGUF != nil {
+			fmt.Fprintf(stdout, "Runtime file: %s/%s\n", resolvedGGUF.RepoID, resolvedGGUF.Filename)
+		}
 	}
 	return 0
 }
@@ -225,7 +289,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf":
 		return true
 	default:
 		return false
@@ -276,6 +340,7 @@ func exitCode(err error) int {
 func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego download <repo-id> [filename] [flags]")
+	fmt.Fprintln(w, "  nego download <repo-id> --gguf [--quant Q4_K_M] [--gguf-repo <repo-id>] [flags]")
 	fmt.Fprintln(w, "  nego models list [flags]")
 	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
 	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")

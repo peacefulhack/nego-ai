@@ -53,7 +53,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	}
 	modelPath, err := modelinfo.ResolveRuntimeFile(opts.Path, "gguf")
 	if err != nil {
-		return nil, fmt.Errorf("resolve llama.cpp model: %w", err)
+		return nil, llamaResolveError(opts.Path, err)
 	}
 	command := b.Command
 	if command == "" {
@@ -66,6 +66,35 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		return nil, err
 	}
 	return &Model{command: command, modelPath: modelPath, promptPath: promptPath(opts.Path, modelPath, opts.Options), options: opts.Options}, nil
+}
+
+func llamaResolveError(path string, err error) error {
+	if hasFileWithSuffix(path, ".safetensors") {
+		return fmt.Errorf("resolve llama.cpp model: %w; found Hugging Face safetensors, but llama.cpp needs GGUF. Download a runtime file with `nego download <repo-id> --gguf --local-dir <dir>` or convert with `nego convert gguf`", err)
+	}
+	return fmt.Errorf("resolve llama.cpp model: %w", err)
+}
+
+func hasFileWithSuffix(root, suffix string) bool {
+	info, err := os.Stat(root)
+	if err != nil {
+		return false
+	}
+	if !info.IsDir() {
+		return strings.HasSuffix(strings.ToLower(root), suffix)
+	}
+	found := false
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(strings.ToLower(entry.Name()), suffix) {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 type Model struct {

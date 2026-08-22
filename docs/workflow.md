@@ -29,6 +29,24 @@ Download a full model snapshot into a local directory:
 nego download Qwen/Qwen3-0.6B --local-dir ./models/qwen3
 ```
 
+That downloads the original Hugging Face files, usually `*.safetensors`. Use this for inspection, tokenizer work, dataset checks, or future training flows.
+
+Download a llama.cpp-ready GGUF file when you want to run local chat immediately:
+
+```bash
+nego download Qwen/Qwen3-0.6B --gguf --local-dir ./models/qwen3-gguf
+```
+
+If the model does not have a same-owner `-GGUF` repo, choose a trusted GGUF repo explicitly:
+
+```bash
+nego download Qwen/Qwen3-0.6B \
+  --gguf \
+  --gguf-repo unsloth/Qwen3-0.6B-GGUF \
+  --quant Q4_K_M \
+  --local-dir ./models/qwen3-gguf
+```
+
 Download only one file:
 
 ```bash
@@ -226,7 +244,7 @@ nego run ./models/model.gguf "Explain Go in one paragraph." \
 Run one chat request:
 
 ```bash
-nego chat ./models/model.gguf "Hello"
+nego chat ./models/qwen3-gguf "Hello"
 ```
 
 Start interactive chat:

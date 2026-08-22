@@ -26,6 +26,20 @@ func TestGenerateUsesLlamaCommand(t *testing.T) {
 	}
 }
 
+func TestLoadSafetensorsDirectoryReturnsGGUFHint(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Backend{Command: fakeLlamaCommand(t)}.Load(context.Background(), nego.ModelOptions{Path: dir})
+	if err == nil {
+		t.Fatal("expected load error")
+	}
+	if !strings.Contains(err.Error(), "safetensors") || !strings.Contains(err.Error(), "nego download <repo-id> --gguf") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestChatUsesGeneratedOutput(t *testing.T) {
 	command := fakeLlamaCommand(t)
 	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})

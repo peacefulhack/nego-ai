@@ -51,6 +51,21 @@ func TestSplitFlagsAllowsFilenameAndFilters(t *testing.T) {
 	}
 }
 
+func TestSplitFlagsTreatsGGUFAsBool(t *testing.T) {
+	flags, positionals := splitFlags([]string{
+		"Qwen/Qwen3-0.6B",
+		"--gguf",
+		"--local-dir",
+		"./models/qwen3-gguf",
+	})
+	if !reflect.DeepEqual(flags, []string{"--gguf", "--local-dir", "./models/qwen3-gguf"}) {
+		t.Fatalf("flags = %#v", flags)
+	}
+	if !reflect.DeepEqual(positionals, []string{"Qwen/Qwen3-0.6B"}) {
+		t.Fatalf("positionals = %#v", positionals)
+	}
+}
+
 func TestRenderDownloadLineDoesNotDuplicateUnits(t *testing.T) {
 	line := renderDownloadLine(hub.ProgressEvent{
 		Filename:   "model.safetensors",
