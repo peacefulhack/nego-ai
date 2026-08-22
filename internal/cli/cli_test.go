@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -401,6 +402,38 @@ func TestEmbedCommand(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stdout.String(), `"embeddings":[[1,0]]`) {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestEvalCommand(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"text": "generated: hello"}},
+		})
+	}))
+	defer server.Close()
+
+	suitePath := filepath.Join(t.TempDir(), "suite.json")
+	body := `{
+		"backend":"openai-compatible",
+		"endpoint":` + strconv.Quote(server.URL) + `,
+		"model":"test-model",
+		"cases":[{"name":"hello","prompt":"hello","contains":"generated"}]
+	}`
+	if err := os.WriteFile(suitePath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"eval", suitePath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Passed: 1") {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 }

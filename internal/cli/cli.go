@@ -19,6 +19,7 @@ import (
 	_ "github.com/gakon/nego-ai/backends/llama"
 	_ "github.com/gakon/nego-ai/backends/openai"
 	"github.com/gakon/nego-ai/chattemplate"
+	"github.com/gakon/nego-ai/evals"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/cache"
 	"github.com/gakon/nego-ai/internal/registry"
@@ -50,6 +51,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runServe(args[1:], stdout, stderr)
 	case "embed":
 		return runEmbed(args[1:], stdout, stderr)
+	case "eval":
+		return runEval(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -238,6 +241,76 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
 	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
 	fmt.Fprintln(w, "  nego embed <text> --endpoint <url> --model <name> [flags]")
+	fmt.Fprintln(w, "  nego eval <suite.json> [flags]")
+}
+
+type evalConfig struct {
+	Backend  string       `json:"backend"`
+	Path     string       `json:"path"`
+	Endpoint string       `json:"endpoint"`
+	Model    string       `json:"model"`
+	APIKey   string       `json:"api_key"`
+	Cases    []evals.Case `json:"cases"`
+}
+
+func runEval(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego eval <suite.json> [flags]")
+		return 2
+	}
+	data, err := os.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	var cfg evalConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if cfg.Backend == "" {
+		cfg.Backend = "openai-compatible"
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
+		Backend:  cfg.Backend,
+		Path:     cfg.Path,
+		Endpoint: cfg.Endpoint,
+		Model:    cfg.Model,
+		APIKey:   cfg.APIKey,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	defer model.Close()
+	report := evals.Run(context.Background(), model, evals.Suite{Cases: cfg.Cases})
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(report)
+	} else {
+		fmt.Fprintf(stdout, "Passed: %d\nFailed: %d\n", report.Passed, report.Failed)
+		for _, result := range report.Results {
+			status := "FAIL"
+			if result.Passed {
+				status = "PASS"
+			}
+			fmt.Fprintf(stdout, "%s %s (%s)\n", status, result.Name, result.Duration)
+			if result.Error != "" {
+				fmt.Fprintf(stdout, "  %s\n", result.Error)
+			}
+		}
+	}
+	if report.Failed > 0 {
+		return 1
+	}
+	return 0
 }
 
 func runTokenize(args []string, stdout, stderr io.Writer) int {

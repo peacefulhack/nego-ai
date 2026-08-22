@@ -92,3 +92,9 @@ index := rag.NewIndex()
 rows, err := datasets.ReadJSONL(reader)
 train, test := datasets.Split(rows, 0.2, 42)
 ```
+
+## Eval
+
+```bash
+nego eval suite.json
+```
