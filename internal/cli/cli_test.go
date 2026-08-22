@@ -531,6 +531,27 @@ func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	}
 }
 
+func TestChatInteractiveStreamsTurns(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	modelPath := fakeCLIGGUF(t)
+	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
+	var stdout, stderr bytes.Buffer
+	code := RunWithIO(context.Background(), []string{"chat", modelPath, "--interactive", "--log", logPath}, strings.NewReader("hello\n/exit\n"), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Interactive chat") || !strings.Contains(stdout.String(), "assistant> fake llama output") {
+		t.Fatalf("unexpected interactive output stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"command":"chat"`) || !strings.Contains(string(data), `"messages"`) {
+		t.Fatalf("unexpected log: %s", string(data))
+	}
+}
+
 func TestRunsListAndShow(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)

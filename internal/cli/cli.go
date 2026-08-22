@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -38,6 +39,10 @@ import (
 )
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	return RunWithIO(ctx, args, os.Stdin, stdout, stderr)
+}
+
+func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stderr)
 		return 2
@@ -64,7 +69,7 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	case "run":
 		return runModel(args[1:], stdout, stderr)
 	case "chat":
-		return runChat(args[1:], stdout, stderr)
+		return runChat(args[1:], stdin, stdout, stderr)
 	case "serve":
 		return runServe(args[1:], stdout, stderr)
 	case "embed":
@@ -214,7 +219,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive":
 		return true
 	default:
 		return false
@@ -733,7 +738,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runChat(args []string, stdout, stderr io.Writer) int {
+func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var backend string
 	var system string
 	var maxTokens int
@@ -746,6 +751,7 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	var gpuLayers int
 	var configFile string
 	var logPath string
+	var interactive bool
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
@@ -760,6 +766,7 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
 	fs.StringVar(&configFile, "f", "", "chat config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
+	fs.BoolVar(&interactive, "interactive", false, "start an interactive chat session")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -807,20 +814,40 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 		messages = append(messages, nego.Message{Role: nego.RoleUser, Content: cfg.Prompt})
 	}
 	if path == "" || len(messages) == 0 {
-		fmt.Fprintln(stderr, "usage: nego chat <model-path> <message> [flags]")
-		return 2
+		if !(interactive && path != "") {
+			fmt.Fprintln(stderr, "usage: nego chat <model-path> <message> [flags]")
+			return 2
+		}
 	}
 	options := runtimeOptions(cfg.Options, threads, ctxSize, gpuLayers)
-	started := time.Now().UTC()
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
+		started := time.Now().UTC()
 		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topP, stop, seed, options, err)); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
 	}
 	defer model.Close()
+	if interactive {
+		return runInteractiveChat(stdin, stdout, stderr, model, interactiveChatOptions{
+			backend:     backend,
+			path:        path,
+			endpoint:    cfg.Endpoint,
+			modelID:     cfg.Model,
+			system:      system,
+			messages:    messages,
+			maxTokens:   maxTokens,
+			temperature: temperature,
+			topP:        topP,
+			stop:        stop,
+			seed:        seed,
+			options:     options,
+			logPath:     logPath,
+		})
+	}
+	started := time.Now().UTC()
 	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens, Temperature: temperature, TopP: topP, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -832,6 +859,98 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprint(stdout, resp.Message.Content)
 	if err := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, resp.Message.Content, started, maxTokens, temperature, topP, stop, seed, options, nil)); err != nil {
 		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+type interactiveChatOptions struct {
+	backend     string
+	path        string
+	endpoint    string
+	modelID     string
+	system      string
+	messages    []nego.Message
+	maxTokens   int
+	temperature float64
+	topP        float64
+	stop        []string
+	seed        int64
+	options     map[string]string
+	logPath     string
+}
+
+func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Model, opts interactiveChatOptions) int {
+	messages := append([]nego.Message(nil), opts.messages...)
+	if opts.system != "" && len(messages) == 0 {
+		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: opts.system})
+	}
+	scanner := bufio.NewScanner(stdin)
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	fmt.Fprintln(stderr, "Interactive chat. Type /exit to quit, /reset to clear history.")
+	for {
+		fmt.Fprint(stderr, "user> ")
+		if !scanner.Scan() {
+			break
+		}
+		text := strings.TrimSpace(scanner.Text())
+		switch text {
+		case "":
+			continue
+		case "/exit", "/quit":
+			return 0
+		case "/reset":
+			messages = nil
+			if opts.system != "" {
+				messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: opts.system})
+			}
+			fmt.Fprintln(stderr, "history reset")
+			continue
+		}
+		messages = append(messages, nego.Message{Role: nego.RoleUser, Content: text})
+		started := time.Now().UTC()
+		fmt.Fprint(stdout, "assistant> ")
+		stream, err := model.StreamChat(context.Background(), nego.ChatRequest{
+			Messages:    messages,
+			MaxTokens:   opts.maxTokens,
+			Temperature: opts.temperature,
+			TopP:        opts.topP,
+			Stop:        opts.stop,
+			Seed:        opts.seed,
+		})
+		if err != nil {
+			fmt.Fprintln(stdout)
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, "", started, opts.maxTokens, opts.temperature, opts.topP, opts.stop, opts.seed, opts.options, err)); logErr != nil {
+				fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
+			}
+			return 1
+		}
+		var output strings.Builder
+		for token := range stream.Tokens() {
+			fmt.Fprint(stdout, token.Text)
+			output.WriteString(token.Text)
+		}
+		if err := stream.Err(); err != nil {
+			_ = stream.Close()
+			fmt.Fprintln(stdout)
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, output.String(), started, opts.maxTokens, opts.temperature, opts.topP, opts.stop, opts.seed, opts.options, err)); logErr != nil {
+				fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
+			}
+			return 1
+		}
+		_ = stream.Close()
+		fmt.Fprintln(stdout)
+		reply := output.String()
+		messages = append(messages, nego.Message{Role: nego.RoleAssistant, Content: reply})
+		if err := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, reply, started, opts.maxTokens, opts.temperature, opts.topP, opts.stop, opts.seed, opts.options, nil)); err != nil {
+			fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
+			return 1
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
 	return 0
