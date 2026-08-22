@@ -125,6 +125,13 @@ rows, err := datasets.ReadJSONL(reader)
 train, test := datasets.Split(rows, 0.2, 42)
 ```
 
+```bash
+nego dataset inspect data.jsonl
+nego dataset validate data.jsonl --format chat
+nego dataset sample data.jsonl --n 5
+nego dataset split data.jsonl --train-out train.jsonl --test-out test.jsonl --test-size 0.1
+```
+
 ## Cache
 
 ```bash

@@ -579,6 +579,67 @@ func TestRunsListAndShow(t *testing.T) {
 	}
 }
 
+func TestDatasetCommands(t *testing.T) {
+	dir := t.TempDir()
+	dataPath := filepath.Join(dir, "data.jsonl")
+	body := strings.Join([]string{
+		`{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"}]}`,
+		`{"messages":[{"role":"user","content":"bye"},{"role":"assistant","content":"later"}]}`,
+		`{"messages":[{"role":"user","content":"ok"},{"role":"assistant","content":"yes"}]}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(dataPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"dataset", "inspect", dataPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("inspect code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Rows:        3") || !strings.Contains(stdout.String(), "chat: 3") {
+		t.Fatalf("unexpected inspect output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "validate", dataPath, "--format", "chat"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("validate code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "sample", dataPath, "--n", "2"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("sample code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if got := strings.Count(strings.TrimSpace(stdout.String()), "\n") + 1; got != 2 {
+		t.Fatalf("sample rows = %d output=%q", got, stdout.String())
+	}
+
+	trainOut := filepath.Join(dir, "train.jsonl")
+	testOut := filepath.Join(dir, "test.jsonl")
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "split", dataPath, "--train-out", trainOut, "--test-out", testOut, "--test-size", "0.34"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("split code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(trainOut); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(testOut); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "split", dataPath, "--train-out", trainOut, "--test-out", filepath.Join(dir, "test2.jsonl")}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "refusing to overwrite") {
+		t.Fatalf("expected overwrite refusal, code=%d stderr=%q", code, stderr.String())
+	}
+}
+
 func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 	got := runtimeOptions(map[string]string{
 		"threads":    "2",

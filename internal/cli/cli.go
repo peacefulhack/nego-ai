@@ -7,10 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +24,7 @@ import (
 	_ "github.com/gakon/nego-ai/backends/openai"
 	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/convert"
+	"github.com/gakon/nego-ai/datasets"
 	"github.com/gakon/nego-ai/evals"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/cache"
@@ -46,6 +49,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runModels(args[1:], stdout, stderr)
 	case "runs":
 		return runRuns(args[1:], stdout, stderr)
+	case "dataset":
+		return runDataset(args[1:], stdout, stderr)
 	case "cache":
 		return runCache(args[1:], stdout, stderr)
 	case "tokenize":
@@ -255,6 +260,10 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
 	fmt.Fprintln(w, "  nego runs list <runs.jsonl> [flags]")
 	fmt.Fprintln(w, "  nego runs show <runs.jsonl> <id> [flags]")
+	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset sample <file> [flags]")
 	fmt.Fprintln(w, "  nego cache usage [flags]")
 	fmt.Fprintln(w, "  nego cache gc --yes [flags]")
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
@@ -1046,6 +1055,239 @@ func runRuns(args []string, stdout, stderr io.Writer) int {
 		runsUsage(stderr)
 		return 2
 	}
+}
+
+func runDataset(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		datasetUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "inspect":
+		return runDatasetInspect(args[1:], stdout, stderr)
+	case "validate":
+		return runDatasetValidate(args[1:], stdout, stderr)
+	case "split":
+		return runDatasetSplit(args[1:], stdout, stderr)
+	case "sample":
+		return runDatasetSample(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		datasetUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown dataset command %q\n", args[0])
+		datasetUsage(stderr)
+		return 2
+	}
+}
+
+func runDatasetInspect(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("dataset inspect", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego dataset inspect <file> [flags]")
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	info := datasetSummary(positionals[0], rows)
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(info)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Path:        %s\n", info["path"])
+	fmt.Fprintf(stdout, "Rows:        %d\n", info["rows"])
+	fmt.Fprintf(stdout, "Columns:     %s\n", strings.Join(info["columns"].([]string), ", "))
+	fmt.Fprintln(stdout, "Formats:")
+	for key, value := range info["formats"].(map[string]int) {
+		if value > 0 {
+			fmt.Fprintf(stdout, "  %s: %d\n", key, value)
+		}
+	}
+	return 0
+}
+
+func runDatasetValidate(args []string, stdout, stderr io.Writer) int {
+	var format string
+	fs := flag.NewFlagSet("dataset validate", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&format, "format", "auto", "dataset format: auto, chat, completion, or instruction")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego dataset validate <file> [flags]")
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := datasets.ValidateFormat(rows, format); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Valid %s dataset: %d rows\n", format, len(rows))
+	return 0
+}
+
+func runDatasetSplit(args []string, stdout, stderr io.Writer) int {
+	var trainOut string
+	var testOut string
+	var testSize float64
+	var seed int64
+	fs := flag.NewFlagSet("dataset split", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&trainOut, "train-out", "", "output train JSONL file")
+	fs.StringVar(&testOut, "test-out", "", "output test JSONL file")
+	fs.Float64Var(&testSize, "test-size", 0.1, "test split ratio")
+	fs.Int64Var(&seed, "seed", 42, "shuffle seed")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || trainOut == "" || testOut == "" {
+		fmt.Fprintln(stderr, "usage: nego dataset split <file> --train-out <file> --test-out <file> [flags]")
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := ensureDatasetOutputAvailable(trainOut, testOut); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	train, test := datasets.Split(rows, testSize, seed)
+	if err := writeDatasetFile(trainOut, train); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := writeDatasetFile(testOut, test); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Train: %d rows -> %s\n", len(train), trainOut)
+	fmt.Fprintf(stdout, "Test:  %d rows -> %s\n", len(test), testOut)
+	return 0
+}
+
+func runDatasetSample(args []string, stdout, stderr io.Writer) int {
+	var n int
+	var seed int64
+	fs := flag.NewFlagSet("dataset sample", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.IntVar(&n, "n", 10, "number of rows")
+	fs.Int64Var(&seed, "seed", 42, "shuffle seed")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego dataset sample <file> [flags]")
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if n < 0 {
+		n = 0
+	}
+	copied := append([]datasets.Row(nil), rows...)
+	rng := rand.New(rand.NewSource(seed))
+	rng.Shuffle(len(copied), func(i, j int) {
+		copied[i], copied[j] = copied[j], copied[i]
+	})
+	if n > len(copied) {
+		n = len(copied)
+	}
+	if err := datasets.WriteJSONL(stdout, copied[:n]); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func datasetUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset sample <file> [flags]")
+}
+
+func datasetSummary(path string, rows []datasets.Row) map[string]any {
+	columns := make(map[string]bool)
+	formats := map[string]int{"chat": 0, "completion": 0, "instruction": 0, "unknown": 0}
+	for _, row := range rows {
+		for key := range row {
+			columns[key] = true
+		}
+		switch {
+		case row["messages"] != nil:
+			formats["chat"]++
+		case row["prompt"] != nil && (row["completion"] != nil || row["response"] != nil):
+			formats["completion"]++
+		case row["instruction"] != nil && row["output"] != nil:
+			formats["instruction"]++
+		default:
+			formats["unknown"]++
+		}
+	}
+	columnList := make([]string, 0, len(columns))
+	for column := range columns {
+		columnList = append(columnList, column)
+	}
+	sort.Strings(columnList)
+	return map[string]any{
+		"path":    path,
+		"rows":    len(rows),
+		"columns": columnList,
+		"formats": formats,
+	}
+}
+
+func ensureDatasetOutputAvailable(paths ...string) error {
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			return fmt.Errorf("refusing to overwrite existing file %q", path)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeDatasetFile(path string, rows []datasets.Row) error {
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("refusing to overwrite existing file %q", path)
+		}
+		return err
+	}
+	defer file.Close()
+	return datasets.WriteJSONL(file, rows)
 }
 
 func runRunsList(args []string, stdout, stderr io.Writer) int {
