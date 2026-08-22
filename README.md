@@ -78,6 +78,7 @@ import _ "github.com/gakon/nego-ai/backends/openai"
 
 ```bash
 NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello"
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --threads 8 --ctx-size 4096 --gpu-layers 32
 NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego serve ./models/model.gguf --addr :8080
 ```

@@ -54,6 +54,9 @@ func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.G
 		"top_p":       req.TopP,
 		"stop":        req.Stop,
 	}
+	if req.Seed != 0 {
+		body["seed"] = req.Seed
+	}
 	var out struct {
 		Choices []struct {
 			Text string `json:"text"`
@@ -76,6 +79,9 @@ func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatRespo
 		"temperature": req.Temperature,
 		"top_p":       req.TopP,
 		"stop":        req.Stop,
+	}
+	if req.Seed != 0 {
+		body["seed"] = req.Seed
 	}
 	var out struct {
 		Choices []struct {
@@ -100,6 +106,9 @@ func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stre
 		"top_p":       req.TopP,
 		"stop":        req.Stop,
 		"stream":      true,
+	}
+	if req.Seed != 0 {
+		body["seed"] = req.Seed
 	}
 	data, err := json.Marshal(body)
 	if err != nil {

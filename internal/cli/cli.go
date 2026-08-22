@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"text/tabwriter"
@@ -545,11 +546,25 @@ func runPrompt(args []string, stdout, stderr io.Writer) int {
 func runModel(args []string, stdout, stderr io.Writer) int {
 	var backend string
 	var maxTokens int
+	var temperature float64
+	var topP float64
+	var seed int64
+	var stop repeatedFlag
+	var threads int
+	var ctxSize int
+	var gpuLayers int
 	var configFile string
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
+	fs.Float64Var(&topP, "top-p", 0, "nucleus sampling probability")
+	fs.Int64Var(&seed, "seed", 0, "random seed")
+	fs.Var(&stop, "stop", "stop sequence, repeatable")
+	fs.IntVar(&threads, "threads", 0, "llama.cpp CPU threads")
+	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
+	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
 	fs.StringVar(&configFile, "f", "", "run config file")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
@@ -566,6 +581,18 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	if cfg.MaxTokens > 0 && maxTokens == 0 {
 		maxTokens = cfg.MaxTokens
 	}
+	if cfg.Temperature > 0 && temperature == 0 {
+		temperature = cfg.Temperature
+	}
+	if cfg.TopP > 0 && topP == 0 {
+		topP = cfg.TopP
+	}
+	if cfg.Seed != 0 && seed == 0 {
+		seed = cfg.Seed
+	}
+	if len(stop) == 0 {
+		stop = append(stop, cfg.Stop...)
+	}
 	path := cfg.Path
 	prompt := cfg.Prompt
 	if len(positionals) > 0 {
@@ -578,13 +605,14 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
 		return 2
 	}
-	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey})
+	options := runtimeOptions(cfg.Options, threads, ctxSize, gpuLayers)
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
 	defer model.Close()
-	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: prompt, MaxTokens: maxTokens})
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: prompt, MaxTokens: maxTokens, Temperature: temperature, TopP: topP, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
@@ -597,12 +625,26 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	var backend string
 	var system string
 	var maxTokens int
+	var temperature float64
+	var topP float64
+	var seed int64
+	var stop repeatedFlag
+	var threads int
+	var ctxSize int
+	var gpuLayers int
 	var configFile string
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
 	fs.StringVar(&system, "system", "", "system message")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
+	fs.Float64Var(&topP, "top-p", 0, "nucleus sampling probability")
+	fs.Int64Var(&seed, "seed", 0, "random seed")
+	fs.Var(&stop, "stop", "stop sequence, repeatable")
+	fs.IntVar(&threads, "threads", 0, "llama.cpp CPU threads")
+	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
+	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
 	fs.StringVar(&configFile, "f", "", "chat config file")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
@@ -622,6 +664,18 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	if cfg.MaxTokens > 0 && maxTokens == 0 {
 		maxTokens = cfg.MaxTokens
 	}
+	if cfg.Temperature > 0 && temperature == 0 {
+		temperature = cfg.Temperature
+	}
+	if cfg.TopP > 0 && topP == 0 {
+		topP = cfg.TopP
+	}
+	if cfg.Seed != 0 && seed == 0 {
+		seed = cfg.Seed
+	}
+	if len(stop) == 0 {
+		stop = append(stop, cfg.Stop...)
+	}
 	path := cfg.Path
 	if len(positionals) > 0 {
 		path = positionals[0]
@@ -639,13 +693,14 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego chat <model-path> <message> [flags]")
 		return 2
 	}
-	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey})
+	options := runtimeOptions(cfg.Options, threads, ctxSize, gpuLayers)
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
 	defer model.Close()
-	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens})
+	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens, Temperature: temperature, TopP: topP, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
@@ -655,15 +710,20 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 }
 
 type runtimeConfig struct {
-	Backend   string         `json:"backend"`
-	Path      string         `json:"path"`
-	Endpoint  string         `json:"endpoint"`
-	Model     string         `json:"model"`
-	APIKey    string         `json:"api_key"`
-	System    string         `json:"system"`
-	Prompt    string         `json:"prompt"`
-	Messages  []nego.Message `json:"messages"`
-	MaxTokens int            `json:"max_tokens"`
+	Backend     string            `json:"backend"`
+	Path        string            `json:"path"`
+	Endpoint    string            `json:"endpoint"`
+	Model       string            `json:"model"`
+	APIKey      string            `json:"api_key"`
+	Options     map[string]string `json:"options"`
+	System      string            `json:"system"`
+	Prompt      string            `json:"prompt"`
+	Messages    []nego.Message    `json:"messages"`
+	MaxTokens   int               `json:"max_tokens"`
+	Temperature float64           `json:"temperature"`
+	TopP        float64           `json:"top_p"`
+	Stop        []string          `json:"stop"`
+	Seed        int64             `json:"seed"`
 }
 
 func loadRuntimeConfig(path string) (runtimeConfig, error) {
@@ -681,16 +741,44 @@ func loadRuntimeConfig(path string) (runtimeConfig, error) {
 	return cfg, nil
 }
 
+func runtimeOptions(base map[string]string, threads, ctxSize, gpuLayers int) map[string]string {
+	options := make(map[string]string, len(base)+3)
+	for key, value := range base {
+		if value != "" {
+			options[key] = value
+		}
+	}
+	if threads > 0 {
+		options["threads"] = strconv.Itoa(threads)
+	}
+	if ctxSize > 0 {
+		options["ctx_size"] = strconv.Itoa(ctxSize)
+	}
+	if gpuLayers > 0 {
+		options["gpu_layers"] = strconv.Itoa(gpuLayers)
+	}
+	if len(options) == 0 {
+		return nil
+	}
+	return options
+}
+
 func runServe(args []string, stdout, stderr io.Writer) int {
 	var backend string
 	var addr string
 	var modelID string
+	var threads int
+	var ctxSize int
+	var gpuLayers int
 
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
 	fs.StringVar(&addr, "addr", ":8080", "listen address")
 	fs.StringVar(&modelID, "model", "nego-model", "served model id")
+	fs.IntVar(&threads, "threads", 0, "llama.cpp CPU threads")
+	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
+	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -699,7 +787,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
 		return 2
 	}
-	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0]})
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0], Options: runtimeOptions(nil, threads, ctxSize, gpuLayers)})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1

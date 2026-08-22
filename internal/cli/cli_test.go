@@ -423,6 +423,40 @@ func TestRunCommandUsesLlamaBackend(t *testing.T) {
 	}
 }
 
+func TestRunCommandPassesRuntimeFlags(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"run",
+		"model.gguf",
+		"hello",
+		"--max-tokens",
+		"8",
+		"--temperature",
+		"0.7",
+		"--top-p",
+		"0.9",
+		"--seed",
+		"42",
+		"--stop",
+		"END",
+		"--threads",
+		"4",
+		"--ctx-size",
+		"2048",
+		"--gpu-layers",
+		"20",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in output: %q", want, stdout.String())
+		}
+	}
+}
+
 func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	var stdout, stderr bytes.Buffer
@@ -432,6 +466,24 @@ func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "fake llama output") {
 		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
+	got := runtimeOptions(map[string]string{
+		"threads":    "2",
+		"ctx_size":   "1024",
+		"gpu_layers": "8",
+		"custom":     "value",
+	}, 4, 2048, 0)
+	want := map[string]string{
+		"threads":    "4",
+		"ctx_size":   "2048",
+		"gpu_layers": "8",
+		"custom":     "value",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("runtimeOptions = %#v, want %#v", got, want)
 	}
 }
 
