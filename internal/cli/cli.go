@@ -38,6 +38,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runDownload(ctx, args[1:], stdout, stderr)
 	case "models":
 		return runModels(args[1:], stdout, stderr)
+	case "cache":
+		return runCache(args[1:], stdout, stderr)
 	case "tokenize":
 		return runTokenize(args[1:], stdout, stderr)
 	case "tokens":
@@ -237,6 +239,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego models list [flags]")
 	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
 	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
+	fmt.Fprintln(w, "  nego cache usage [flags]")
+	fmt.Fprintln(w, "  nego cache gc --yes [flags]")
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
 	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
@@ -672,6 +676,156 @@ func runModels(args []string, stdout, stderr io.Writer) int {
 		modelsUsage(stderr)
 		return 2
 	}
+}
+
+func runCache(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		cacheUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "usage":
+		return runCacheUsage(args[1:], stdout, stderr)
+	case "gc":
+		return runCacheGC(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		cacheUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown cache command %q\n", args[0])
+		cacheUsage(stderr)
+		return 2
+	}
+}
+
+func runCacheUsage(args []string, stdout, stderr io.Writer) int {
+	var cacheDir string
+	var jsonOutput bool
+	fs := flag.NewFlagSet("cache usage", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	resolvedCache, err := cache.ResolveCacheDir(cacheDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	size, files, err := dirUsage(resolvedCache)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	entries, err := registry.NewStore(resolvedCache).List()
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	usage := map[string]any{
+		"cache_dir":         resolvedCache,
+		"size":              size,
+		"files":             files,
+		"registered_models": len(entries),
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(usage)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Cache:             %s\n", resolvedCache)
+	fmt.Fprintf(stdout, "Size:              %s\n", humanBytes(size))
+	fmt.Fprintf(stdout, "Files:             %d\n", files)
+	fmt.Fprintf(stdout, "Registered models: %d\n", len(entries))
+	return 0
+}
+
+func runCacheGC(args []string, stdout, stderr io.Writer) int {
+	var cacheDir string
+	var yes bool
+	fs := flag.NewFlagSet("cache gc", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
+	fs.BoolVar(&yes, "yes", false, "confirm cleanup")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if !yes {
+		fmt.Fprintln(stderr, "nego: refusing to clean cache without --yes")
+		return 2
+	}
+	resolvedCache, err := cache.ResolveCacheDir(cacheDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	removed, err := removeTempCacheFiles(resolvedCache)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Removed %d temporary cache files\n", removed)
+	return 0
+}
+
+func cacheUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego cache usage [flags]")
+	fmt.Fprintln(w, "  nego cache gc --yes [flags]")
+}
+
+func dirUsage(root string) (int64, int, error) {
+	var size int64
+	var files int
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		size += info.Size()
+		files++
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, 0, nil
+	}
+	return size, files, err
+}
+
+func removeTempCacheFiles(root string) (int, error) {
+	removed := 0
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".nego-") || strings.HasPrefix(name, ".registry-") || strings.HasSuffix(name, ".lock") {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			removed++
+		}
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	return removed, err
 }
 
 func runModelsRemove(args []string, stdout, stderr io.Writer) int {

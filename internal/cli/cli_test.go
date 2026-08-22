@@ -183,6 +183,55 @@ func TestModelsListEmpty(t *testing.T) {
 	}
 }
 
+func TestCacheUsageCommand(t *testing.T) {
+	cacheDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cacheDir, "file.bin"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.NewStore(cacheDir).Upsert(registry.Entry{RepoID: "Qwen/Qwen3", RepoType: "model", Revision: "main", SnapshotPath: cacheDir}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"cache", "usage", "--cache-dir", cacheDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Registered models: 1") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestCacheGCRequiresYes(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"cache", "gc", "--cache-dir", t.TempDir()}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestCacheGCRemovesTemporaryFiles(t *testing.T) {
+	cacheDir := t.TempDir()
+	tmpPath := filepath.Join(cacheDir, ".nego-temp")
+	keepPath := filepath.Join(cacheDir, "blob")
+	if err := os.WriteFile(tmpPath, []byte("temp"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keepPath, []byte("blob"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"cache", "gc", "--cache-dir", cacheDir, "--yes"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(tmpPath); !os.IsNotExist(err) {
+		t.Fatalf("expected temp file removed, got %v", err)
+	}
+	if _, err := os.Stat(keepPath); err != nil {
+		t.Fatalf("expected normal file kept, got %v", err)
+	}
+}
+
 func TestModelsInfoShowsRegistryEntry(t *testing.T) {
 	cacheDir := t.TempDir()
 	err := registry.NewStore(cacheDir).Upsert(registry.Entry{

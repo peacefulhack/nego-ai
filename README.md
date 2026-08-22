@@ -100,6 +100,13 @@ rows, err := datasets.ReadJSONL(reader)
 train, test := datasets.Split(rows, 0.2, 42)
 ```
 
+## Cache
+
+```bash
+nego cache usage
+nego cache gc --yes
+```
+
 ## Eval
 
 ```bash
