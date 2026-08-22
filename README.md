@@ -78,3 +78,10 @@ resp, err := nego.Embed(ctx, model, nego.EmbeddingRequest{
     Input: []string{"hello world"},
 })
 ```
+
+## RAG helpers
+
+```go
+chunks := rag.ChunkText(document, rag.ChunkOptions{MaxRunes: 800, Overlap: 80})
+index := rag.NewIndex()
+```
