@@ -4,6 +4,23 @@ This guide shows the intended day-to-day Nego workflow from downloading a model 
 
 Some late workflow steps are marked as planned because Nego does not implement direct model upload or full native fine-tuning yet. The current training command runs an external training process from a JSON job file.
 
+## Numbered Flow
+
+1. Download a base model.
+2. Inspect the downloaded model.
+3. Prepare a dataset.
+4. Check tokenizer and context budget.
+5. Render a chat prompt.
+6. Chat or run the model.
+7. Run a baseline eval.
+8. Train or fine-tune with a job JSON file.
+9. Inspect and evaluate the trained output.
+10. Convert or optimize the model.
+11. Serve locally.
+12. Package or share the model.
+
+Runnable example code and supporting files live in `examples/workflow/`.
+
 ## 1. Download a Base Model
 
 Download a full model snapshot into a local directory:
