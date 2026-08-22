@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/cache"
 	"github.com/gakon/nego-ai/internal/registry"
+	"github.com/gakon/nego-ai/server"
 	"github.com/gakon/nego-ai/tokenizer"
 )
 
@@ -43,6 +45,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runModel(args[1:], stdout, stderr)
 	case "chat":
 		return runChat(args[1:], stdout, stderr)
+	case "serve":
+		return runServe(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -229,6 +233,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
+	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
 }
 
 func runTokenize(args []string, stdout, stderr io.Writer) int {
@@ -393,6 +398,43 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprint(stdout, resp.Message.Content)
+	return 0
+}
+
+func runServe(args []string, stdout, stderr io.Writer) int {
+	var backend string
+	var addr string
+	var modelID string
+
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.StringVar(&addr, "addr", ":8080", "listen address")
+	fs.StringVar(&modelID, "model", "nego-model", "served model id")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
+		return 2
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0]})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	defer model.Close()
+	handler, err := server.NewHandler(server.HandlerOptions{ModelID: modelID, Model: model})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Serving %s on %s\n", modelID, addr)
+	if err := http.ListenAndServe(addr, handler); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
 	return 0
 }
 
