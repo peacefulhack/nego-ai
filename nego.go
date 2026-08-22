@@ -23,6 +23,7 @@ type ModelOptions struct {
 	Endpoint string
 	Model    string
 	APIKey   string
+	Options  map[string]string
 }
 
 type GenerateRequest struct {

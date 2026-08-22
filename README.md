@@ -44,6 +44,11 @@ path, err := hub.DownloadSnapshot(ctx, hub.DownloadSnapshotOptions{
 info, err := modelinfo.Inspect("./models/qwen3")
 ```
 
+```bash
+nego inspect ./models/model.gguf
+nego inspect ./models/model.gguf --json
+```
+
 ## Tokenizer
 
 ```bash
@@ -78,8 +83,21 @@ import _ "github.com/gakon/nego-ai/backends/openai"
 
 ```bash
 NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello"
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/gguf-model-dir "Hello"
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --threads 8 --ctx-size 4096 --gpu-layers 32
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --log runs.jsonl
 NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf "Hello"
+NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf --interactive
 NEGO_LLAMA_CLI=/path/to/llama-cli nego serve ./models/model.gguf --addr :8080
+```
+
+When a GGUF file lives beside `chat_template.jinja` or `tokenizer_config.json`, the llama.cpp backend uses that template for chat prompts.
+
+Run logs include prompts and outputs, so keep `runs.jsonl` private when working with sensitive data.
+
+```bash
+nego runs list runs.jsonl
+nego runs show runs.jsonl <id>
 ```
 
 ## Embeddings
@@ -108,6 +126,13 @@ rows, err := datasets.ReadJSONL(reader)
 train, test := datasets.Split(rows, 0.2, 42)
 ```
 
+```bash
+nego dataset inspect data.jsonl
+nego dataset validate data.jsonl --format chat
+nego dataset sample data.jsonl --n 5
+nego dataset split data.jsonl --train-out train.jsonl --test-out test.jsonl --test-size 0.1
+```
+
 ## Cache
 
 ```bash
@@ -131,6 +156,9 @@ nego train job.json
 
 ```bash
 nego eval suite.json
+nego eval suite.json --json > results.json
+nego eval report results.json
+nego eval compare baseline.json candidate.json
 ```
 
 ## Config workflow

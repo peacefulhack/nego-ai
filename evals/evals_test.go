@@ -25,6 +25,30 @@ func TestRunRecordsFailures(t *testing.T) {
 	}
 }
 
+func TestSummarizeAndCompare(t *testing.T) {
+	baseline := Report{Passed: 1, Failed: 1, Results: []CaseResult{
+		{Name: "stable", Passed: true},
+		{Name: "fixed", Passed: false, Error: "bad"},
+		{Name: "regressed", Passed: true},
+	}}
+	candidate := Report{Passed: 2, Failed: 1, Results: []CaseResult{
+		{Name: "stable", Passed: true},
+		{Name: "fixed", Passed: true},
+		{Name: "regressed", Passed: false, Error: "worse"},
+	}}
+	summary := Summarize(candidate)
+	if summary.Total != 3 || summary.PassRate == 0 || len(summary.FailedCases) != 1 {
+		t.Fatalf("summary = %#v", summary)
+	}
+	comparison := Compare(baseline, candidate)
+	if len(comparison.Improvements) != 1 || comparison.Improvements[0].Name != "fixed" {
+		t.Fatalf("improvements = %#v", comparison.Improvements)
+	}
+	if len(comparison.Regressions) != 1 || comparison.Regressions[0].Name != "regressed" {
+		t.Fatalf("regressions = %#v", comparison.Regressions)
+	}
+}
+
 type evalModel struct{}
 
 func (evalModel) Generate(_ context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {

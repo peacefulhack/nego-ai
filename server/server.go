@@ -67,6 +67,7 @@ type completionRequest struct {
 	Temperature float64  `json:"temperature"`
 	TopP        float64  `json:"top_p"`
 	Stop        []string `json:"stop"`
+	Seed        int64    `json:"seed"`
 	Stream      bool     `json:"stream"`
 }
 
@@ -77,6 +78,7 @@ type chatRequest struct {
 	Temperature float64        `json:"temperature"`
 	TopP        float64        `json:"top_p"`
 	Stop        []string       `json:"stop"`
+	Seed        int64          `json:"seed"`
 	Stream      bool           `json:"stream"`
 }
 
@@ -97,6 +99,7 @@ func handleCompletion(w http.ResponseWriter, r *http.Request, modelID string, mo
 		Temperature: req.Temperature,
 		TopP:        req.TopP,
 		Stop:        req.Stop,
+		Seed:        req.Seed,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -126,6 +129,7 @@ func handleChatCompletion(w http.ResponseWriter, r *http.Request, modelID string
 		Temperature: req.Temperature,
 		TopP:        req.TopP,
 		Stop:        req.Stop,
+		Seed:        req.Seed,
 	}
 	if req.Stream {
 		stream, err := model.StreamChat(r.Context(), chatReq)
