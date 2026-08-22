@@ -72,6 +72,32 @@ func TestChatCompletionStreamEndpoint(t *testing.T) {
 	}
 }
 
+func TestEmbeddingsEndpoint(t *testing.T) {
+	handler, err := NewHandler(HandlerOptions{ModelID: "test-model", Model: embeddingTestModel{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"input":["hello"]}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"embedding":[1,0]`) {
+		t.Fatalf("unexpected body: %s", rec.Body.String())
+	}
+}
+
+func TestEmbeddingsEndpointRejectsUnsupportedModel(t *testing.T) {
+	handler := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"input":["hello"]}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
 func newTestHandler(t *testing.T) http.Handler {
 	t.Helper()
 	handler, err := NewHandler(HandlerOptions{ModelID: "test-model", Model: testModel{}})
@@ -121,4 +147,12 @@ func (testStream) Err() error {
 
 func (testStream) Close() error {
 	return nil
+}
+
+type embeddingTestModel struct {
+	testModel
+}
+
+func (embeddingTestModel) Embed(context.Context, nego.EmbeddingRequest) (*nego.EmbeddingResponse, error) {
+	return &nego.EmbeddingResponse{Embeddings: [][]float64{{1, 0}}}, nil
 }

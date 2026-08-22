@@ -17,6 +17,7 @@ import (
 
 	nego "github.com/gakon/nego-ai"
 	_ "github.com/gakon/nego-ai/backends/llama"
+	_ "github.com/gakon/nego-ai/backends/openai"
 	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/cache"
@@ -47,6 +48,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runChat(args[1:], stdout, stderr)
 	case "serve":
 		return runServe(args[1:], stdout, stderr)
+	case "embed":
+		return runEmbed(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -234,6 +237,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
 	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
+	fmt.Fprintln(w, "  nego embed <text> --endpoint <url> --model <name> [flags]")
 }
 
 func runTokenize(args []string, stdout, stderr io.Writer) int {
@@ -435,6 +439,50 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
+	return 0
+}
+
+func runEmbed(args []string, stdout, stderr io.Writer) int {
+	var backend string
+	var endpoint string
+	var modelID string
+	var apiKey string
+
+	fs := flag.NewFlagSet("embed", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&backend, "backend", "openai-compatible", "runtime backend")
+	fs.StringVar(&endpoint, "endpoint", "", "backend endpoint")
+	fs.StringVar(&modelID, "model", "", "embedding model id")
+	fs.StringVar(&apiKey, "api-key", "", "backend API key")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 1 {
+		fmt.Fprintln(stderr, "usage: nego embed <text> --endpoint <url> --model <name> [flags]")
+		return 2
+	}
+	if endpoint == "" || modelID == "" {
+		fmt.Fprintln(stderr, "nego: --endpoint and --model are required")
+		return 2
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
+		Backend:  backend,
+		Endpoint: endpoint,
+		Model:    modelID,
+		APIKey:   apiKey,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	defer model.Close()
+	resp, err := nego.Embed(context.Background(), model, nego.EmbeddingRequest{Input: []string{strings.Join(positionals, " ")}})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	_ = json.NewEncoder(stdout).Encode(resp)
 	return 0
 }
 

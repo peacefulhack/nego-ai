@@ -66,3 +66,15 @@ NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf "Hello"
 NEGO_LLAMA_CLI=/path/to/llama-cli nego serve ./models/model.gguf --addr :8080
 ```
+
+## Embeddings
+
+```bash
+nego embed "hello world" --endpoint http://localhost:8080 --model text-embedding-model
+```
+
+```go
+resp, err := nego.Embed(ctx, model, nego.EmbeddingRequest{
+    Input: []string{"hello world"},
+})
+```

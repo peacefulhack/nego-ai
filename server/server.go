@@ -50,6 +50,13 @@ func NewHandler(opts HandlerOptions) (http.Handler, error) {
 		}
 		handleChatCompletion(w, r, modelID, opts.Model)
 	})
+	mux.HandleFunc("/v1/embeddings", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w)
+			return
+		}
+		handleEmbeddings(w, r, modelID, opts.Model)
+	})
 	return mux, nil
 }
 
@@ -71,6 +78,11 @@ type chatRequest struct {
 	TopP        float64        `json:"top_p"`
 	Stop        []string       `json:"stop"`
 	Stream      bool           `json:"stream"`
+}
+
+type embeddingsRequest struct {
+	Model string   `json:"model"`
+	Input []string `json:"input"`
 }
 
 func handleCompletion(w http.ResponseWriter, r *http.Request, modelID string, model nego.Model) {
@@ -167,6 +179,32 @@ func writeChatStream(w http.ResponseWriter, modelID string, stream nego.Stream) 
 		}
 	}
 	fmt.Fprint(w, "data: [DONE]\n\n")
+}
+
+func handleEmbeddings(w http.ResponseWriter, r *http.Request, modelID string, model nego.Model) {
+	var req embeddingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp, err := nego.Embed(r.Context(), model, nego.EmbeddingRequest{Input: req.Input})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	data := make([]map[string]any, 0, len(resp.Embeddings))
+	for i, embedding := range resp.Embeddings {
+		data = append(data, map[string]any{
+			"object":    "embedding",
+			"index":     i,
+			"embedding": embedding,
+		})
+	}
+	writeJSON(w, map[string]any{
+		"object": "list",
+		"model":  modelID,
+		"data":   data,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, value any) {

@@ -55,6 +55,14 @@ type Token struct {
 	Text string
 }
 
+type EmbeddingRequest struct {
+	Input []string `json:"input"`
+}
+
+type EmbeddingResponse struct {
+	Embeddings [][]float64 `json:"embeddings"`
+}
+
 type Stream interface {
 	Tokens() <-chan Token
 	Err() error
@@ -70,6 +78,18 @@ type Model interface {
 
 type Backend interface {
 	Load(ctx context.Context, opts ModelOptions) (Model, error)
+}
+
+type EmbeddingModel interface {
+	Embed(ctx context.Context, req EmbeddingRequest) (*EmbeddingResponse, error)
+}
+
+func Embed(ctx context.Context, model Model, req EmbeddingRequest) (*EmbeddingResponse, error) {
+	embedder, ok := model.(EmbeddingModel)
+	if !ok {
+		return nil, fmt.Errorf("model does not support embeddings")
+	}
+	return embedder.Embed(ctx, req)
 }
 
 var backendRegistry = struct {

@@ -24,6 +24,10 @@ func TestChatAndGenerate(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{{"text": "generated"}},
 			})
+		case "/v1/embeddings":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{{"embedding": []float64{1, 0, 0}}},
+			})
 		default:
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -51,6 +55,13 @@ func TestChatAndGenerate(t *testing.T) {
 	}
 	if generated.Text != "generated" {
 		t.Fatalf("generated = %#v", generated)
+	}
+	embeddings, err := model.(nego.EmbeddingModel).Embed(context.Background(), nego.EmbeddingRequest{Input: []string{"hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(embeddings.Embeddings) != 1 || len(embeddings.Embeddings[0]) != 3 {
+		t.Fatalf("embeddings = %#v", embeddings)
 	}
 }
 
