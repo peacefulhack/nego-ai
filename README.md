@@ -51,6 +51,10 @@ nego tokenize ./models/qwen3 "hello world"
 nego tokens ./models/qwen3 "hello world"
 ```
 
+```go
+ids, err := tok.EncodeBatch([]string{"hello", "world"})
+```
+
 ## Prompt rendering
 
 ```bash

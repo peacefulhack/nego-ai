@@ -72,6 +72,47 @@ func TestLoadUsesAddedTokens(t *testing.T) {
 	}
 }
 
+func TestBatchHelpers(t *testing.T) {
+	dir := t.TempDir()
+	writeTokenizer(t, dir, `{
+		"model": {
+			"type": "WordLevel",
+			"unk_token": "[UNK]",
+			"vocab": {
+				"[UNK]": 0,
+				"hello": 1,
+				"bye": 2
+			}
+		}
+	}`)
+
+	tok, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := tok.EncodeBatch([]string{"hello", "bye"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(encoded, [][]int{{1}, {2}}) {
+		t.Fatalf("encoded = %#v", encoded)
+	}
+	decoded, err := tok.DecodeBatch(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded, []string{"hello", "bye"}) {
+		t.Fatalf("decoded = %#v", decoded)
+	}
+	counts, err := tok.CountBatch([]string{"hello", "bye"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(counts, []int{1, 1}) {
+		t.Fatalf("counts = %#v", counts)
+	}
+}
+
 func writeTokenizer(t *testing.T, dir, body string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(body), 0o644); err != nil {
