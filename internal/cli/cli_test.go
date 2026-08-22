@@ -2,11 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -131,7 +135,7 @@ func TestModelsListShowsRegistryEntries(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"models", "list", "--cache-dir", cacheDir}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"models", "list", "--cache-dir", cacheDir}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -156,7 +160,7 @@ func TestModelsListJSON(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"models", "list", "--cache-dir", cacheDir, "--json"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"models", "list", "--cache-dir", cacheDir, "--json"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -171,12 +175,61 @@ func TestModelsListJSON(t *testing.T) {
 
 func TestModelsListEmpty(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"models", "list", "--cache-dir", t.TempDir()}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"models", "list", "--cache-dir", t.TempDir()}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "No local models found.") {
 		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestCacheUsageCommand(t *testing.T) {
+	cacheDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cacheDir, "file.bin"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.NewStore(cacheDir).Upsert(registry.Entry{RepoID: "Qwen/Qwen3", RepoType: "model", Revision: "main", SnapshotPath: cacheDir}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"cache", "usage", "--cache-dir", cacheDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Registered models: 1") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestCacheGCRequiresYes(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"cache", "gc", "--cache-dir", t.TempDir()}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestCacheGCRemovesTemporaryFiles(t *testing.T) {
+	cacheDir := t.TempDir()
+	tmpPath := filepath.Join(cacheDir, ".nego-temp")
+	keepPath := filepath.Join(cacheDir, "blob")
+	if err := os.WriteFile(tmpPath, []byte("temp"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(keepPath, []byte("blob"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"cache", "gc", "--cache-dir", cacheDir, "--yes"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(tmpPath); !os.IsNotExist(err) {
+		t.Fatalf("expected temp file removed, got %v", err)
+	}
+	if _, err := os.Stat(keepPath); err != nil {
+		t.Fatalf("expected normal file kept, got %v", err)
 	}
 }
 
@@ -202,7 +255,7 @@ func TestModelsInfoShowsRegistryEntry(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"models", "info", "Qwen/Qwen3-0.6B", "--cache-dir", cacheDir}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"models", "info", "Qwen/Qwen3-0.6B", "--cache-dir", cacheDir}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -229,7 +282,7 @@ func TestModelsInfoJSON(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"models", "info", "Qwen/Qwen3-0.6B", "--cache-dir", cacheDir, "--json"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"models", "info", "Qwen/Qwen3-0.6B", "--cache-dir", cacheDir, "--json"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stderr=%q", code, stderr.String())
 	}
@@ -244,7 +297,7 @@ func TestModelsInfoJSON(t *testing.T) {
 
 func TestModelsRemoveRequiresYes(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"models", "remove", "Qwen/Qwen3-0.6B", "--cache-dir", t.TempDir()}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"models", "remove", "Qwen/Qwen3-0.6B", "--cache-dir", t.TempDir()}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -291,7 +344,7 @@ func TestModelsRemoveDeletesLocalFilesAndRegistryOnly(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"models", "remove", "Qwen/Qwen3-0.6B", "--cache-dir", cacheDir, "--yes"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"models", "remove", "Qwen/Qwen3-0.6B", "--cache-dir", cacheDir, "--yes"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -318,7 +371,7 @@ func TestTokenizeCommand(t *testing.T) {
 	writeCLITokenizer(t, dir)
 
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"tokenize", dir, "hello world!"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"tokenize", dir, "hello world!"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -332,7 +385,7 @@ func TestTokensCommand(t *testing.T) {
 	writeCLITokenizer(t, dir)
 
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"tokens", dir, "hello world!"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"tokens", dir, "hello world!"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -348,7 +401,7 @@ func TestPromptCommand(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"prompt", dir, "--system", "You are helpful", "--user", "Hello"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"prompt", dir, "--system", "You are helpful", "--user", "Hello"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -361,7 +414,7 @@ func TestPromptCommand(t *testing.T) {
 func TestRunCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"run", "model.gguf", "hello"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"run", "model.gguf", "hello"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -373,11 +426,135 @@ func TestRunCommandUsesLlamaBackend(t *testing.T) {
 func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	var stdout, stderr bytes.Buffer
-	code := Run(t.Context(), []string{"chat", "model.gguf", "hello"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"chat", "model.gguf", "hello"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stdout.String(), "fake llama output") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestRunCommandUsesConfigFile(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	configPath := filepath.Join(t.TempDir(), "nego.json")
+	if err := os.WriteFile(configPath, []byte(`{"path":"model.gguf","prompt":"hello","max_tokens":4}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", "-f", configPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fake llama output") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestChatCommandUsesConfigFile(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	configPath := filepath.Join(t.TempDir(), "nego.json")
+	if err := os.WriteFile(configPath, []byte(`{"path":"model.gguf","system":"Helpful","prompt":"hello"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"chat", "-f", configPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "fake llama output") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestEmbedCommand(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{{"embedding": []float64{1, 0}}},
+		})
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"embed", "hello world", "--endpoint", server.URL, "--model", "embed-model"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"embeddings":[[1,0]]`) {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestEvalCommand(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{"text": "generated: hello"}},
+		})
+	}))
+	defer server.Close()
+
+	suitePath := filepath.Join(t.TempDir(), "suite.json")
+	body := `{
+		"backend":"openai-compatible",
+		"endpoint":` + strconv.Quote(server.URL) + `,
+		"model":"test-model",
+		"cases":[{"name":"hello","prompt":"hello","contains":"generated"}]
+	}`
+	if err := os.WriteFile(suitePath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"eval", suitePath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Passed: 1") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestVersionCommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"version"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "nego dev") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestConvertGGUFCommand(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "model.gguf")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"convert", "gguf", "model-dir", "--out", out, "--converter", fakeConverterCommand(t)}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTrainCommand(t *testing.T) {
+	jobPath := filepath.Join(t.TempDir(), "job.json")
+	body := `{"name":"test","command":` + strconv.Quote(fakeTrainingCommand(t)) + `,"args":["hello"]}`
+	if err := os.WriteFile(jobPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", jobPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "training hello") {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 }
@@ -413,6 +590,40 @@ func fakeCLILlamaCommand(t *testing.T) string {
 	}
 	path := filepath.Join(dir, "fake-llama.sh")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\necho fake llama output \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fakeConverterCommand(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "convert.bat")
+		if err := os.WriteFile(path, []byte("@echo off\n:loop\nif \"%1\"==\"--outfile\" (echo gguf > %2 & exit /b 0)\nshift\ngoto loop\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	path := filepath.Join(dir, "convert.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nwhile [ \"$1\" != \"\" ]; do if [ \"$1\" = \"--outfile\" ]; then echo gguf > \"$2\"; exit 0; fi; shift; done\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fakeTrainingCommand(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "train.bat")
+		if err := os.WriteFile(path, []byte("@echo off\necho training %*\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	path := filepath.Join(dir, "train.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho training \"$@\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return path

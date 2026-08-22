@@ -82,6 +82,18 @@ func (t *Tokenizer) Encode(text string) ([]int, error) {
 	return ids, nil
 }
 
+func (t *Tokenizer) EncodeBatch(texts []string) ([][]int, error) {
+	out := make([][]int, 0, len(texts))
+	for _, text := range texts {
+		ids, err := t.Encode(text)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ids)
+	}
+	return out, nil
+}
+
 func (t *Tokenizer) Decode(ids []int) (string, error) {
 	var b strings.Builder
 	for _, id := range ids {
@@ -94,12 +106,36 @@ func (t *Tokenizer) Decode(ids []int) (string, error) {
 	return b.String(), nil
 }
 
+func (t *Tokenizer) DecodeBatch(batch [][]int) ([]string, error) {
+	out := make([]string, 0, len(batch))
+	for _, ids := range batch {
+		text, err := t.Decode(ids)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, text)
+	}
+	return out, nil
+}
+
 func (t *Tokenizer) Count(text string) (int, error) {
 	ids, err := t.Encode(text)
 	if err != nil {
 		return 0, err
 	}
 	return len(ids), nil
+}
+
+func (t *Tokenizer) CountBatch(texts []string) ([]int, error) {
+	out := make([]int, 0, len(texts))
+	for _, text := range texts {
+		count, err := t.Count(text)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, count)
+	}
+	return out, nil
 }
 
 func (t *Tokenizer) encodeSegment(segment string) ([]int, error) {

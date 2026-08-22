@@ -48,6 +48,19 @@ func TestLoadModelUsesRegisteredBackend(t *testing.T) {
 	}
 }
 
+func TestEmbedUsesOptionalCapability(t *testing.T) {
+	resp, err := Embed(context.Background(), embeddingModel{}, EmbeddingRequest{Input: []string{"hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Embeddings) != 1 || len(resp.Embeddings[0]) != 2 {
+		t.Fatalf("unexpected embeddings: %#v", resp)
+	}
+	if _, err := Embed(context.Background(), mockModel{}, EmbeddingRequest{Input: []string{"hello"}}); err == nil {
+		t.Fatal("expected unsupported embedding error")
+	}
+}
+
 func TestLoadModelRequiresRegisteredBackend(t *testing.T) {
 	if _, err := LoadModel(context.Background(), ModelOptions{Backend: "missing"}); err == nil {
 		t.Fatal("expected missing backend error")
@@ -99,4 +112,12 @@ func (mockStream) Err() error {
 
 func (mockStream) Close() error {
 	return nil
+}
+
+type embeddingModel struct {
+	mockModel
+}
+
+func (embeddingModel) Embed(context.Context, EmbeddingRequest) (*EmbeddingResponse, error) {
+	return &EmbeddingResponse{Embeddings: [][]float64{{1, 0}}}, nil
 }

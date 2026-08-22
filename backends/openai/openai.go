@@ -123,6 +123,26 @@ func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stre
 	return stream, nil
 }
 
+func (m *Model) Embed(ctx context.Context, req nego.EmbeddingRequest) (*nego.EmbeddingResponse, error) {
+	body := map[string]any{
+		"model": m.model,
+		"input": req.Input,
+	}
+	var out struct {
+		Data []struct {
+			Embedding []float64 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := m.postJSON(ctx, "/v1/embeddings", body, &out); err != nil {
+		return nil, err
+	}
+	embeddings := make([][]float64, 0, len(out.Data))
+	for _, item := range out.Data {
+		embeddings = append(embeddings, item.Embedding)
+	}
+	return &nego.EmbeddingResponse{Embeddings: embeddings}, nil
+}
+
 func (m *Model) Close() error {
 	return nil
 }

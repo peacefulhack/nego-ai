@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,11 +17,17 @@ import (
 
 	nego "github.com/gakon/nego-ai"
 	_ "github.com/gakon/nego-ai/backends/llama"
+	_ "github.com/gakon/nego-ai/backends/openai"
 	"github.com/gakon/nego-ai/chattemplate"
+	"github.com/gakon/nego-ai/convert"
+	"github.com/gakon/nego-ai/evals"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/cache"
 	"github.com/gakon/nego-ai/internal/registry"
+	"github.com/gakon/nego-ai/internal/version"
+	"github.com/gakon/nego-ai/server"
 	"github.com/gakon/nego-ai/tokenizer"
+	"github.com/gakon/nego-ai/training"
 )
 
 func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -33,6 +40,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runDownload(ctx, args[1:], stdout, stderr)
 	case "models":
 		return runModels(args[1:], stdout, stderr)
+	case "cache":
+		return runCache(args[1:], stdout, stderr)
 	case "tokenize":
 		return runTokenize(args[1:], stdout, stderr)
 	case "tokens":
@@ -43,6 +52,18 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runModel(args[1:], stdout, stderr)
 	case "chat":
 		return runChat(args[1:], stdout, stderr)
+	case "serve":
+		return runServe(args[1:], stdout, stderr)
+	case "embed":
+		return runEmbed(args[1:], stdout, stderr)
+	case "eval":
+		return runEval(args[1:], stdout, stderr)
+	case "version":
+		return runVersion(args[1:], stdout, stderr)
+	case "convert":
+		return runConvert(args[1:], stdout, stderr)
+	case "train":
+		return runTrain(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -224,11 +245,203 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego models list [flags]")
 	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
 	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
+	fmt.Fprintln(w, "  nego cache usage [flags]")
+	fmt.Fprintln(w, "  nego cache gc --yes [flags]")
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
 	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
+	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
+	fmt.Fprintln(w, "  nego embed <text> --endpoint <url> --model <name> [flags]")
+	fmt.Fprintln(w, "  nego eval <suite.json> [flags]")
+	fmt.Fprintln(w, "  nego version [flags]")
+	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
+	fmt.Fprintln(w, "  nego train <job.json> [flags]")
+}
+
+func runTrain(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("train", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego train <job.json> [flags]")
+		return 2
+	}
+	data, err := os.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	var spec training.JobSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	result, err := training.Run(context.Background(), spec)
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(result)
+	} else {
+		status := "failed"
+		if result.Success {
+			status = "completed"
+		}
+		fmt.Fprintf(stdout, "Training job %s: %s (%s)\n", result.Name, status, result.Duration)
+		if result.Stdout != "" {
+			fmt.Fprint(stdout, result.Stdout)
+		}
+		if result.Stderr != "" {
+			fmt.Fprint(stderr, result.Stderr)
+		}
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
+}
+
+func runConvert(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		convertUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "gguf":
+		return runConvertGGUF(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		convertUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown convert command %q\n", args[0])
+		convertUsage(stderr)
+		return 2
+	}
+}
+
+func runConvertGGUF(args []string, stdout, stderr io.Writer) int {
+	var output string
+	var converter string
+	var quantize string
+	fs := flag.NewFlagSet("convert gguf", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&output, "out", "", "output GGUF path")
+	fs.StringVar(&converter, "converter", "", "path to llama.cpp conversion script/binary")
+	fs.StringVar(&quantize, "quantize", "", "output quantization type")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego convert gguf <model-dir> --out <file> --converter <path>")
+		return 2
+	}
+	if err := convert.ConvertGGUF(context.Background(), convert.GGUFOptions{
+		Converter: converter,
+		ModelDir:  positionals[0],
+		Output:    output,
+		Quantize:  quantize,
+	}); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Converted GGUF: %s\n", output)
+	return 0
+}
+
+func convertUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
+}
+
+func runVersion(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("version", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	info := version.Info()
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(info)
+		return 0
+	}
+	fmt.Fprintf(stdout, "nego %s\ncommit %s\nbuilt %s\n", info["version"], info["commit"], info["date"])
+	return 0
+}
+
+type evalConfig struct {
+	Backend  string       `json:"backend"`
+	Path     string       `json:"path"`
+	Endpoint string       `json:"endpoint"`
+	Model    string       `json:"model"`
+	APIKey   string       `json:"api_key"`
+	Cases    []evals.Case `json:"cases"`
+}
+
+func runEval(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("eval", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego eval <suite.json> [flags]")
+		return 2
+	}
+	data, err := os.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	var cfg evalConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if cfg.Backend == "" {
+		cfg.Backend = "openai-compatible"
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
+		Backend:  cfg.Backend,
+		Path:     cfg.Path,
+		Endpoint: cfg.Endpoint,
+		Model:    cfg.Model,
+		APIKey:   cfg.APIKey,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	defer model.Close()
+	report := evals.Run(context.Background(), model, evals.Suite{Cases: cfg.Cases})
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(report)
+	} else {
+		fmt.Fprintf(stdout, "Passed: %d\nFailed: %d\n", report.Passed, report.Failed)
+		for _, result := range report.Results {
+			status := "FAIL"
+			if result.Passed {
+				status = "PASS"
+			}
+			fmt.Fprintf(stdout, "%s %s (%s)\n", status, result.Name, result.Duration)
+			if result.Error != "" {
+				fmt.Fprintf(stdout, "  %s\n", result.Error)
+			}
+		}
+	}
+	if report.Failed > 0 {
+		return 1
+	}
+	return 0
 }
 
 func runTokenize(args []string, stdout, stderr io.Writer) int {
@@ -332,25 +545,46 @@ func runPrompt(args []string, stdout, stderr io.Writer) int {
 func runModel(args []string, stdout, stderr io.Writer) int {
 	var backend string
 	var maxTokens int
+	var configFile string
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	fs.StringVar(&configFile, "f", "", "run config file")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
-	if len(positionals) < 2 {
+	cfg, err := loadRuntimeConfig(configFile)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if cfg.Backend != "" {
+		backend = cfg.Backend
+	}
+	if cfg.MaxTokens > 0 && maxTokens == 0 {
+		maxTokens = cfg.MaxTokens
+	}
+	path := cfg.Path
+	prompt := cfg.Prompt
+	if len(positionals) > 0 {
+		path = positionals[0]
+	}
+	if len(positionals) > 1 {
+		prompt = strings.Join(positionals[1:], " ")
+	}
+	if path == "" || prompt == "" {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
 		return 2
 	}
-	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0]})
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
 	defer model.Close()
-	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: strings.Join(positionals[1:], " "), MaxTokens: maxTokens})
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: prompt, MaxTokens: maxTokens})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
@@ -363,17 +597,106 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 	var backend string
 	var system string
 	var maxTokens int
+	var configFile string
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
 	fs.StringVar(&system, "system", "", "system message")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	fs.StringVar(&configFile, "f", "", "chat config file")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
-	if len(positionals) < 2 {
+	cfg, err := loadRuntimeConfig(configFile)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if cfg.Backend != "" {
+		backend = cfg.Backend
+	}
+	if cfg.System != "" && system == "" {
+		system = cfg.System
+	}
+	if cfg.MaxTokens > 0 && maxTokens == 0 {
+		maxTokens = cfg.MaxTokens
+	}
+	path := cfg.Path
+	if len(positionals) > 0 {
+		path = positionals[0]
+	}
+	messages := append([]nego.Message(nil), cfg.Messages...)
+	if system != "" && len(messages) == 0 {
+		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: system})
+	}
+	if len(positionals) > 1 {
+		messages = append(messages, nego.Message{Role: nego.RoleUser, Content: strings.Join(positionals[1:], " ")})
+	} else if cfg.Prompt != "" && len(messages) == 0 {
+		messages = append(messages, nego.Message{Role: nego.RoleUser, Content: cfg.Prompt})
+	}
+	if path == "" || len(messages) == 0 {
 		fmt.Fprintln(stderr, "usage: nego chat <model-path> <message> [flags]")
+		return 2
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	defer model.Close()
+	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprint(stdout, resp.Message.Content)
+	return 0
+}
+
+type runtimeConfig struct {
+	Backend   string         `json:"backend"`
+	Path      string         `json:"path"`
+	Endpoint  string         `json:"endpoint"`
+	Model     string         `json:"model"`
+	APIKey    string         `json:"api_key"`
+	System    string         `json:"system"`
+	Prompt    string         `json:"prompt"`
+	Messages  []nego.Message `json:"messages"`
+	MaxTokens int            `json:"max_tokens"`
+}
+
+func loadRuntimeConfig(path string) (runtimeConfig, error) {
+	if path == "" {
+		return runtimeConfig{}, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return runtimeConfig{}, err
+	}
+	var cfg runtimeConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return runtimeConfig{}, err
+	}
+	return cfg, nil
+}
+
+func runServe(args []string, stdout, stderr io.Writer) int {
+	var backend string
+	var addr string
+	var modelID string
+
+	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.StringVar(&addr, "addr", ":8080", "listen address")
+	fs.StringVar(&modelID, "model", "nego-model", "served model id")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
 		return 2
 	}
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0]})
@@ -382,17 +705,60 @@ func runChat(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer model.Close()
-	var messages []nego.Message
-	if system != "" {
-		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: system})
-	}
-	messages = append(messages, nego.Message{Role: nego.RoleUser, Content: strings.Join(positionals[1:], " ")})
-	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens})
+	handler, err := server.NewHandler(server.HandlerOptions{ModelID: modelID, Model: model})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, resp.Message.Content)
+	fmt.Fprintf(stdout, "Serving %s on %s\n", modelID, addr)
+	if err := http.ListenAndServe(addr, handler); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func runEmbed(args []string, stdout, stderr io.Writer) int {
+	var backend string
+	var endpoint string
+	var modelID string
+	var apiKey string
+
+	fs := flag.NewFlagSet("embed", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&backend, "backend", "openai-compatible", "runtime backend")
+	fs.StringVar(&endpoint, "endpoint", "", "backend endpoint")
+	fs.StringVar(&modelID, "model", "", "embedding model id")
+	fs.StringVar(&apiKey, "api-key", "", "backend API key")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 1 {
+		fmt.Fprintln(stderr, "usage: nego embed <text> --endpoint <url> --model <name> [flags]")
+		return 2
+	}
+	if endpoint == "" || modelID == "" {
+		fmt.Fprintln(stderr, "nego: --endpoint and --model are required")
+		return 2
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
+		Backend:  backend,
+		Endpoint: endpoint,
+		Model:    modelID,
+		APIKey:   apiKey,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	defer model.Close()
+	resp, err := nego.Embed(context.Background(), model, nego.EmbeddingRequest{Input: []string{strings.Join(positionals, " ")}})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	_ = json.NewEncoder(stdout).Encode(resp)
 	return 0
 }
 
@@ -416,6 +782,156 @@ func runModels(args []string, stdout, stderr io.Writer) int {
 		modelsUsage(stderr)
 		return 2
 	}
+}
+
+func runCache(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		cacheUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "usage":
+		return runCacheUsage(args[1:], stdout, stderr)
+	case "gc":
+		return runCacheGC(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		cacheUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown cache command %q\n", args[0])
+		cacheUsage(stderr)
+		return 2
+	}
+}
+
+func runCacheUsage(args []string, stdout, stderr io.Writer) int {
+	var cacheDir string
+	var jsonOutput bool
+	fs := flag.NewFlagSet("cache usage", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	resolvedCache, err := cache.ResolveCacheDir(cacheDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	size, files, err := dirUsage(resolvedCache)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	entries, err := registry.NewStore(resolvedCache).List()
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	usage := map[string]any{
+		"cache_dir":         resolvedCache,
+		"size":              size,
+		"files":             files,
+		"registered_models": len(entries),
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(usage)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Cache:             %s\n", resolvedCache)
+	fmt.Fprintf(stdout, "Size:              %s\n", humanBytes(size))
+	fmt.Fprintf(stdout, "Files:             %d\n", files)
+	fmt.Fprintf(stdout, "Registered models: %d\n", len(entries))
+	return 0
+}
+
+func runCacheGC(args []string, stdout, stderr io.Writer) int {
+	var cacheDir string
+	var yes bool
+	fs := flag.NewFlagSet("cache gc", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
+	fs.BoolVar(&yes, "yes", false, "confirm cleanup")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if !yes {
+		fmt.Fprintln(stderr, "nego: refusing to clean cache without --yes")
+		return 2
+	}
+	resolvedCache, err := cache.ResolveCacheDir(cacheDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	removed, err := removeTempCacheFiles(resolvedCache)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Removed %d temporary cache files\n", removed)
+	return 0
+}
+
+func cacheUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego cache usage [flags]")
+	fmt.Fprintln(w, "  nego cache gc --yes [flags]")
+}
+
+func dirUsage(root string) (int64, int, error) {
+	var size int64
+	var files int
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		size += info.Size()
+		files++
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, 0, nil
+	}
+	return size, files, err
+}
+
+func removeTempCacheFiles(root string) (int, error) {
+	removed := 0
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		if strings.HasPrefix(name, ".nego-") || strings.HasPrefix(name, ".registry-") || strings.HasSuffix(name, ".lock") {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			removed++
+		}
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	return removed, err
 }
 
 func runModelsRemove(args []string, stdout, stderr io.Writer) int {
