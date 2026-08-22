@@ -9,6 +9,10 @@ go build -o nego ./cmd/nego
 nego version
 ```
 
+## Examples
+
+Runnable Go examples live in `examples/`.
+
 ## Download models
 
 ```bash
