@@ -879,6 +879,33 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 			fmt.Fprintln(w, "  Chat template: yes")
 		}
 	}
+	if info.Card != nil {
+		fmt.Fprintln(w, "Model card:")
+		if info.Card.Title != "" {
+			fmt.Fprintf(w, "  Title:        %s\n", info.Card.Title)
+		}
+		if info.Card.License != "" {
+			fmt.Fprintf(w, "  License:      %s\n", info.Card.License)
+		}
+		if info.Card.PipelineTag != "" {
+			fmt.Fprintf(w, "  Pipeline:     %s\n", info.Card.PipelineTag)
+		}
+		if info.Card.LibraryName != "" {
+			fmt.Fprintf(w, "  Library:      %s\n", info.Card.LibraryName)
+		}
+		if len(info.Card.Tags) > 0 {
+			fmt.Fprintf(w, "  Tags:         %s\n", strings.Join(info.Card.Tags, ", "))
+		}
+		if len(info.Card.Languages) > 0 {
+			fmt.Fprintf(w, "  Languages:    %s\n", strings.Join(info.Card.Languages, ", "))
+		}
+		if len(info.Card.Datasets) > 0 {
+			fmt.Fprintf(w, "  Datasets:     %s\n", strings.Join(info.Card.Datasets, ", "))
+		}
+		if len(info.Card.BaseModels) > 0 {
+			fmt.Fprintf(w, "  Base models:  %s\n", strings.Join(info.Card.BaseModels, ", "))
+		}
+	}
 	if len(info.Files) > 0 {
 		var total int64
 		for _, file := range info.Files {

@@ -493,6 +493,24 @@ func TestInspectCommandJSON(t *testing.T) {
 	}
 }
 
+func TestInspectCommandShowsModelCard(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("---\nlicense: mit\npipeline_tag: text-generation\ntags: [test]\n---\n# Test Model\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"inspect", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Model card:", "Title:        Test Model", "License:      mit", "Pipeline:     text-generation"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestCheckCommandReportsCompatibility(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	var stdout, stderr bytes.Buffer
