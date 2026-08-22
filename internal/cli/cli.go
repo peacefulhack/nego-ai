@@ -19,6 +19,7 @@ import (
 	_ "github.com/gakon/nego-ai/backends/llama"
 	_ "github.com/gakon/nego-ai/backends/openai"
 	"github.com/gakon/nego-ai/chattemplate"
+	"github.com/gakon/nego-ai/convert"
 	"github.com/gakon/nego-ai/evals"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/cache"
@@ -58,6 +59,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return runEval(args[1:], stdout, stderr)
 	case "version":
 		return runVersion(args[1:], stdout, stderr)
+	case "convert":
+		return runConvert(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -250,6 +253,60 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego embed <text> --endpoint <url> --model <name> [flags]")
 	fmt.Fprintln(w, "  nego eval <suite.json> [flags]")
 	fmt.Fprintln(w, "  nego version [flags]")
+	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
+}
+
+func runConvert(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		convertUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "gguf":
+		return runConvertGGUF(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		convertUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown convert command %q\n", args[0])
+		convertUsage(stderr)
+		return 2
+	}
+}
+
+func runConvertGGUF(args []string, stdout, stderr io.Writer) int {
+	var output string
+	var converter string
+	var quantize string
+	fs := flag.NewFlagSet("convert gguf", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&output, "out", "", "output GGUF path")
+	fs.StringVar(&converter, "converter", "", "path to llama.cpp conversion script/binary")
+	fs.StringVar(&quantize, "quantize", "", "output quantization type")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego convert gguf <model-dir> --out <file> --converter <path>")
+		return 2
+	}
+	if err := convert.ConvertGGUF(context.Background(), convert.GGUFOptions{
+		Converter: converter,
+		ModelDir:  positionals[0],
+		Output:    output,
+		Quantize:  quantize,
+	}); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Converted GGUF: %s\n", output)
+	return 0
+}
+
+func convertUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
 }
 
 func runVersion(args []string, stdout, stderr io.Writer) int {

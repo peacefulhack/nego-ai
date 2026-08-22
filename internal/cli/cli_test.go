@@ -530,6 +530,18 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestConvertGGUFCommand(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "model.gguf")
+	var stdout, stderr bytes.Buffer
+	code := Run(t.Context(), []string{"convert", "gguf", "model-dir", "--out", out, "--converter", fakeConverterCommand(t)}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(out); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeCLITokenizer(t *testing.T, dir string) {
 	t.Helper()
 	body := `{
@@ -561,6 +573,23 @@ func fakeCLILlamaCommand(t *testing.T) string {
 	}
 	path := filepath.Join(dir, "fake-llama.sh")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\necho fake llama output \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fakeConverterCommand(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(dir, "convert.bat")
+		if err := os.WriteFile(path, []byte("@echo off\n:loop\nif \"%1\"==\"--outfile\" (echo gguf > %2 & exit /b 0)\nshift\ngoto loop\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	path := filepath.Join(dir, "convert.sh")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nwhile [ \"$1\" != \"\" ]; do if [ \"$1\" = \"--outfile\" ]; then echo gguf > \"$2\"; exit 0; fi; shift; done\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return path

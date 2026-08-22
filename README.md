@@ -115,6 +115,12 @@ nego cache usage
 nego cache gc --yes
 ```
 
+## Conversion helpers
+
+```bash
+nego convert gguf ./models/qwen3 --out ./models/qwen3.gguf --converter /path/to/convert_hf_to_gguf.py
+```
+
 ## Eval
 
 ```bash
