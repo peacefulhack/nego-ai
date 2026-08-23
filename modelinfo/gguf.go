@@ -9,11 +9,13 @@ import (
 )
 
 const (
-	ggufMagic             = "GGUF"
-	maxGGUFStringLength   = 16 << 20
-	maxGGUFArrayItems     = 1_000_000
-	maxGGUFArrayStored    = 128
-	maxGGUFMetadataFields = 1_000_000
+	ggufMagic              = "GGUF"
+	maxGGUFStringLength    = 16 << 20
+	maxGGUFArrayItems      = 1_000_000
+	maxGGUFArrayStored     = 128
+	maxGGUFMetadataFields  = 1_000_000
+	maxGGUFVocabTokens     = 2_000_000
+	maxGGUFVocabTokenBytes = 256 << 20
 )
 
 type GGUFInfo struct {
@@ -147,6 +149,10 @@ func readGGUFValue(r io.Reader) (any, error) {
 	if err := binary.Read(r, binary.LittleEndian, &typ); err != nil {
 		return nil, err
 	}
+	return readGGUFValuePayload(r, typ)
+}
+
+func readGGUFValuePayload(r io.Reader, typ uint32) (any, error) {
 	switch typ {
 	case 0:
 		var value uint8

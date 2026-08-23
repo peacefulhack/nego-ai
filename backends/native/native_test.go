@@ -26,6 +26,9 @@ func TestLoadReadsGGUFWithoutExternalRuntime(t *testing.T) {
 	if nativeModel.Info().Architecture != "llama" || len(nativeModel.Info().Tensors) != 1 {
 		t.Fatalf("unexpected model info: %#v", nativeModel.Info())
 	}
+	if nativeModel.Vocab() == nil {
+		t.Fatal("expected vocab metadata object")
+	}
 }
 
 func TestGenerateReportsExperimentalInference(t *testing.T) {

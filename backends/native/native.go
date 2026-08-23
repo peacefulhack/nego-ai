@@ -48,9 +48,15 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if err != nil {
 		return nil, fmt.Errorf("open native tensor store: %w", err)
 	}
+	vocab, err := modelinfo.InspectGGUFVocab(modelPath)
+	if err != nil {
+		tensors.Close()
+		return nil, fmt.Errorf("inspect native GGUF vocab: %w", err)
+	}
 	return &Model{
 		path:       modelPath,
 		info:       info,
+		vocab:      vocab,
 		tensors:    tensors,
 		promptPath: promptPath(opts.Path, modelPath, opts.Options),
 	}, nil
@@ -59,6 +65,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 type Model struct {
 	path       string
 	info       *modelinfo.GGUFInfo
+	vocab      *modelinfo.GGUFVocab
 	tensors    *tensorStore
 	promptPath string
 }
@@ -89,6 +96,10 @@ func (m *Model) Close() error {
 
 func (m *Model) Info() *modelinfo.GGUFInfo {
 	return m.info
+}
+
+func (m *Model) Vocab() *modelinfo.GGUFVocab {
+	return m.vocab
 }
 
 func (m *Model) ReadTensor(name string) ([]byte, modelinfo.GGUFTensor, error) {
