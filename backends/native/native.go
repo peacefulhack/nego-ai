@@ -105,6 +105,21 @@ func (m *Model) TensorReader(name string) (*io.SectionReader, modelinfo.GGUFTens
 	return m.tensors.TensorReader(name)
 }
 
+func (m *Model) LoadTensorFloat32(name string) ([]float32, modelinfo.GGUFTensor, error) {
+	if m.tensors == nil {
+		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("native tensor store is closed")
+	}
+	data, tensor, err := m.tensors.ReadTensor(name)
+	if err != nil {
+		return nil, modelinfo.GGUFTensor{}, err
+	}
+	values, err := tensorFloat32(tensor, data)
+	if err != nil {
+		return nil, modelinfo.GGUFTensor{}, err
+	}
+	return values, tensor, nil
+}
+
 func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {
 	if m.promptPath == "" {
 		return fallbackChatPrompt(messages), nil

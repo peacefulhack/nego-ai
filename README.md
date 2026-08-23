@@ -150,6 +150,7 @@ Current status:
 - Parses GGUF metadata and tensor directories in Go.
 - Reads raw GGUF tensor bytes in Go.
 - Includes early CPU tensor math primitives for F32, F16, BF16, and Q8_0 data.
+- Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
 - Does not run transformer inference yet.
 
 The native backend is the foundation for pure-Go chat/train/share. The next phases are Qwen/Llama transformer blocks, sampling, KV cache, and broader quantized kernels.
