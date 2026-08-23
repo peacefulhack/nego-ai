@@ -30,6 +30,31 @@ func TestRunRequiresCommand(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidJobPaths(t *testing.T) {
+	dir := t.TempDir()
+	outputFile := filepath.Join(dir, "output.txt")
+	if err := os.WriteFile(outputFile, []byte("not a directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Validate(JobSpec{
+		Name:      "bad-output",
+		Command:   "python",
+		OutputDir: outputFile,
+	})
+	if err == nil || !strings.Contains(err.Error(), "output dir") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = Validate(JobSpec{
+		Name:    "bad-env",
+		Command: "python",
+		Env:     map[string]string{"BAD=KEY": "value"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "env key") {
+		t.Fatalf("unexpected env error: %v", err)
+	}
+}
+
 func TestNewLoRAJobUsesDownloadedModelAndDataset(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models", "qwen3")

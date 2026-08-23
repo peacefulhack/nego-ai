@@ -417,6 +417,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego version [flags]")
 	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> [--converter <path>] [--python <path>]")
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
 
@@ -425,6 +426,8 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 		switch args[0] {
 		case "init":
 			return runTrainInit(args[1:], stdout, stderr)
+		case "validate":
+			return runTrainValidate(args[1:], stdout, stderr)
 		case "help", "-h", "--help":
 			trainUsage(stdout)
 			return 0
@@ -522,9 +525,58 @@ func runTrainInit(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runTrainValidate(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("train validate", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego train validate <job.json> [flags]")
+		return 2
+	}
+	data, err := os.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	var spec training.JobSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	err = training.Validate(spec)
+	result := map[string]any{
+		"name":  spec.Name,
+		"valid": err == nil,
+	}
+	if err != nil {
+		result["error"] = err.Error()
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(result)
+	} else if err == nil {
+		name := spec.Name
+		if name == "" {
+			name = positionals[0]
+		}
+		fmt.Fprintf(stdout, "Training job is valid: %s\n", name)
+	} else {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
+}
+
 func trainUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
 

@@ -1203,6 +1203,47 @@ func TestTrainCommand(t *testing.T) {
 	}
 }
 
+func TestTrainValidateCommand(t *testing.T) {
+	jobPath := filepath.Join(t.TempDir(), "job.json")
+	body := `{"name":"test","command":` + strconv.Quote(fakeTrainingCommand(t)) + `,"args":["hello"]}`
+	if err := os.WriteFile(jobPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "validate", jobPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Training job is valid") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"train", "validate", jobPath, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"valid":true`) {
+		t.Fatalf("unexpected json: %q", stdout.String())
+	}
+}
+
+func TestTrainValidateCommandReportsInvalidJob(t *testing.T) {
+	jobPath := filepath.Join(t.TempDir(), "job.json")
+	if err := os.WriteFile(jobPath, []byte(`{"name":"bad"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "validate", jobPath}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "training command is required") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
 func TestTrainInitCommand(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models", "qwen3")

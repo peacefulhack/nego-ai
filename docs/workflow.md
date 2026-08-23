@@ -385,6 +385,12 @@ Minimal `job.json` shape:
 }
 ```
 
+Validate it before running the trainer:
+
+```bash
+nego train validate examples/5.train/train-job.json
+```
+
 Run it:
 
 ```bash

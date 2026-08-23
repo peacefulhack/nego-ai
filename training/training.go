@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -91,6 +92,16 @@ func Validate(spec JobSpec) error {
 	if spec.Command == "" {
 		return fmt.Errorf("training command is required")
 	}
+	if spec.WorkDir != "" {
+		if err := requireDir("", spec.WorkDir, "work dir"); err != nil {
+			return err
+		}
+	}
+	for key := range spec.Env {
+		if key == "" || strings.Contains(key, "=") {
+			return fmt.Errorf("training env key %q is invalid", key)
+		}
+	}
 	if spec.BaseModel != "" {
 		if err := requirePath(spec.WorkDir, spec.BaseModel, "base model"); err != nil {
 			return err
@@ -103,6 +114,11 @@ func Validate(spec JobSpec) error {
 	}
 	if spec.EvalFile != "" {
 		if err := requireFile(spec.WorkDir, spec.EvalFile, "eval file"); err != nil {
+			return err
+		}
+	}
+	if spec.OutputDir != "" {
+		if err := validateOutputDir(spec.WorkDir, spec.OutputDir); err != nil {
 			return err
 		}
 	}
@@ -176,6 +192,36 @@ func requireFile(workDir, path, label string) error {
 		return fmt.Errorf("%s %q must be a file", label, path)
 	}
 	return nil
+}
+
+func requireDir(workDir, path, label string) error {
+	if err := requirePath(workDir, path, label); err != nil {
+		return err
+	}
+	resolved := resolvePath(workDir, path)
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s %q must be a directory", label, path)
+	}
+	return nil
+}
+
+func validateOutputDir(workDir, path string) error {
+	resolved := resolvePath(workDir, path)
+	info, err := os.Stat(resolved)
+	if err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("output dir %q must be a directory", path)
+		}
+		return nil
+	}
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return fmt.Errorf("output dir %q is not available: %w", path, err)
 }
 
 func resolvePath(workDir, path string) string {

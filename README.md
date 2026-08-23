@@ -258,6 +258,7 @@ Use the Hugging Face-style model directory (`./models/qwen3`) for fine-tuning jo
 
 ```bash
 nego train init --base-model ./models/qwen3 --train-file examples/5.train/train.jsonl --eval-file examples/5.train/test.jsonl --output-dir ./outputs/qwen3-lora --out examples/5.train/train-job.json
+nego train validate examples/5.train/train-job.json
 nego train job.json
 ```
 
