@@ -129,6 +129,8 @@ import _ "github.com/gakon/nego-ai/backends/llama"
 nego backends list
 nego backends info llama.cpp
 nego backends info native
+nego run --native ./models/qwen3-gguf "Hello"
+nego chat --native ./models/qwen3-gguf "Hello"
 ```
 
 ## Pure-Go native runtime

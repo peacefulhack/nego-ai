@@ -638,6 +638,30 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 	}
 }
 
+func TestRunCommandNativeShortcutUsesNativeBackend(t *testing.T) {
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--native"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "inspect native GGUF model") {
+		t.Fatalf("expected native backend error, got %q", stderr.String())
+	}
+}
+
+func TestRunCommandRejectsNativeAndBackendTogether(t *testing.T) {
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--native", "--backend", "llama.cpp"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "either --native or --backend") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
 func TestRunCommandRejectsInvalidGPUMode(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
@@ -683,6 +707,18 @@ func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "fake llama output") {
 		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestChatCommandNativeShortcutUsesNativeBackend(t *testing.T) {
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--native"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "inspect native GGUF model") {
+		t.Fatalf("expected native backend error, got %q", stderr.String())
 	}
 }
 

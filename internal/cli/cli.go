@@ -334,7 +334,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native":
 		return true
 	default:
 		return false
@@ -1185,11 +1185,13 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var tensorSplit string
 	var splitMode string
 	var flashAttention bool
+	var native bool
 	var configFile string
 	var logPath string
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.BoolVar(&native, "native", false, "use the experimental pure-Go native backend")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
 	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
 	fs.Float64Var(&topP, "top-p", 0, "nucleus sampling probability")
@@ -1209,6 +1211,10 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
+	if native && flagWasSet(fs, "backend") {
+		fmt.Fprintln(stderr, "nego: use either --native or --backend, not both")
+		return 2
+	}
 	cfg, err := loadRuntimeConfig(configFile)
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -1216,6 +1222,9 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	}
 	if cfg.Backend != "" {
 		backend = cfg.Backend
+	}
+	if native {
+		backend = "native"
 	}
 	if cfg.MaxTokens > 0 && maxTokens == 0 {
 		maxTokens = cfg.MaxTokens
@@ -1308,9 +1317,11 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var sessionPath string
 	var savePath string
 	var interactive bool
+	var native bool
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.BoolVar(&native, "native", false, "use the experimental pure-Go native backend")
 	fs.StringVar(&system, "system", "", "system message")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
 	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
@@ -1335,6 +1346,10 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	backendSetByFlag := flagWasSet(fs, "backend")
+	if native && backendSetByFlag {
+		fmt.Fprintln(stderr, "nego: use either --native or --backend, not both")
+		return 2
+	}
 	cfg, err := loadRuntimeConfig(configFile)
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -1396,6 +1411,9 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if cfg.Model == "" {
 			cfg.Model = session.Model
 		}
+	}
+	if native {
+		backend = "native"
 	}
 	messages := append([]nego.Message(nil), cfg.Messages...)
 	if loadedSession {
@@ -1852,10 +1870,12 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	var tensorSplit string
 	var splitMode string
 	var flashAttention bool
+	var native bool
 
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.BoolVar(&native, "native", false, "use the experimental pure-Go native backend")
 	fs.StringVar(&addr, "addr", ":8080", "listen address")
 	fs.StringVar(&modelID, "model", "nego-model", "served model id")
 	fs.IntVar(&threads, "threads", 0, "llama.cpp CPU threads")
@@ -1869,6 +1889,13 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
+	}
+	if native && flagWasSet(fs, "backend") {
+		fmt.Fprintln(stderr, "nego: use either --native or --backend, not both")
+		return 2
+	}
+	if native {
+		backend = "native"
 	}
 	if len(positionals) != 1 {
 		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
