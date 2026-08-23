@@ -149,6 +149,7 @@ Current status:
 - Loads GGUF files without `llama-cli`.
 - Parses GGUF metadata and tensor directories in Go.
 - Builds native model specs and standard tensor-name maps from GGUF metadata.
+- Reports missing or mismatched native runtime tensors before forward-pass work.
 - Reads GGUF tokenizer vocabulary metadata in Go.
 - Encodes and decodes text with a basic GGUF vocabulary tokenizer path.
 - Decodes GGUF token IDs into text for native generation plumbing.

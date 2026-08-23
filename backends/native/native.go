@@ -58,12 +58,14 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		tensors.Close()
 		return nil, fmt.Errorf("build native model spec: %w", err)
 	}
+	manifest := buildTensorManifest(info, spec, tensorNames)
 	return &Model{
 		path:       modelPath,
 		info:       info,
 		vocab:      vocab,
 		spec:       spec,
 		names:      tensorNames,
+		manifest:   manifest,
 		tensors:    tensors,
 		promptPath: promptPath(opts.Path, modelPath, opts.Options),
 	}, nil
@@ -75,6 +77,7 @@ type Model struct {
 	vocab      *modelinfo.GGUFVocab
 	spec       ModelSpec
 	names      TensorNames
+	manifest   TensorManifestReport
 	tensors    *tensorStore
 	promptPath string
 }
@@ -124,6 +127,10 @@ func (m *Model) Spec() ModelSpec {
 
 func (m *Model) TensorNames() TensorNames {
 	return m.names
+}
+
+func (m *Model) TensorManifest() TensorManifestReport {
+	return m.manifest
 }
 
 func (m *Model) ReadTensor(name string) ([]byte, modelinfo.GGUFTensor, error) {

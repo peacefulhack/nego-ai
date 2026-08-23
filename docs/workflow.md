@@ -94,7 +94,7 @@ nego backends info native
 nego backends info openai-compatible
 ```
 
-`native` is the pure-Go runtime track. It can load GGUF metadata, build model specs and tensor-name maps, read tokenizer vocabulary metadata, encode/decode text through a basic GGUF vocab path, plan prompt tokens for generation, read tensor directories and raw tensor bytes, load selected tensors as float32 buffers, run early CPU tensor math, activation, vector, RoPE, attention, KV cache, embedding, MLP, logits, and generation sampling primitives, and sample deterministically today, but full transformer inference is still under development.
+`native` is the pure-Go runtime track. It can load GGUF metadata, build model specs and tensor-name maps, report missing runtime tensors, read tokenizer vocabulary metadata, encode/decode text through a basic GGUF vocab path, plan prompt tokens for generation, read tensor directories and raw tensor bytes, load selected tensors as float32 buffers, run early CPU tensor math, activation, vector, RoPE, attention, KV cache, embedding, MLP, logits, and generation sampling primitives, and sample deterministically today, but full transformer inference is still under development.
 
 ## 3. Prepare a Dataset
 
