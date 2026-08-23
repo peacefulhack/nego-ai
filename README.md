@@ -155,6 +155,7 @@ Current status:
 - Includes early CPU tensor math primitives for F32, F16, BF16, and Q8_0 data.
 - Includes RMSNorm, SiLU, and softmax primitives for transformer blocks.
 - Includes residual/vector helpers and RoPE primitives for attention plumbing.
+- Includes scaled dot-product attention and KV cache primitives.
 - Includes embedding lookup and output-logits helpers for generation plumbing.
 - Includes linear projection and MLP helpers for transformer feed-forward blocks.
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
