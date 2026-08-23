@@ -131,6 +131,13 @@ func (m *Model) LoadTensorFloat32(name string) ([]float32, modelinfo.GGUFTensor,
 	return values, tensor, nil
 }
 
+func (m *Model) DecodeTokenIDs(ids []int) (string, error) {
+	if m.vocab == nil {
+		return "", fmt.Errorf("native GGUF vocab is not loaded")
+	}
+	return m.vocab.Decode(ids, modelinfo.DecodeOptions{SkipSpecial: true})
+}
+
 func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {
 	if m.promptPath == "" {
 		return fallbackChatPrompt(messages), nil

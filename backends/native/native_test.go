@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	nego "github.com/gakon/nego-ai"
+	"github.com/gakon/nego-ai/modelinfo"
 )
 
 func TestLoadReadsGGUFWithoutExternalRuntime(t *testing.T) {
@@ -78,6 +79,22 @@ func TestReadTensorReturnsRawBytes(t *testing.T) {
 	_, _, err = nativeModel.ReadTensor("token_embd.weight")
 	if err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("expected closed tensor store error, got %v", err)
+	}
+}
+
+func TestDecodeTokenIDsUsesGGUFVocab(t *testing.T) {
+	model := &Model{
+		vocab: &modelinfo.GGUFVocab{
+			Tokens:     []string{"<s>", "▁Hello", "!"},
+			TokenTypes: []uint32{3, 1, 1},
+		},
+	}
+	got, err := model.DecodeTokenIDs([]int{0, 1, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != " Hello!" {
+		t.Fatalf("got %q", got)
 	}
 }
 

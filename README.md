@@ -149,6 +149,7 @@ Current status:
 - Loads GGUF files without `llama-cli`.
 - Parses GGUF metadata and tensor directories in Go.
 - Reads GGUF tokenizer vocabulary metadata in Go.
+- Decodes GGUF token IDs into text for native generation plumbing.
 - Reads raw GGUF tensor bytes in Go.
 - Includes early CPU tensor math primitives for F32, F16, BF16, and Q8_0 data.
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
