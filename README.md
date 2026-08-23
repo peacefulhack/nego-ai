@@ -107,6 +107,8 @@ nego context ./models/qwen3 "hello world" --max-context 4096
 ids, err := tok.EncodeBatch([]string{"hello", "world"})
 ```
 
+The tokenizer helper supports WordLevel vocab maps, added tokens, BPE merge rules, and Unigram/SentencePiece-style vocab arrays for development workflows.
+
 ## Prompt rendering
 
 ```bash

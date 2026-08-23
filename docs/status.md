@@ -7,7 +7,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 1. Download Hugging Face-style model files and GGUF runtime files.
 2. Cache downloads and list, inspect, or remove local model registry entries.
 3. Inspect model directories, model cards, config files, tokenizer files, and GGUF metadata.
-4. Tokenize text, count context usage, and render chat prompts.
+4. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
 5. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
 6. Use remote OpenAI-compatible chat and embedding APIs.
 7. Prepare, validate, convert, filter, split, and sample datasets.
@@ -44,6 +44,5 @@ Not production-ready yet:
 
 1. Add K-quant tensor kernels and compatibility tests with small fixture blocks.
 2. Validate native forward math against known tiny Llama/Qwen GGUF fixtures.
-3. Add tokenizer coverage for real SentencePiece/BPE metadata variants.
-4. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
-5. Design native training separately from runtime inference; keep external training orchestration stable until then.
+3. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
+4. Design native training separately from runtime inference; keep external training orchestration stable until then.
