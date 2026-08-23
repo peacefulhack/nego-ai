@@ -47,6 +47,59 @@ func TestMultiHeadAttentionFloat32(t *testing.T) {
 	assertFloat32Slice(t, got, []float32{1, 2, 1, 2})
 }
 
+func TestMultiHeadAttentionWithCacheAppendsKV(t *testing.T) {
+	spec := ModelSpec{
+		EmbeddingLength:    4,
+		AttentionHeadCount: 2,
+		KVHeadCount:        1,
+		RopeTheta:          10000,
+	}
+	cache, err := NewKVCache(1, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	qTensor := modelinfo.GGUFTensor{Name: "q", Shape: []uint64{4, 4}}
+	kTensor := modelinfo.GGUFTensor{Name: "k", Shape: []uint64{4, 2}}
+	vTensor := modelinfo.GGUFTensor{Name: "v", Shape: []uint64{4, 2}}
+	outTensor := modelinfo.GGUFTensor{Name: "o", Shape: []uint64{4, 4}}
+	identity4 := []float32{
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1,
+	}
+	firstTwo := []float32{
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+	}
+	if _, err := multiHeadAttentionWithCacheFloat32(
+		[]float32{1, 2, 3, 4},
+		identity4,
+		firstTwo,
+		firstTwo,
+		identity4,
+		qTensor,
+		kTensor,
+		vTensor,
+		outTensor,
+		spec,
+		0,
+		0,
+		cache,
+	); err != nil {
+		t.Fatal(err)
+	}
+	keys, values, err := cache.Layer(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || len(values) != 1 {
+		t.Fatalf("unexpected cache length: keys=%d values=%d", len(keys), len(values))
+	}
+	assertFloat32Slice(t, keys[0], []float32{1, 2})
+	assertFloat32Slice(t, values[0], []float32{1, 2})
+}
+
 func TestSplitHeads(t *testing.T) {
 	heads, err := splitHeads([]float32{1, 2, 3, 4}, 2, 2)
 	if err != nil {

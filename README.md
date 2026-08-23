@@ -160,6 +160,7 @@ Current status:
 - Includes residual/vector helpers and RoPE primitives for attention plumbing.
 - Includes scaled dot-product attention and KV cache primitives.
 - Includes single-step multi-head attention assembly for Q/K/V/O projections.
+- Includes decode state plumbing that appends K/V vectors while processing prompt and generated tokens.
 - Includes embedding lookup and output-logits helpers for generation plumbing.
 - Includes generation option normalization and token sample/decode scaffolding.
 - Includes prompt planning for native generation before the transformer forward pass lands.
