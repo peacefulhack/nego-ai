@@ -29,6 +29,64 @@ func TestLoadTensorFloat32(t *testing.T) {
 	}
 }
 
+func TestLoadTensorFloat32ReturnsCopyFromCache(t *testing.T) {
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+
+	nativeModel := model.(*Model)
+	first, _, err := nativeModel.LoadTensorFloat32("token_embd.weight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first[0] = 42
+	second, _, err := nativeModel.LoadTensorFloat32("token_embd.weight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second[0] == 42 {
+		t.Fatal("LoadTensorFloat32 returned mutable cached data")
+	}
+}
+
+func TestLoadTensorFloat32SharedUsesCache(t *testing.T) {
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+
+	nativeModel := model.(*Model)
+	first, _, err := nativeModel.loadTensorFloat32Shared("token_embd.weight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := nativeModel.loadTensorFloat32Shared("token_embd.weight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) == 0 || len(second) == 0 || &first[0] != &second[0] {
+		t.Fatal("expected shared tensor cache to reuse the same float32 buffer")
+	}
+}
+
+func TestLoadTensorFloat32RejectsClosedModel(t *testing.T) {
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativeModel := model.(*Model)
+	if err := nativeModel.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = nativeModel.LoadTensorFloat32("token_embd.weight")
+	if err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestTensorFloat32RejectsUnsupportedType(t *testing.T) {
 	_, err := tensorFloat32(modelinfo.GGUFTensor{
 		Name:         "blk.0.attn_q.weight",

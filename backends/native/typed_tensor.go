@@ -25,6 +25,15 @@ func tensorFloat32(tensor modelinfo.GGUFTensor, data []byte) ([]float32, error) 
 	}
 }
 
+func cloneFloat32(values []float32) []float32 {
+	if values == nil {
+		return nil
+	}
+	out := make([]float32, len(values))
+	copy(out, values)
+	return out
+}
+
 func tensorElementCount(tensor modelinfo.GGUFTensor) (int, error) {
 	if tensor.ElementCount == 0 {
 		return 0, fmt.Errorf("tensor %q has no elements", tensor.Name)

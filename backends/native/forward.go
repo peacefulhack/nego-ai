@@ -36,7 +36,7 @@ func (m *Model) ForwardToken(tokenID int, position int) ([]float32, error) {
 	if !m.manifest.Ready() {
 		return nil, fmt.Errorf("native tensor manifest is not ready: missing=%d shape_errors=%d", len(m.manifest.Missing), len(m.manifest.MissingShape))
 	}
-	embeddingValues, embeddingTensor, err := m.LoadTensorFloat32(m.names.TokenEmbedding)
+	embeddingValues, embeddingTensor, err := m.loadTensorFloat32Shared(m.names.TokenEmbedding)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (m *Model) ForwardToken(tokenID int, position int) ([]float32, error) {
 			return nil, fmt.Errorf("block %d: %w", i, err)
 		}
 	}
-	normValues, _, err := m.LoadTensorFloat32(m.names.OutputNorm)
+	normValues, _, err := m.loadTensorFloat32Shared(m.names.OutputNorm)
 	if err != nil {
 		return nil, err
 	}
@@ -126,14 +126,14 @@ func trimAtStop(text string, stops []string) string {
 }
 
 func (m *Model) outputWeights() ([]float32, modelinfo.GGUFTensor, error) {
-	values, tensor, err := m.LoadTensorFloat32(m.names.Output)
+	values, tensor, err := m.loadTensorFloat32Shared(m.names.Output)
 	if err == nil {
 		return values, tensor, nil
 	}
 	if !m.manifest.TiedOutput {
 		return nil, modelinfo.GGUFTensor{}, err
 	}
-	values, tensor, tiedErr := m.LoadTensorFloat32(m.names.TokenEmbedding)
+	values, tensor, tiedErr := m.loadTensorFloat32Shared(m.names.TokenEmbedding)
 	if tiedErr != nil {
 		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("load tied output weights: %w", tiedErr)
 	}

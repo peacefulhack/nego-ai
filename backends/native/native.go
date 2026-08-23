@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	nego "github.com/gakon/nego-ai"
 	"github.com/gakon/nego-ai/chattemplate"
@@ -68,8 +69,14 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		names:      tensorNames,
 		manifest:   manifest,
 		tensors:    tensors,
+		float32:    make(map[string]cachedFloat32Tensor),
 		promptPath: promptPath(opts.Path, modelPath, opts.Options),
 	}, nil
+}
+
+type cachedFloat32Tensor struct {
+	values []float32
+	tensor modelinfo.GGUFTensor
 }
 
 type Model struct {
@@ -80,6 +87,8 @@ type Model struct {
 	names      TensorNames
 	manifest   TensorManifestReport
 	tensors    *tensorStore
+	float32    map[string]cachedFloat32Tensor
+	tensorMu   sync.Mutex
 	promptPath string
 }
 
@@ -111,11 +120,14 @@ func (m *Model) StreamChat(context.Context, nego.ChatRequest) (nego.Stream, erro
 }
 
 func (m *Model) Close() error {
+	m.tensorMu.Lock()
+	defer m.tensorMu.Unlock()
 	if m.tensors == nil {
 		return nil
 	}
 	err := m.tensors.Close()
 	m.tensors = nil
+	m.float32 = nil
 	return err
 }
 
@@ -154,8 +166,21 @@ func (m *Model) TensorReader(name string) (*io.SectionReader, modelinfo.GGUFTens
 }
 
 func (m *Model) LoadTensorFloat32(name string) ([]float32, modelinfo.GGUFTensor, error) {
+	values, tensor, err := m.loadTensorFloat32Shared(name)
+	if err != nil {
+		return nil, modelinfo.GGUFTensor{}, err
+	}
+	return cloneFloat32(values), tensor, nil
+}
+
+func (m *Model) loadTensorFloat32Shared(name string) ([]float32, modelinfo.GGUFTensor, error) {
+	m.tensorMu.Lock()
+	defer m.tensorMu.Unlock()
 	if m.tensors == nil {
 		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("native tensor store is closed")
+	}
+	if cached, ok := m.float32[name]; ok {
+		return cached.values, cached.tensor, nil
 	}
 	data, tensor, err := m.tensors.ReadTensor(name)
 	if err != nil {
@@ -165,6 +190,10 @@ func (m *Model) LoadTensorFloat32(name string) ([]float32, modelinfo.GGUFTensor,
 	if err != nil {
 		return nil, modelinfo.GGUFTensor{}, err
 	}
+	if m.float32 == nil {
+		m.float32 = make(map[string]cachedFloat32Tensor)
+	}
+	m.float32[name] = cachedFloat32Tensor{values: values, tensor: tensor}
 	return values, tensor, nil
 }
 

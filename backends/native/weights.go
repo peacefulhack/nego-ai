@@ -11,11 +11,11 @@ func (m *Model) LoadBlockWeights(block int) (BlockWeights, error) {
 		return BlockWeights{}, fmt.Errorf("block %d is out of range", block)
 	}
 	names := m.names.Blocks[block]
-	attentionNorm, _, err := m.LoadTensorFloat32(names.AttentionNorm)
+	attentionNorm, _, err := m.loadTensorFloat32Shared(names.AttentionNorm)
 	if err != nil {
 		return BlockWeights{}, fmt.Errorf("%s: %w", names.AttentionNorm, err)
 	}
-	ffnNorm, _, err := m.LoadTensorFloat32(names.FFNNorm)
+	ffnNorm, _, err := m.loadTensorFloat32Shared(names.FFNNorm)
 	if err != nil {
 		return BlockWeights{}, fmt.Errorf("%s: %w", names.FFNNorm, err)
 	}
@@ -88,7 +88,7 @@ func (m *Model) loadMLPWeights(names BlockTensorNames) (MLPWeights, error) {
 }
 
 func (m *Model) loadNamedFloat32(name string) ([]float32, modelinfo.GGUFTensor, error) {
-	values, tensor, err := m.LoadTensorFloat32(name)
+	values, tensor, err := m.loadTensorFloat32Shared(name)
 	if err != nil {
 		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("load %s: %w", name, err)
 	}
