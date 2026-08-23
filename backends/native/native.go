@@ -80,15 +80,20 @@ type Model struct {
 }
 
 func (m *Model) Generate(_ context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
-	_ = generationOptions(req)
+	if _, err := m.planGeneration(req.Prompt, generationOptions(req)); err != nil {
+		return nil, err
+	}
 	return nil, m.inferenceError()
 }
 
 func (m *Model) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
-	if _, err := m.renderChatPrompt(req.Messages); err != nil {
+	prompt, err := m.renderChatPrompt(req.Messages)
+	if err != nil {
 		return nil, err
 	}
-	_ = chatGenerationOptions(req)
+	if _, err := m.planGeneration(prompt, chatGenerationOptions(req)); err != nil {
+		return nil, err
+	}
 	return nil, m.inferenceError()
 }
 
