@@ -150,6 +150,7 @@ Current status:
 - Parses GGUF metadata and tensor directories in Go.
 - Builds native model specs and standard tensor-name maps from GGUF metadata.
 - Reports missing or mismatched native runtime tensors before forward-pass work.
+- Loads per-block native runtime weights from GGUF tensor storage.
 - Reads GGUF tokenizer vocabulary metadata in Go.
 - Encodes and decodes text with a basic GGUF vocabulary tokenizer path.
 - Decodes GGUF token IDs into text for native generation plumbing.
