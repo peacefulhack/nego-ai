@@ -123,7 +123,7 @@ func fakeGGUF(t *testing.T) string {
 	writeUint32KV(t, &buf, "llama.feed_forward_length", 32)
 	writeUint32KV(t, &buf, "llama.attention.head_count", 4)
 	writeUint32KV(t, &buf, "llama.attention.head_count_kv", 2)
-	writeTensor(t, &buf, "token_embd.weight", []uint64{8, 16}, 1, 0)
+	writeTensor(t, &buf, "token_embd.weight", []uint64{16, 8}, 1, 0)
 	padToAlignment(&buf, 32)
 	buf.Write(bytes.Repeat([]byte{0x7b}, 256))
 

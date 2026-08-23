@@ -12,6 +12,9 @@ func dotFloat32(a, b []float32) (float32, error) {
 	}
 	var sum float32
 	for i := range a {
+		if math.IsNaN(float64(a[i])) || math.IsInf(float64(a[i]), 0) || math.IsNaN(float64(b[i])) || math.IsInf(float64(b[i]), 0) {
+			return 0, fmt.Errorf("dot input contains non-finite value")
+		}
 		sum += a[i] * b[i]
 	}
 	return sum, nil

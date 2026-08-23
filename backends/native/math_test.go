@@ -82,6 +82,12 @@ func TestMatVecFloat32(t *testing.T) {
 	assertFloat32Slice(t, got, []float32{-1, 0.5})
 }
 
+func TestDotFloat32RejectsInvalidInputs(t *testing.T) {
+	if _, err := dotFloat32([]float32{float32(math.NaN())}, []float32{1}); err == nil {
+		t.Fatal("expected invalid dot input error")
+	}
+}
+
 func assertFloat32Slice(t *testing.T, got, want []float32) {
 	t.Helper()
 	if len(got) != len(want) {
