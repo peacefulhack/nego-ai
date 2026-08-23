@@ -41,6 +41,35 @@ func TestLoadBlockWeightsRejectsMissingTensor(t *testing.T) {
 	}
 }
 
+func TestForwardToken(t *testing.T) {
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeBlockGGUF(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	nativeModel := model.(*Model)
+	logits, err := nativeModel.ForwardToken(0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(logits) != 2 {
+		t.Fatalf("unexpected logits: %#v", logits)
+	}
+}
+
+func TestForwardTokenRejectsUnreadyManifest(t *testing.T) {
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	nativeModel := model.(*Model)
+	_, err = nativeModel.ForwardToken(0, 0)
+	if err == nil || !strings.Contains(err.Error(), "manifest") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func fakeBlockGGUF(t *testing.T) string {
 	t.Helper()
 	var buf bytes.Buffer

@@ -165,6 +165,7 @@ Current status:
 - Includes prompt planning for native generation before the transformer forward pass lands.
 - Includes linear projection and MLP helpers for transformer feed-forward blocks.
 - Includes a float32 transformer block scaffold for attention, residuals, and MLP.
+- Runs a single-token float32 forward path when a small GGUF has supported tensors.
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
 - Includes deterministic temperature, top-k, and top-p sampling primitives.
 - Does not run transformer inference yet.
