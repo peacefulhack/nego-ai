@@ -9,6 +9,23 @@ go build -o nego ./cmd/nego
 nego version
 ```
 
+## Requirements
+
+Core Nego features use Go only:
+
+- Hugging Face-style downloads and cache management
+- Model registry, inspection, tokenizer helpers, prompt rendering
+- Dataset utilities, eval helpers, run logs, and training job orchestration
+
+Some AI runtime and conversion features need third-party tools:
+
+- Local chat/run/serve with GGUF models requires `llama-cli` from [llama.cpp](https://github.com/ggml-org/llama.cpp). Set `NEGO_LLAMA_CLI` when `llama-cli` is not on PATH.
+- Converting Hugging Face `*.safetensors` models to GGUF requires the upstream `convert_hf_to_gguf.py` script from llama.cpp plus its Python dependencies. Set `NEGO_LLAMA_CONVERTER` or pass `--converter`.
+- Quantizing GGUF files requires `llama-quantize` from llama.cpp.
+- Fine-tuning is currently an external job runner. Nego can create and validate job JSON, but the actual trainer can be Python, shell, or another training stack you choose.
+
+Nego does not vendor llama.cpp or its Python converter. This keeps the Go library lightweight and lets users choose a llama.cpp build that matches their CPU/GPU setup.
+
 ## Examples
 
 Runnable Go examples live in `examples/`.
