@@ -90,8 +90,11 @@ List available runtime backends:
 ```bash
 nego backends list
 nego backends info llama.cpp
+nego backends info native
 nego backends info openai-compatible
 ```
+
+`native` is the pure-Go runtime track. It can load GGUF metadata, build model specs and tensor-name maps, report missing runtime tensors, load per-block weights from GGUF tensor storage, read tokenizer vocabulary metadata, encode/decode text through a basic GGUF vocab path, plan prompt tokens for generation, read tensor directories and raw tensor bytes, load and cache selected tensors as float32 buffers, run early CPU tensor math, activation, vector, RoPE, attention, KV cache, single-step multi-head attention, embedding, MLP, logits, transformer-block, and single-token forward primitives, sample deterministically, and run an early multi-token generate/chat loop for supported tiny float32 GGUF fixtures today. Production inference for real Qwen/Llama GGUF models is still under development.
 
 ## 3. Prepare a Dataset
 

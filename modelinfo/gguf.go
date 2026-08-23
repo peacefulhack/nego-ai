@@ -9,11 +9,13 @@ import (
 )
 
 const (
-	ggufMagic             = "GGUF"
-	maxGGUFStringLength   = 16 << 20
-	maxGGUFArrayItems     = 1_000_000
-	maxGGUFArrayStored    = 128
-	maxGGUFMetadataFields = 1_000_000
+	ggufMagic              = "GGUF"
+	maxGGUFStringLength    = 16 << 20
+	maxGGUFArrayItems      = 1_000_000
+	maxGGUFArrayStored     = 128
+	maxGGUFMetadataFields  = 1_000_000
+	maxGGUFVocabTokens     = 2_000_000
+	maxGGUFVocabTokenBytes = 256 << 20
 )
 
 type GGUFInfo struct {
@@ -21,6 +23,8 @@ type GGUFInfo struct {
 	Version         uint32         `json:"version"`
 	TensorCount     uint64         `json:"tensor_count"`
 	MetadataCount   uint64         `json:"metadata_count"`
+	Alignment       uint64         `json:"alignment,omitempty"`
+	DataOffset      uint64         `json:"data_offset,omitempty"`
 	Architecture    string         `json:"architecture,omitempty"`
 	Quantization    string         `json:"quantization,omitempty"`
 	ContextLength   uint64         `json:"context_length,omitempty"`
@@ -29,6 +33,7 @@ type GGUFInfo struct {
 	VocabSize       uint64         `json:"vocab_size,omitempty"`
 	ChatTemplate    string         `json:"chat_template,omitempty"`
 	Metadata        map[string]any `json:"metadata,omitempty"`
+	Tensors         []GGUFTensor   `json:"tensors,omitempty"`
 }
 
 type GGUFArray struct {
@@ -36,6 +41,16 @@ type GGUFArray struct {
 	Length    uint64 `json:"length"`
 	Values    []any  `json:"values,omitempty"`
 	Truncated bool   `json:"truncated,omitempty"`
+}
+
+type GGUFTensor struct {
+	Name           string   `json:"name"`
+	Shape          []uint64 `json:"shape,omitempty"`
+	GGMLType       uint32   `json:"ggml_type"`
+	Type           string   `json:"type"`
+	Offset         uint64   `json:"offset"`
+	AbsoluteOffset uint64   `json:"absolute_offset,omitempty"`
+	ElementCount   uint64   `json:"element_count,omitempty"`
 }
 
 func InspectGGUF(path string) (*GGUFInfo, error) {
@@ -48,42 +63,72 @@ func InspectGGUF(path string) (*GGUFInfo, error) {
 }
 
 func ReadGGUF(r io.Reader, path string) (*GGUFInfo, error) {
+	cr := &countingReader{r: r}
 	var magic [4]byte
-	if _, err := io.ReadFull(r, magic[:]); err != nil {
+	if _, err := io.ReadFull(cr, magic[:]); err != nil {
 		return nil, fmt.Errorf("read gguf magic: %w", err)
 	}
 	if string(magic[:]) != ggufMagic {
 		return nil, fmt.Errorf("invalid gguf magic %q", string(magic[:]))
 	}
 	info := &GGUFInfo{Path: path, Metadata: make(map[string]any)}
-	if err := binary.Read(r, binary.LittleEndian, &info.Version); err != nil {
+	if err := binary.Read(cr, binary.LittleEndian, &info.Version); err != nil {
 		return nil, fmt.Errorf("read gguf version: %w", err)
 	}
-	if err := binary.Read(r, binary.LittleEndian, &info.TensorCount); err != nil {
+	if err := binary.Read(cr, binary.LittleEndian, &info.TensorCount); err != nil {
 		return nil, fmt.Errorf("read gguf tensor count: %w", err)
 	}
-	if err := binary.Read(r, binary.LittleEndian, &info.MetadataCount); err != nil {
+	if err := binary.Read(cr, binary.LittleEndian, &info.MetadataCount); err != nil {
 		return nil, fmt.Errorf("read gguf metadata count: %w", err)
 	}
 	if info.MetadataCount > maxGGUFMetadataFields {
 		return nil, fmt.Errorf("gguf metadata count %d exceeds limit %d", info.MetadataCount, maxGGUFMetadataFields)
 	}
 	for i := uint64(0); i < info.MetadataCount; i++ {
-		key, err := readGGUFString(r)
+		key, err := readGGUFString(cr)
 		if err != nil {
 			return nil, fmt.Errorf("read gguf metadata key %d: %w", i, err)
 		}
-		value, err := readGGUFValue(r)
+		value, err := readGGUFValue(cr)
 		if err != nil {
 			return nil, fmt.Errorf("read gguf metadata %q: %w", key, err)
 		}
 		info.Metadata[key] = value
 	}
 	info.populateSummary()
+	if info.TensorCount > 0 {
+		tensors, err := readGGUFTensors(cr, info.TensorCount)
+		if err != nil {
+			return nil, err
+		}
+		info.Tensors = tensors
+	}
+	info.Alignment = metadataUint(info.Metadata, "general.alignment")
+	if info.Alignment == 0 {
+		info.Alignment = 32
+	}
+	info.DataOffset = alignOffset(cr.n, info.Alignment)
+	for i := range info.Tensors {
+		if info.Tensors[i].Offset > ^uint64(0)-info.DataOffset {
+			return nil, fmt.Errorf("gguf tensor %q offset overflows data section", info.Tensors[i].Name)
+		}
+		info.Tensors[i].AbsoluteOffset = info.DataOffset + info.Tensors[i].Offset
+	}
 	if len(info.Metadata) == 0 {
 		info.Metadata = nil
 	}
 	return info, nil
+}
+
+type countingReader struct {
+	r io.Reader
+	n uint64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.r.Read(p)
+	r.n += uint64(n)
+	return n, err
 }
 
 func (g *GGUFInfo) populateSummary() {
@@ -104,6 +149,10 @@ func readGGUFValue(r io.Reader) (any, error) {
 	if err := binary.Read(r, binary.LittleEndian, &typ); err != nil {
 		return nil, err
 	}
+	return readGGUFValuePayload(r, typ)
+}
+
+func readGGUFValuePayload(r io.Reader, typ uint32) (any, error) {
 	switch typ {
 	case 0:
 		var value uint8
@@ -190,6 +239,66 @@ func readGGUFArray(r io.Reader) (GGUFArray, error) {
 		}
 	}
 	return out, nil
+}
+
+func readGGUFTensors(r io.Reader, count uint64) ([]GGUFTensor, error) {
+	if count > maxGGUFMetadataFields {
+		return nil, fmt.Errorf("gguf tensor count %d exceeds limit %d", count, maxGGUFMetadataFields)
+	}
+	tensors := make([]GGUFTensor, 0, count)
+	for i := uint64(0); i < count; i++ {
+		tensor, err := readGGUFTensor(r)
+		if err != nil {
+			return nil, fmt.Errorf("read gguf tensor %d: %w", i, err)
+		}
+		tensors = append(tensors, tensor)
+	}
+	return tensors, nil
+}
+
+func readGGUFTensor(r io.Reader) (GGUFTensor, error) {
+	name, err := readGGUFString(r)
+	if err != nil {
+		return GGUFTensor{}, err
+	}
+	var dims uint32
+	if err := binary.Read(r, binary.LittleEndian, &dims); err != nil {
+		return GGUFTensor{}, err
+	}
+	if dims > 16 {
+		return GGUFTensor{}, fmt.Errorf("tensor %q has too many dimensions: %d", name, dims)
+	}
+	shape := make([]uint64, dims)
+	elementCount := uint64(1)
+	for i := range shape {
+		if err := binary.Read(r, binary.LittleEndian, &shape[i]); err != nil {
+			return GGUFTensor{}, err
+		}
+		if shape[i] == 0 {
+			elementCount = 0
+		} else if elementCount != 0 {
+			if elementCount > ^uint64(0)/shape[i] {
+				return GGUFTensor{}, fmt.Errorf("tensor %q element count overflows", name)
+			}
+			elementCount *= shape[i]
+		}
+	}
+	var typ uint32
+	if err := binary.Read(r, binary.LittleEndian, &typ); err != nil {
+		return GGUFTensor{}, err
+	}
+	var offset uint64
+	if err := binary.Read(r, binary.LittleEndian, &offset); err != nil {
+		return GGUFTensor{}, err
+	}
+	return GGUFTensor{
+		Name:         name,
+		Shape:        shape,
+		GGMLType:     typ,
+		Type:         ggmlTypeName(typ),
+		Offset:       offset,
+		ElementCount: elementCount,
+	}, nil
 }
 
 func readGGUFValueOfType(r io.Reader, typ uint32) (any, error) {
@@ -359,4 +468,53 @@ func ggufFileTypeName(value uint32) string {
 		return name
 	}
 	return strings.TrimSpace(fmt.Sprintf("file_type_%d", value))
+}
+
+func ggmlTypeName(value uint32) string {
+	names := map[uint32]string{
+		0:  "f32",
+		1:  "f16",
+		2:  "q4_0",
+		3:  "q4_1",
+		6:  "q5_0",
+		7:  "q5_1",
+		8:  "q8_0",
+		9:  "q8_1",
+		10: "q2_k",
+		11: "q3_k",
+		12: "q4_k",
+		13: "q5_k",
+		14: "q6_k",
+		15: "q8_k",
+		16: "iq2_xxs",
+		17: "iq2_xs",
+		18: "iq3_xxs",
+		19: "iq1_s",
+		20: "iq4_nl",
+		21: "iq3_s",
+		22: "iq2_s",
+		23: "iq4_xs",
+		24: "i8",
+		25: "i16",
+		26: "i32",
+		27: "i64",
+		28: "f64",
+		29: "iq1_m",
+		30: "bf16",
+	}
+	if name, ok := names[value]; ok {
+		return name
+	}
+	return fmt.Sprintf("ggml_type_%d", value)
+}
+
+func alignOffset(offset, alignment uint64) uint64 {
+	if alignment == 0 {
+		return offset
+	}
+	remainder := offset % alignment
+	if remainder == 0 {
+		return offset
+	}
+	return offset + alignment - remainder
 }

@@ -128,7 +128,51 @@ import _ "github.com/gakon/nego-ai/backends/llama"
 ```bash
 nego backends list
 nego backends info llama.cpp
+nego backends info native
 ```
+
+## Pure-Go native runtime
+
+Nego includes an experimental `native` backend for the pure-Go runtime track:
+
+```go
+import _ "github.com/gakon/nego-ai/backends/native"
+
+model, err := nego.LoadModel(ctx, nego.ModelOptions{
+    Backend: "native",
+    Path:    "./models/qwen3-gguf",
+})
+```
+
+Current status:
+
+- Loads GGUF files without `llama-cli`.
+- Parses GGUF metadata and tensor directories in Go.
+- Builds native model specs and standard tensor-name maps from GGUF metadata.
+- Reports missing or mismatched native runtime tensors before forward-pass work.
+- Loads per-block native runtime weights from GGUF tensor storage.
+- Reads GGUF tokenizer vocabulary metadata in Go.
+- Encodes and decodes text with a basic GGUF vocabulary tokenizer path.
+- Decodes GGUF token IDs into text for native generation plumbing.
+- Reads raw GGUF tensor bytes in Go.
+- Includes early CPU tensor math primitives for F32, F16, BF16, and Q8_0 data.
+- Includes RMSNorm, SiLU, and softmax primitives for transformer blocks.
+- Includes residual/vector helpers and RoPE primitives for attention plumbing.
+- Includes scaled dot-product attention and KV cache primitives.
+- Includes single-step multi-head attention assembly for Q/K/V/O projections.
+- Includes embedding lookup and output-logits helpers for generation plumbing.
+- Includes generation option normalization and token sample/decode scaffolding.
+- Includes prompt planning for native generation before the transformer forward pass lands.
+- Includes linear projection and MLP helpers for transformer feed-forward blocks.
+- Includes a float32 transformer block scaffold for attention, residuals, and MLP.
+- Runs a single-token float32 forward path when a small GGUF has supported tensors.
+- Runs an early multi-token generate/chat loop over the float32 forward path for supported tiny GGUF fixtures.
+- Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
+- Caches loaded float32 tensor buffers per model instance for native forward experiments.
+- Includes deterministic temperature, top-k, and top-p sampling primitives.
+- Does not run production GGUF inference for large or quantized models yet.
+
+The native backend is the foundation for pure-Go chat/train/share. The next phases are real Qwen/Llama compatibility, KV-cache-backed decoding, performance work, and broader quantized kernels.
 
 ## Local llama.cpp runtime
 
