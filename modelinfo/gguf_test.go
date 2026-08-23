@@ -17,6 +17,8 @@ func TestReadGGUFParsesMetadataSummary(t *testing.T) {
 	writeGGUFUint32KV(t, &buf, "llama.block_count", 32)
 	writeGGUFStringKV(t, &buf, "tokenizer.chat_template", "[INST] {{ message }} [/INST]")
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello", "world"})
+	writeGGUFTensor(t, &buf, "token_embd.weight", []uint64{3, 4096}, 1, 0)
+	writeGGUFTensor(t, &buf, "blk.0.attn_q.weight", []uint64{4096, 4096}, 12, 8192)
 
 	info, err := ReadGGUF(bytes.NewReader(buf.Bytes()), "model.gguf")
 	if err != nil {
@@ -33,6 +35,15 @@ func TestReadGGUFParsesMetadataSummary(t *testing.T) {
 	}
 	if !strings.Contains(info.ChatTemplate, "[INST]") {
 		t.Fatalf("unexpected template: %q", info.ChatTemplate)
+	}
+	if len(info.Tensors) != 2 {
+		t.Fatalf("expected tensor directory, got %#v", info.Tensors)
+	}
+	if info.Tensors[0].Name != "token_embd.weight" || info.Tensors[0].Type != "f16" || info.Tensors[0].ElementCount != 12288 {
+		t.Fatalf("unexpected first tensor: %#v", info.Tensors[0])
+	}
+	if info.DataOffset == 0 || info.Tensors[1].AbsoluteOffset <= info.Tensors[1].Offset {
+		t.Fatalf("unexpected tensor offsets: data=%d tensor=%#v", info.DataOffset, info.Tensors[1])
 	}
 }
 
@@ -129,6 +140,25 @@ func writeGGUFString(t *testing.T, buf *bytes.Buffer, value string) {
 		t.Fatal(err)
 	}
 	if _, err := buf.WriteString(value); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeGGUFTensor(t *testing.T, buf *bytes.Buffer, name string, shape []uint64, typ uint32, offset uint64) {
+	t.Helper()
+	writeGGUFString(t, buf, name)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(shape))); err != nil {
+		t.Fatal(err)
+	}
+	for _, dim := range shape {
+		if err := binary.Write(buf, binary.LittleEndian, dim); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := binary.Write(buf, binary.LittleEndian, typ); err != nil {
+		t.Fatal(err)
+	}
+	if err := binary.Write(buf, binary.LittleEndian, offset); err != nil {
 		t.Fatal(err)
 	}
 }

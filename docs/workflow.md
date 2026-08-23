@@ -90,8 +90,11 @@ List available runtime backends:
 ```bash
 nego backends list
 nego backends info llama.cpp
+nego backends info native
 nego backends info openai-compatible
 ```
+
+`native` is the pure-Go runtime track. It can load GGUF metadata and tensor directories today, but full transformer inference is still under development.
 
 ## 3. Prepare a Dataset
 

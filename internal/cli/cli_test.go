@@ -1283,6 +1283,8 @@ func fakeInspectGGUF(t *testing.T) string {
 	writeInspectGGUFUint32KV(t, &buf, "llama.context_length", 4096)
 	writeInspectGGUFStringKV(t, &buf, "tokenizer.chat_template", "[INST] {{ message }} [/INST]")
 	writeInspectGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
+	writeInspectGGUFTensor(t, &buf, "token_embd.weight", []uint64{2, 16}, 1, 0)
+	writeInspectGGUFTensor(t, &buf, "blk.0.attn_q.weight", []uint64{16, 16}, 12, 128)
 	path := filepath.Join(t.TempDir(), "model.gguf")
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
@@ -1320,6 +1322,25 @@ func writeInspectGGUFStringArrayKV(t *testing.T, buf *bytes.Buffer, key string, 
 	}
 	for _, value := range values {
 		writeInspectGGUFString(t, buf, value)
+	}
+}
+
+func writeInspectGGUFTensor(t *testing.T, buf *bytes.Buffer, name string, shape []uint64, typ uint32, offset uint64) {
+	t.Helper()
+	writeInspectGGUFString(t, buf, name)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(shape))); err != nil {
+		t.Fatal(err)
+	}
+	for _, dim := range shape {
+		if err := binary.Write(buf, binary.LittleEndian, dim); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := binary.Write(buf, binary.LittleEndian, typ); err != nil {
+		t.Fatal(err)
+	}
+	if err := binary.Write(buf, binary.LittleEndian, offset); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -36,6 +36,7 @@ func testGGUF(t *testing.T) []byte {
 	writeGGUFUint32KV(t, &buf, "llama.context_length", 4096)
 	writeGGUFStringKV(t, &buf, "tokenizer.chat_template", "[INST] {{ message }} [/INST]")
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
+	writeGGUFTensor(t, &buf, "token_embd.weight", []uint64{2, 16}, 1, 0)
 	return buf.Bytes()
 }
 

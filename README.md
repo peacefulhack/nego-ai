@@ -128,7 +128,29 @@ import _ "github.com/gakon/nego-ai/backends/llama"
 ```bash
 nego backends list
 nego backends info llama.cpp
+nego backends info native
 ```
+
+## Pure-Go native runtime
+
+Nego includes an experimental `native` backend for the pure-Go runtime track:
+
+```go
+import _ "github.com/gakon/nego-ai/backends/native"
+
+model, err := nego.LoadModel(ctx, nego.ModelOptions{
+    Backend: "native",
+    Path:    "./models/qwen3-gguf",
+})
+```
+
+Current status:
+
+- Loads GGUF files without `llama-cli`.
+- Parses GGUF metadata and tensor directory in Go.
+- Does not run transformer inference yet.
+
+The native backend is the foundation for pure-Go chat/train/share. The next phases are tensor data loading, tensor ops, Qwen/Llama forward pass, sampling, KV cache, and quantized kernels.
 
 ## Local llama.cpp runtime
 

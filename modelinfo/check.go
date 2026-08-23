@@ -72,6 +72,11 @@ func backendCompatibility(report *CheckReport, info *Info) []BackendCompatibilit
 		Reason:     compatibilityReason(hasGGUF, "GGUF runtime file found", "requires a GGUF file"),
 	})
 	out = append(out, BackendCompatibility{
+		Name:       "native",
+		Compatible: hasGGUF,
+		Reason:     compatibilityReason(hasGGUF, "GGUF can be loaded by the experimental pure-Go backend", "requires a GGUF file"),
+	})
+	out = append(out, BackendCompatibility{
 		Name:       "onnx",
 		Compatible: hasONNX,
 		Reason:     compatibilityReason(hasONNX, "ONNX runtime file found", "requires an ONNX file"),
