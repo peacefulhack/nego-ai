@@ -1,0 +1,2 @@
+{"prompt":"What is Go?","completion":"Go is a programming language designed for simple, reliable, and efficient software."}
+{"prompt":"Explain goroutines briefly.","completion":"Goroutines are lightweight concurrent functions managed by the Go runtime."}

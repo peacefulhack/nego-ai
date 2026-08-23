@@ -96,6 +96,35 @@ type DownloadSnapshotOptions struct {
 	Progress       ProgressReporter
 }
 
+type ListFilesOptions struct {
+	RepoID   string
+	RepoType RepoType
+	Revision string
+	Token    string
+}
+
+type FileInfo struct {
+	Path string
+	Type string
+	Size int64
+}
+
+type ResolveGGUFFileOptions struct {
+	RepoID   string
+	RepoType RepoType
+	Revision string
+	Token    string
+	GGUFRepo string
+	Filename string
+	Quant    string
+}
+
+type GGUFFile struct {
+	RepoID   string
+	Filename string
+	Size     int64
+}
+
 type ProgressEvent struct {
 	RepoID      string
 	Filename    string
@@ -117,4 +146,12 @@ func DownloadFile(ctx context.Context, opts DownloadFileOptions) (string, error)
 
 func DownloadSnapshot(ctx context.Context, opts DownloadSnapshotOptions) (string, error) {
 	return NewClient().DownloadSnapshot(ctx, opts)
+}
+
+func ListFiles(ctx context.Context, opts ListFilesOptions) ([]FileInfo, error) {
+	return NewClient().ListFiles(ctx, opts)
+}
+
+func ResolveGGUFFile(ctx context.Context, opts ResolveGGUFFileOptions) (*GGUFFile, error) {
+	return NewClient().ResolveGGUFFile(ctx, opts)
 }

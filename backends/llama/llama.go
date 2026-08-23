@@ -27,13 +27,33 @@ type Backend struct {
 	Command string
 }
 
+func (b Backend) Info() nego.BackendInfo {
+	return nego.BackendInfo{
+		Name:         BackendName,
+		Description:  "Local llama.cpp runner for GGUF models using llama-cli.",
+		Capabilities: []string{"generate", "chat", "stream_chat"},
+		Required:     []string{"path", "llama-cli or NEGO_LLAMA_CLI"},
+		Options: []nego.BackendOption{
+			{Name: "threads", Description: "CPU thread count passed as -t"},
+			{Name: "ctx_size", Description: "context size passed as -c"},
+			{Name: "gpu", Description: "GPU mode: off, auto, or full"},
+			{Name: "gpu_layers", Description: "GPU layer count passed as -ngl"},
+			{Name: "main_gpu", Description: "main GPU index passed as --main-gpu"},
+			{Name: "tensor_split", Description: "comma-separated GPU tensor split passed as --tensor-split"},
+			{Name: "split_mode", Description: "multi-GPU split mode passed as --split-mode"},
+			{Name: "flash_attn", Description: "enable llama.cpp flash attention with -fa"},
+			{Name: "template_path", Description: "directory or file path for chat template sidecars"},
+		},
+	}
+}
+
 func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, error) {
 	if opts.Path == "" {
 		return nil, fmt.Errorf("model path is required for %s backend", BackendName)
 	}
 	modelPath, err := modelinfo.ResolveRuntimeFile(opts.Path, "gguf")
 	if err != nil {
-		return nil, fmt.Errorf("resolve llama.cpp model: %w", err)
+		return nil, llamaResolveError(opts.Path, err)
 	}
 	command := b.Command
 	if command == "" {
@@ -46,6 +66,35 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		return nil, err
 	}
 	return &Model{command: command, modelPath: modelPath, promptPath: promptPath(opts.Path, modelPath, opts.Options), options: opts.Options}, nil
+}
+
+func llamaResolveError(path string, err error) error {
+	if hasFileWithSuffix(path, ".safetensors") {
+		return fmt.Errorf("resolve llama.cpp model: %w; found Hugging Face safetensors, but llama.cpp needs GGUF. Download a runtime file with `nego download <repo-id> --gguf --local-dir <dir>` or convert with `nego convert gguf`", err)
+	}
+	return fmt.Errorf("resolve llama.cpp model: %w", err)
+}
+
+func hasFileWithSuffix(root, suffix string) bool {
+	info, err := os.Stat(root)
+	if err != nil {
+		return false
+	}
+	if !info.IsDir() {
+		return strings.HasSuffix(strings.ToLower(root), suffix)
+	}
+	found := false
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(strings.ToLower(entry.Name()), suffix) {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 type Model struct {
@@ -185,10 +234,45 @@ func (m *Model) args(prompt string, req nego.GenerateRequest) []string {
 	if value := m.options["ctx_size"]; value != "" {
 		args = append(args, "-c", value)
 	}
-	if value := m.options["gpu_layers"]; value != "" {
+	if value := gpuLayers(m.options); value != "" {
 		args = append(args, "-ngl", value)
 	}
+	if value := m.options["main_gpu"]; value != "" {
+		args = append(args, "--main-gpu", value)
+	}
+	if value := m.options["tensor_split"]; value != "" {
+		args = append(args, "--tensor-split", value)
+	}
+	if value := m.options["split_mode"]; value != "" {
+		args = append(args, "--split-mode", value)
+	}
+	if boolOption(m.options["flash_attn"]) {
+		args = append(args, "-fa")
+	}
 	return args
+}
+
+func gpuLayers(options map[string]string) string {
+	if value := options["gpu_layers"]; value != "" {
+		return value
+	}
+	switch strings.ToLower(strings.TrimSpace(options["gpu"])) {
+	case "off", "none", "false", "0":
+		return "0"
+	case "auto", "full", "all", "true", "1":
+		return "999"
+	default:
+		return ""
+	}
+}
+
+func boolOption(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "t", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 type stream struct {

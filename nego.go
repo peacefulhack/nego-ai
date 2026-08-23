@@ -3,6 +3,7 @@ package nego
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/gakon/nego-ai/chattemplate"
@@ -81,6 +82,23 @@ type Backend interface {
 	Load(ctx context.Context, opts ModelOptions) (Model, error)
 }
 
+type BackendOption struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+type BackendInfo struct {
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	Capabilities []string        `json:"capabilities,omitempty"`
+	Required     []string        `json:"required,omitempty"`
+	Options      []BackendOption `json:"options,omitempty"`
+}
+
+type BackendDescriber interface {
+	Info() BackendInfo
+}
+
 type EmbeddingModel interface {
 	Embed(ctx context.Context, req EmbeddingRequest) (*EmbeddingResponse, error)
 }
@@ -114,6 +132,29 @@ func RegisterBackend(name string, backend Backend) error {
 	return nil
 }
 
+func ListBackends() []BackendInfo {
+	backendRegistry.RLock()
+	defer backendRegistry.RUnlock()
+	infos := make([]BackendInfo, 0, len(backendRegistry.backends))
+	for name, backend := range backendRegistry.backends {
+		infos = append(infos, backendInfo(name, backend))
+	}
+	sort.Slice(infos, func(i, j int) bool {
+		return infos[i].Name < infos[j].Name
+	})
+	return infos
+}
+
+func BackendInfoByName(name string) (BackendInfo, bool) {
+	backendRegistry.RLock()
+	backend := backendRegistry.backends[name]
+	backendRegistry.RUnlock()
+	if backend == nil {
+		return BackendInfo{}, false
+	}
+	return backendInfo(name, backend), true
+}
+
 func LoadModel(ctx context.Context, opts ModelOptions) (Model, error) {
 	if opts.Backend == "" {
 		return nil, fmt.Errorf("model backend is required")
@@ -125,4 +166,15 @@ func LoadModel(ctx context.Context, opts ModelOptions) (Model, error) {
 		return nil, fmt.Errorf("backend %q is not registered", opts.Backend)
 	}
 	return backend.Load(ctx, opts)
+}
+
+func backendInfo(name string, backend Backend) BackendInfo {
+	info := BackendInfo{Name: name}
+	if describer, ok := backend.(BackendDescriber); ok {
+		info = describer.Info()
+		if info.Name == "" {
+			info.Name = name
+		}
+	}
+	return info
 }

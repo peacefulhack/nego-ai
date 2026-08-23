@@ -26,6 +26,20 @@ func TestGenerateUsesLlamaCommand(t *testing.T) {
 	}
 }
 
+func TestLoadSafetensorsDirectoryReturnsGGUFHint(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Backend{Command: fakeLlamaCommand(t)}.Load(context.Background(), nego.ModelOptions{Path: dir})
+	if err == nil {
+		t.Fatal("expected load error")
+	}
+	if !strings.Contains(err.Error(), "safetensors") || !strings.Contains(err.Error(), "nego download <repo-id> --gguf") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestChatUsesGeneratedOutput(t *testing.T) {
 	command := fakeLlamaCommand(t)
 	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
@@ -46,9 +60,13 @@ func TestGeneratePassesRuntimeOptions(t *testing.T) {
 	model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{
 		Path: fakeGGUF(t),
 		Options: map[string]string{
-			"threads":    "4",
-			"ctx_size":   "2048",
-			"gpu_layers": "20",
+			"threads":      "4",
+			"ctx_size":     "2048",
+			"gpu_layers":   "20",
+			"main_gpu":     "1",
+			"tensor_split": "3,1",
+			"split_mode":   "layer",
+			"flash_attn":   "true",
 		},
 	})
 	if err != nil {
@@ -65,10 +83,36 @@ func TestGeneratePassesRuntimeOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20"} {
+	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
 		if !strings.Contains(out.Text, want) {
 			t.Fatalf("expected %q in command output: %q", want, out.Text)
 		}
+	}
+}
+
+func TestGenerateMapsGPUModes(t *testing.T) {
+	for name, want := range map[string]string{
+		"off":  "-ngl 0",
+		"auto": "-ngl 999",
+		"full": "-ngl 999",
+	} {
+		t.Run(name, func(t *testing.T) {
+			command := fakeLlamaCommand(t)
+			model, err := Backend{Command: command}.Load(context.Background(), nego.ModelOptions{
+				Path:    fakeGGUF(t),
+				Options: map[string]string{"gpu": name},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: "hello"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.Text, want) {
+				t.Fatalf("expected %q in command output: %q", want, out.Text)
+			}
+		})
 	}
 }
 

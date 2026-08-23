@@ -7,18 +7,23 @@ import (
 	"os"
 
 	nego "github.com/gakon/nego-ai"
-	_ "github.com/gakon/nego-ai/backends/openai"
+	_ "github.com/gakon/nego-ai/backends/llama"
 )
 
 func main() {
+	path := "./models/qwen3-gguf"
+	if len(os.Args) > 1 {
+		path = os.Args[1]
+	}
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
-		Backend:  "openai-compatible",
-		Endpoint: os.Getenv("OPENAI_BASE_URL"),
-		Model:    os.Getenv("OPENAI_MODEL"),
-		APIKey:   os.Getenv("OPENAI_API_KEY"),
+		Backend: "llama.cpp",
+		Path:    path,
+		Options: map[string]string{
+			"gpu": "auto",
+		},
 	})
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("load local model %s: %v", path, err)
 	}
 	defer model.Close()
 

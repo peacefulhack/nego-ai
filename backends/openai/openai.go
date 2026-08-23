@@ -24,6 +24,18 @@ type Backend struct {
 	HTTPClient *http.Client
 }
 
+func (b Backend) Info() nego.BackendInfo {
+	return nego.BackendInfo{
+		Name:         BackendName,
+		Description:  "Remote OpenAI-compatible HTTP backend for completions, chat, streaming, and embeddings.",
+		Capabilities: []string{"generate", "chat", "stream_chat", "embeddings"},
+		Required:     []string{"endpoint", "model"},
+		Options: []nego.BackendOption{
+			{Name: "api_key", Description: "optional bearer token for authenticated endpoints"},
+		},
+	}
+}
+
 func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, error) {
 	if opts.Endpoint == "" {
 		return nil, fmt.Errorf("endpoint is required for %s backend", BackendName)

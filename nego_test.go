@@ -67,6 +67,29 @@ func TestLoadModelRequiresRegisteredBackend(t *testing.T) {
 	}
 }
 
+func TestBackendInfoDiscovery(t *testing.T) {
+	name := "described-test-backend"
+	if err := RegisterBackend(name, describedBackend{}); err != nil {
+		t.Fatal(err)
+	}
+	info, ok := BackendInfoByName(name)
+	if !ok {
+		t.Fatal("expected backend info")
+	}
+	if info.Name != name || info.Description != "test backend" || len(info.Capabilities) != 1 {
+		t.Fatalf("info = %#v", info)
+	}
+	found := false
+	for _, backend := range ListBackends() {
+		if backend.Name == name {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("backend %q not found in list", name)
+	}
+}
+
 type mockBackend struct{}
 
 func (mockBackend) Load(context.Context, ModelOptions) (Model, error) {
@@ -120,4 +143,15 @@ type embeddingModel struct {
 
 func (embeddingModel) Embed(context.Context, EmbeddingRequest) (*EmbeddingResponse, error) {
 	return &EmbeddingResponse{Embeddings: [][]float64{{1, 0}}}, nil
+}
+
+type describedBackend struct {
+	mockBackend
+}
+
+func (describedBackend) Info() BackendInfo {
+	return BackendInfo{
+		Description:  "test backend",
+		Capabilities: []string{"generate"},
+	}
 }

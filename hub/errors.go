@@ -59,6 +59,10 @@ func invalidOptions(format string, args ...any) error {
 	return &Error{Kind: ErrInvalidOptions, Message: fmt.Sprintf(format, args...)}
 }
 
+func notFound(format string, args ...any) error {
+	return &Error{Kind: ErrNotFound, Message: fmt.Sprintf(format, args...)}
+}
+
 func incompleteSnapshot(format string, args ...any) error {
 	return &Error{Kind: ErrIncompleteSnapshot, Message: fmt.Sprintf(format, args...)}
 }

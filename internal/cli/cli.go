@@ -54,6 +54,8 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runModels(args[1:], stdout, stderr)
 	case "runs":
 		return runRuns(args[1:], stdout, stderr)
+	case "backends":
+		return runBackends(args[1:], stdout, stderr)
 	case "dataset":
 		return runDataset(args[1:], stdout, stderr)
 	case "cache":
@@ -62,10 +64,14 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runTokenize(args[1:], stdout, stderr)
 	case "tokens":
 		return runTokens(args[1:], stdout, stderr)
+	case "context":
+		return runContext(args[1:], stdout, stderr)
 	case "prompt":
 		return runPrompt(args[1:], stdout, stderr)
 	case "inspect":
 		return runInspect(args[1:], stdout, stderr)
+	case "check":
+		return runCheck(args[1:], stdout, stderr)
 	case "run":
 		return runModel(args[1:], stdout, stderr)
 	case "chat":
@@ -107,7 +113,9 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	var include repeatedFlag
 	var exclude repeatedFlag
 	var localDir, cacheDir, revision, token, repoType string
+	var ggufRepo, ggufFile, quant string
 	var force, localOnly, quiet, jsonOutput bool
+	var gguf bool
 	var workers int
 
 	fs := flag.NewFlagSet("download", flag.ContinueOnError)
@@ -121,6 +129,10 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	fs.BoolVar(&localOnly, "local-files-only", false, "only use local files")
 	fs.BoolVar(&quiet, "quiet", false, "disable progress output")
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.BoolVar(&gguf, "gguf", false, "download a llama.cpp-ready GGUF file")
+	fs.StringVar(&ggufRepo, "gguf-repo", "", "GGUF repo id to use instead of auto-detecting same-owner -GGUF")
+	fs.StringVar(&ggufFile, "gguf-file", "", "specific GGUF filename to download")
+	fs.StringVar(&quant, "quant", "Q4_K_M", "GGUF quantization to prefer")
 	fs.IntVar(&workers, "workers", 0, "maximum concurrent snapshot downloads")
 	fs.Var(&include, "include", "include glob pattern, repeatable")
 	fs.Var(&exclude, "exclude", "exclude glob pattern, repeatable")
@@ -145,7 +157,57 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	commonRepoType := hub.RepoType(repoType)
 	var path string
 	var err error
-	if len(positionals) == 2 {
+	var resolvedGGUF *hub.GGUFFile
+	if ggufRepo != "" || ggufFile != "" || flagWasSet(fs, "quant") {
+		gguf = true
+	}
+	if gguf {
+		if len(include) > 0 || len(exclude) > 0 {
+			fmt.Fprintln(stderr, "nego: --gguf cannot be combined with --include or --exclude; use --gguf-file or --quant")
+			return 2
+		}
+		if commonRepoType != hub.RepoTypeModel {
+			fmt.Fprintln(stderr, "nego: --gguf only supports model repos")
+			return 2
+		}
+		if len(positionals) == 2 {
+			if ggufFile != "" && ggufFile != positionals[1] {
+				fmt.Fprintln(stderr, "nego: pass either [filename] or --gguf-file, not both")
+				return 2
+			}
+			ggufFile = positionals[1]
+		}
+		if localOnly && ggufFile == "" {
+			fmt.Fprintln(stderr, "nego: --local-files-only with --gguf requires [filename] or --gguf-file")
+			return 2
+		}
+		if reporter != nil {
+			reporter.ReportProgress(hub.ProgressEvent{RepoID: positionals[0], State: "resolving"})
+		}
+		resolvedGGUF, err = client.ResolveGGUFFile(ctx, hub.ResolveGGUFFileOptions{
+			RepoID:   positionals[0],
+			RepoType: commonRepoType,
+			Revision: revision,
+			Token:    token,
+			GGUFRepo: ggufRepo,
+			Filename: ggufFile,
+			Quant:    quant,
+		})
+		if err == nil {
+			path, err = client.DownloadFile(ctx, hub.DownloadFileOptions{
+				RepoID:         resolvedGGUF.RepoID,
+				Filename:       resolvedGGUF.Filename,
+				RepoType:       commonRepoType,
+				Revision:       revision,
+				LocalDir:       localDir,
+				CacheDir:       cacheDir,
+				Token:          token,
+				Force:          force,
+				LocalFilesOnly: localOnly,
+				Progress:       reporter,
+			})
+		}
+	} else if len(positionals) == 2 {
 		path, err = client.DownloadFile(ctx, hub.DownloadFileOptions{
 			RepoID:         positionals[0],
 			Filename:       positionals[1],
@@ -181,14 +243,66 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		printError(stderr, err)
 		return exitCode(err)
 	}
+	warning := ""
+	if !gguf && commonRepoType == hub.RepoTypeModel {
+		warning = downloadRuntimeWarning(path)
+	}
 	if jsonOutput {
-		_ = json.NewEncoder(stdout).Encode(map[string]string{"path": path})
+		result := map[string]string{"path": path}
+		if resolvedGGUF != nil {
+			result["repo"] = resolvedGGUF.RepoID
+			result["file"] = resolvedGGUF.Filename
+		}
+		if warning != "" {
+			result["warning"] = warning
+		}
+		_ = json.NewEncoder(stdout).Encode(result)
 	} else if quiet {
 		fmt.Fprintln(stdout, path)
 	} else {
 		fmt.Fprintf(stdout, "Saved to: %s\n", path)
+		if resolvedGGUF != nil {
+			fmt.Fprintf(stdout, "Runtime file: %s/%s\n", resolvedGGUF.RepoID, resolvedGGUF.Filename)
+		}
+		if warning != "" {
+			fmt.Fprintf(stderr, "nego: %s\n", warning)
+		}
 	}
 	return 0
+}
+
+func downloadRuntimeWarning(path string) string {
+	hasSafeTensors, hasGGUF := pathHasRuntimeExtension(path, ".safetensors"), pathHasRuntimeExtension(path, ".gguf")
+	if !hasSafeTensors || hasGGUF {
+		return ""
+	}
+	return "downloaded Hugging Face safetensors; Nego cannot run this directly with the local llama.cpp backend. Use `nego download <repo-id> --gguf --local-dir <dir>` for chat/runtime, or `nego convert gguf <model-dir> --out <file>` with a llama.cpp converter."
+}
+
+func pathHasRuntimeExtension(root, ext string) bool {
+	if root == "" {
+		return false
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return false
+	}
+	ext = strings.ToLower(ext)
+	if !info.IsDir() {
+		return strings.HasSuffix(strings.ToLower(root), ext)
+	}
+	found := false
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(strings.ToLower(entry.Name()), ext) {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 func splitFlags(args []string) ([]string, []string) {
@@ -219,11 +333,21 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf":
 		return true
 	default:
 		return false
 	}
+}
+
+func flagWasSet(fs *flag.FlagSet, name string) bool {
+	wasSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			wasSet = true
+		}
+	})
+	return wasSet
 }
 
 func printError(w io.Writer, err error) {
@@ -260,21 +384,28 @@ func exitCode(err error) int {
 func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego download <repo-id> [filename] [flags]")
+	fmt.Fprintln(w, "  nego download <repo-id> --gguf [--quant Q4_K_M] [--gguf-repo <repo-id>] [flags]")
 	fmt.Fprintln(w, "  nego models list [flags]")
 	fmt.Fprintln(w, "  nego models info <repo-id> [flags]")
 	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
 	fmt.Fprintln(w, "  nego runs list <runs.jsonl> [flags]")
 	fmt.Fprintln(w, "  nego runs show <runs.jsonl> <id> [flags]")
+	fmt.Fprintln(w, "  nego backends list [flags]")
+	fmt.Fprintln(w, "  nego backends info <name> [flags]")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset sample <file> [flags]")
 	fmt.Fprintln(w, "  nego cache usage [flags]")
 	fmt.Fprintln(w, "  nego cache gc --yes [flags]")
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
 	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
+	fmt.Fprintln(w, "  nego context <model-path> <text> [flags]")
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
 	fmt.Fprintln(w, "  nego inspect <model-path> [flags]")
+	fmt.Fprintln(w, "  nego check <model-path> [flags]")
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
 	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
@@ -283,11 +414,21 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego eval report <report.json> [flags]")
 	fmt.Fprintln(w, "  nego eval compare <baseline.json> <candidate.json> [flags]")
 	fmt.Fprintln(w, "  nego version [flags]")
-	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
+	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> [--converter <path>] [--python <path>]")
+	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
 
 func runTrain(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "init":
+			return runTrainInit(args[1:], stdout, stderr)
+		case "help", "-h", "--help":
+			trainUsage(stdout)
+			return 0
+		}
+	}
 	var jsonOutput bool
 	fs := flag.NewFlagSet("train", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -332,6 +473,60 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runTrainInit(args []string, stdout, stderr io.Writer) int {
+	var name, method, baseModel, trainFile, evalFile, outputDir, command, script, workDir, out string
+	fs := flag.NewFlagSet("train init", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&name, "name", "qwen3-lora", "training job name")
+	fs.StringVar(&method, "method", "lora", "training method")
+	fs.StringVar(&baseModel, "base-model", "./models/qwen3", "downloaded Hugging Face model directory")
+	fs.StringVar(&trainFile, "train-file", "", "training dataset JSONL file")
+	fs.StringVar(&evalFile, "eval-file", "", "evaluation dataset JSONL file")
+	fs.StringVar(&outputDir, "output-dir", "./outputs/qwen3-lora", "trained model or adapter output directory")
+	fs.StringVar(&command, "command", "python", "training command")
+	fs.StringVar(&script, "script", "scripts/train_lora.py", "training script passed as first argument")
+	fs.StringVar(&workDir, "work-dir", ".", "training working directory")
+	fs.StringVar(&out, "out", "train-job.json", "output job JSON file")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 0 || trainFile == "" {
+		fmt.Fprintln(stderr, "usage: nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
+		return 2
+	}
+	spec, err := training.NewLoRAJob(training.InitOptions{
+		Name:      name,
+		Method:    method,
+		BaseModel: baseModel,
+		TrainFile: trainFile,
+		EvalFile:  evalFile,
+		OutputDir: outputDir,
+		Command:   command,
+		Script:    script,
+		WorkDir:   workDir,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := training.WriteJob(out, spec); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Training job: %s\n", out)
+	fmt.Fprintf(stdout, "Base model:   %s\n", spec.BaseModel)
+	fmt.Fprintf(stdout, "Train file:   %s\n", spec.TrainFile)
+	fmt.Fprintf(stdout, "Output dir:   %s\n", spec.OutputDir)
+	return 0
+}
+
+func trainUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train <job.json> [flags]")
+}
+
 func runConvert(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		convertUsage(stderr)
@@ -353,22 +548,25 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 func runConvertGGUF(args []string, stdout, stderr io.Writer) int {
 	var output string
 	var converter string
+	var python string
 	var quantize string
 	fs := flag.NewFlagSet("convert gguf", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&output, "out", "", "output GGUF path")
 	fs.StringVar(&converter, "converter", "", "path to llama.cpp conversion script/binary")
+	fs.StringVar(&python, "python", "", "python executable for converter scripts")
 	fs.StringVar(&quantize, "quantize", "", "output quantization type")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
 	if len(positionals) != 1 {
-		fmt.Fprintln(stderr, "usage: nego convert gguf <model-dir> --out <file> --converter <path>")
+		fmt.Fprintln(stderr, "usage: nego convert gguf <model-dir> --out <file> [--converter <path>] [--python <path>]")
 		return 2
 	}
 	if err := convert.ConvertGGUF(context.Background(), convert.GGUFOptions{
 		Converter: converter,
+		Python:    python,
 		ModelDir:  positionals[0],
 		Output:    output,
 		Quantize:  quantize,
@@ -382,7 +580,7 @@ func runConvertGGUF(args []string, stdout, stderr io.Writer) int {
 
 func convertUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
-	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
+	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> [--converter <path>] [--python <path>]")
 }
 
 func runVersion(args []string, stdout, stderr io.Writer) int {
@@ -412,6 +610,7 @@ type evalConfig struct {
 }
 
 const maxEvalReportBytes = 64 << 20
+const maxChatSessionBytes = 16 << 20
 
 func runEval(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 {
@@ -662,6 +861,112 @@ func runTokens(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runContext(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	var maxContext int
+	var text string
+	var system string
+	var users repeatedFlag
+	var assistants repeatedFlag
+
+	fs := flag.NewFlagSet("context", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.IntVar(&maxContext, "max-context", 0, "maximum context tokens")
+	fs.StringVar(&text, "text", "", "raw text to count")
+	fs.StringVar(&system, "system", "", "system message")
+	fs.Var(&users, "user", "user message, repeatable")
+	fs.Var(&assistants, "assistant", "assistant message, repeatable")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 1 {
+		fmt.Fprintln(stderr, "usage: nego context <model-path> <text> [flags]")
+		return 2
+	}
+	modelPath := positionals[0]
+	if text == "" && len(positionals) > 1 {
+		text = strings.Join(positionals[1:], " ")
+	}
+	prompt := text
+	messages := buildPromptMessages(system, users, assistants)
+	if prompt == "" && len(messages) > 0 {
+		rendered, err := chattemplate.Render(modelPath, messages, chattemplate.Options{AddGenerationPrompt: true})
+		if err != nil {
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			return 1
+		}
+		prompt = rendered
+	}
+	if prompt == "" {
+		fmt.Fprintln(stderr, "usage: nego context <model-path> <text> [flags]")
+		return 2
+	}
+	tok, err := tokenizer.Load(modelPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	tokenCount, err := tok.Count(prompt)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if maxContext == 0 {
+		if report, err := modelinfo.Check(modelPath); err == nil && report.ContextLength > 0 {
+			maxContext = int(report.ContextLength)
+		}
+	}
+	result := contextBudgetResult{
+		Tokens:     tokenCount,
+		MaxContext: maxContext,
+		Fits:       maxContext == 0 || tokenCount <= maxContext,
+	}
+	if maxContext > 0 {
+		result.Remaining = maxContext - tokenCount
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(result)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Tokens:      %d\n", result.Tokens)
+	if result.MaxContext > 0 {
+		fmt.Fprintf(stdout, "Max context: %d\n", result.MaxContext)
+		fmt.Fprintf(stdout, "Remaining:   %d\n", result.Remaining)
+	}
+	if result.Fits {
+		fmt.Fprintln(stdout, "Fits:        yes")
+		return 0
+	}
+	fmt.Fprintln(stdout, "Fits:        no")
+	return 1
+}
+
+type contextBudgetResult struct {
+	Tokens     int  `json:"tokens"`
+	MaxContext int  `json:"max_context,omitempty"`
+	Remaining  int  `json:"remaining,omitempty"`
+	Fits       bool `json:"fits"`
+}
+
+func buildPromptMessages(system string, users, assistants []string) []chattemplate.Message {
+	var messages []chattemplate.Message
+	if system != "" {
+		messages = append(messages, chattemplate.Message{Role: chattemplate.RoleSystem, Content: system})
+	}
+	maxLen := max(len(users), len(assistants))
+	for i := 0; i < maxLen; i++ {
+		if i < len(users) {
+			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleUser, Content: users[i]})
+		}
+		if i < len(assistants) {
+			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleAssistant, Content: assistants[i]})
+		}
+	}
+	return messages
+}
+
 func runPrompt(args []string, stdout, stderr io.Writer) int {
 	var system string
 	var users repeatedFlag
@@ -682,19 +987,7 @@ func runPrompt(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego prompt <model-path> --user <text> [flags]")
 		return 2
 	}
-	var messages []chattemplate.Message
-	if system != "" {
-		messages = append(messages, chattemplate.Message{Role: chattemplate.RoleSystem, Content: system})
-	}
-	maxLen := max(len(users), len(assistants))
-	for i := 0; i < maxLen; i++ {
-		if i < len(users) {
-			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleUser, Content: users[i]})
-		}
-		if i < len(assistants) {
-			messages = append(messages, chattemplate.Message{Role: chattemplate.RoleAssistant, Content: assistants[i]})
-		}
-	}
+	messages := buildPromptMessages(system, users, assistants)
 	prompt, err := chattemplate.Render(positionals[0], messages, chattemplate.Options{AddGenerationPrompt: !noGenerationPrompt})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -762,6 +1055,33 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 			fmt.Fprintln(w, "  Chat template: yes")
 		}
 	}
+	if info.Card != nil {
+		fmt.Fprintln(w, "Model card:")
+		if info.Card.Title != "" {
+			fmt.Fprintf(w, "  Title:        %s\n", info.Card.Title)
+		}
+		if info.Card.License != "" {
+			fmt.Fprintf(w, "  License:      %s\n", info.Card.License)
+		}
+		if info.Card.PipelineTag != "" {
+			fmt.Fprintf(w, "  Pipeline:     %s\n", info.Card.PipelineTag)
+		}
+		if info.Card.LibraryName != "" {
+			fmt.Fprintf(w, "  Library:      %s\n", info.Card.LibraryName)
+		}
+		if len(info.Card.Tags) > 0 {
+			fmt.Fprintf(w, "  Tags:         %s\n", strings.Join(info.Card.Tags, ", "))
+		}
+		if len(info.Card.Languages) > 0 {
+			fmt.Fprintf(w, "  Languages:    %s\n", strings.Join(info.Card.Languages, ", "))
+		}
+		if len(info.Card.Datasets) > 0 {
+			fmt.Fprintf(w, "  Datasets:     %s\n", strings.Join(info.Card.Datasets, ", "))
+		}
+		if len(info.Card.BaseModels) > 0 {
+			fmt.Fprintf(w, "  Base models:  %s\n", strings.Join(info.Card.BaseModels, ", "))
+		}
+	}
 	if len(info.Files) > 0 {
 		var total int64
 		for _, file := range info.Files {
@@ -781,6 +1101,74 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 	}
 }
 
+func runCheck(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("check", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego check <model-path> [flags]")
+		return 2
+	}
+	report, err := modelinfo.Check(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(report)
+		return 0
+	}
+	writeCheckReport(stdout, report)
+	return 0
+}
+
+func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
+	fmt.Fprintf(w, "Path:          %s\n", report.Path)
+	if report.ModelType != "" {
+		fmt.Fprintf(w, "Model type:    %s\n", report.ModelType)
+	}
+	if report.Architecture != "" {
+		fmt.Fprintf(w, "Architecture:  %s\n", report.Architecture)
+	}
+	if report.RuntimeFile != nil {
+		fmt.Fprintf(w, "Runtime file:  %s [%s]\n", report.RuntimeFile.Path, report.RuntimeFile.Kind)
+	}
+	if report.ContextLength > 0 {
+		fmt.Fprintf(w, "Context:       %d\n", report.ContextLength)
+	}
+	if report.Quantization != "" {
+		fmt.Fprintf(w, "Quantization:  %s\n", report.Quantization)
+	}
+	if report.ChatTemplate {
+		fmt.Fprintln(w, "Chat template: yes")
+	} else {
+		fmt.Fprintln(w, "Chat template: no")
+	}
+	fmt.Fprintln(w, "Backends:")
+	for _, backend := range report.Backends {
+		status := "no"
+		if backend.Compatible {
+			status = "yes"
+		}
+		fmt.Fprintf(w, "  - %s: %s", backend.Name, status)
+		if backend.Reason != "" {
+			fmt.Fprintf(w, " (%s)", backend.Reason)
+		}
+		fmt.Fprintln(w)
+	}
+	if len(report.Warnings) > 0 {
+		fmt.Fprintln(w, "Warnings:")
+		for _, warning := range report.Warnings {
+			fmt.Fprintf(w, "  - %s\n", warning)
+		}
+	}
+}
+
 func runModel(args []string, stdout, stderr io.Writer) int {
 	var backend string
 	var maxTokens int
@@ -791,6 +1179,11 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var threads int
 	var ctxSize int
 	var gpuLayers int
+	var gpuMode string
+	var mainGPU int
+	var tensorSplit string
+	var splitMode string
+	var flashAttention bool
 	var configFile string
 	var logPath string
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -804,6 +1197,11 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&threads, "threads", 0, "llama.cpp CPU threads")
 	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
 	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
+	fs.StringVar(&gpuMode, "gpu", "", "llama.cpp GPU mode: off, auto, or full")
+	fs.IntVar(&mainGPU, "main-gpu", -1, "llama.cpp main GPU index")
+	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
+	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
+	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
 	fs.StringVar(&configFile, "f", "", "run config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
 	parseArgs, positionals := splitFlags(args)
@@ -848,7 +1246,20 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
 		return 2
 	}
-	options := runtimeOptions(cfg.Options, threads, ctxSize, gpuLayers)
+	options := runtimeOptions(cfg.Options, runtimeFlagOptions{
+		threads:        threads,
+		ctxSize:        ctxSize,
+		gpuLayers:      gpuLayers,
+		gpuMode:        gpuMode,
+		mainGPU:        mainGPU,
+		tensorSplit:    tensorSplit,
+		splitMode:      splitMode,
+		flashAttention: flashAttention,
+	})
+	if err := validateRuntimeOptions(options); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	started := time.Now().UTC()
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
@@ -886,8 +1297,15 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var threads int
 	var ctxSize int
 	var gpuLayers int
+	var gpuMode string
+	var mainGPU int
+	var tensorSplit string
+	var splitMode string
+	var flashAttention bool
 	var configFile string
 	var logPath string
+	var sessionPath string
+	var savePath string
 	var interactive bool
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -901,13 +1319,21 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.IntVar(&threads, "threads", 0, "llama.cpp CPU threads")
 	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
 	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
+	fs.StringVar(&gpuMode, "gpu", "", "llama.cpp GPU mode: off, auto, or full")
+	fs.IntVar(&mainGPU, "main-gpu", -1, "llama.cpp main GPU index")
+	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
+	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
+	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
 	fs.StringVar(&configFile, "f", "", "chat config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
+	fs.StringVar(&sessionPath, "session", "", "load and save chat history JSON")
+	fs.StringVar(&savePath, "save", "", "save chat history JSON without loading it")
 	fs.BoolVar(&interactive, "interactive", false, "start an interactive chat session")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
+	backendSetByFlag := flagWasSet(fs, "backend")
 	cfg, err := loadRuntimeConfig(configFile)
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -937,11 +1363,43 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if cfg.Log != "" && logPath == "" {
 		logPath = cfg.Log
 	}
+	if cfg.Session != "" && sessionPath == "" {
+		sessionPath = cfg.Session
+	}
+	if cfg.Save != "" && savePath == "" {
+		savePath = cfg.Save
+	}
+	if sessionPath != "" && savePath != "" {
+		fmt.Fprintln(stderr, "nego: use either --session or --save, not both")
+		return 2
+	}
 	path := cfg.Path
 	if len(positionals) > 0 {
 		path = positionals[0]
 	}
+	session, loadedSession, err := loadChatSession(sessionPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if loadedSession {
+		if session.Backend != "" && cfg.Backend == "" && !backendSetByFlag {
+			backend = session.Backend
+		}
+		if path == "" {
+			path = session.Path
+		}
+		if cfg.Endpoint == "" {
+			cfg.Endpoint = sanitizeEndpoint(session.Endpoint)
+		}
+		if cfg.Model == "" {
+			cfg.Model = session.Model
+		}
+	}
 	messages := append([]nego.Message(nil), cfg.Messages...)
+	if loadedSession {
+		messages = append([]nego.Message(nil), session.Messages...)
+	}
 	if system != "" && len(messages) == 0 {
 		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: system})
 	}
@@ -956,7 +1414,20 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	options := runtimeOptions(cfg.Options, threads, ctxSize, gpuLayers)
+	options := runtimeOptions(cfg.Options, runtimeFlagOptions{
+		threads:        threads,
+		ctxSize:        ctxSize,
+		gpuLayers:      gpuLayers,
+		gpuMode:        gpuMode,
+		mainGPU:        mainGPU,
+		tensorSplit:    tensorSplit,
+		splitMode:      splitMode,
+		flashAttention: flashAttention,
+	})
+	if err := validateRuntimeOptions(options); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -982,6 +1453,8 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			seed:        seed,
 			options:     options,
 			logPath:     logPath,
+			sessionPath: sessionSavePath(sessionPath, savePath),
+			session:     session,
 		})
 	}
 	started := time.Now().UTC()
@@ -994,6 +1467,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprint(stdout, resp.Message.Content)
+	messages = append(messages, resp.Message)
+	session = session.withMessages(backend, path, cfg.Endpoint, cfg.Model, messages)
+	if err := saveChatSession(sessionSavePath(sessionPath, savePath), session); err != nil {
+		fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
+		return 1
+	}
 	if err := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, resp.Message.Content, started, maxTokens, temperature, topP, stop, seed, options, nil)); err != nil {
 		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 		return 1
@@ -1015,6 +1494,8 @@ type interactiveChatOptions struct {
 	seed        int64
 	options     map[string]string
 	logPath     string
+	sessionPath string
+	session     chatSession
 }
 
 func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Model, opts interactiveChatOptions) int {
@@ -1022,6 +1503,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 	if opts.system != "" && len(messages) == 0 {
 		messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: opts.system})
 	}
+	session := opts.session
 	scanner := bufio.NewScanner(stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	fmt.Fprintln(stderr, "Interactive chat. Type /exit to quit, /reset to clear history.")
@@ -1040,6 +1522,11 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 			messages = nil
 			if opts.system != "" {
 				messages = append(messages, nego.Message{Role: nego.RoleSystem, Content: opts.system})
+			}
+			session.Messages = messages
+			if err := saveChatSession(opts.sessionPath, session.withMessages(opts.backend, opts.path, opts.endpoint, opts.modelID, messages)); err != nil {
+				fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
+				return 1
 			}
 			fmt.Fprintln(stderr, "history reset")
 			continue
@@ -1081,6 +1568,11 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 		fmt.Fprintln(stdout)
 		reply := output.String()
 		messages = append(messages, nego.Message{Role: nego.RoleAssistant, Content: reply})
+		session = session.withMessages(opts.backend, opts.path, opts.endpoint, opts.modelID, messages)
+		if err := saveChatSession(opts.sessionPath, session); err != nil {
+			fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
+			return 1
+		}
 		if err := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, reply, started, opts.maxTokens, opts.temperature, opts.topP, opts.stop, opts.seed, opts.options, nil)); err != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 			return 1
@@ -1109,6 +1601,85 @@ type runtimeConfig struct {
 	Stop        []string          `json:"stop"`
 	Seed        int64             `json:"seed"`
 	Log         string            `json:"log"`
+	Session     string            `json:"session"`
+	Save        string            `json:"save"`
+}
+
+type chatSession struct {
+	Backend  string         `json:"backend,omitempty"`
+	Path     string         `json:"path,omitempty"`
+	Endpoint string         `json:"endpoint,omitempty"`
+	Model    string         `json:"model,omitempty"`
+	Created  time.Time      `json:"created_at,omitempty"`
+	Updated  time.Time      `json:"updated_at,omitempty"`
+	Messages []nego.Message `json:"messages"`
+}
+
+func (s chatSession) withMessages(backend, path, endpoint, modelID string, messages []nego.Message) chatSession {
+	s.Backend = backend
+	s.Path = path
+	s.Endpoint = sanitizeEndpoint(endpoint)
+	s.Model = modelID
+	s.Messages = append([]nego.Message(nil), messages...)
+	return s
+}
+
+func sessionSavePath(sessionPath, savePath string) string {
+	if sessionPath != "" {
+		return sessionPath
+	}
+	return savePath
+}
+
+func loadChatSession(path string) (chatSession, bool, error) {
+	if path == "" {
+		return chatSession{}, false, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return chatSession{}, false, nil
+		}
+		return chatSession{}, false, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxChatSessionBytes+1))
+	if err != nil {
+		return chatSession{}, false, err
+	}
+	if len(data) > maxChatSessionBytes {
+		return chatSession{}, false, fmt.Errorf("chat session exceeds %s", humanBytes(maxChatSessionBytes))
+	}
+	var session chatSession
+	if err := json.Unmarshal(data, &session); err != nil {
+		return chatSession{}, false, err
+	}
+	return session, true, nil
+}
+
+func saveChatSession(path string, session chatSession) error {
+	if path == "" {
+		return nil
+	}
+	now := time.Now().UTC()
+	if session.Created.IsZero() {
+		session.Created = now
+	}
+	session.Updated = now
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(session)
 }
 
 func loadRuntimeConfig(path string) (runtimeConfig, error) {
@@ -1184,26 +1755,88 @@ func copyStringMap(values map[string]string) map[string]string {
 	return out
 }
 
-func runtimeOptions(base map[string]string, threads, ctxSize, gpuLayers int) map[string]string {
-	options := make(map[string]string, len(base)+3)
+type runtimeFlagOptions struct {
+	threads        int
+	ctxSize        int
+	gpuLayers      int
+	gpuMode        string
+	mainGPU        int
+	tensorSplit    string
+	splitMode      string
+	flashAttention bool
+}
+
+func runtimeOptions(base map[string]string, flags runtimeFlagOptions) map[string]string {
+	options := make(map[string]string, len(base)+8)
 	for key, value := range base {
 		if value != "" {
 			options[key] = value
 		}
 	}
-	if threads > 0 {
-		options["threads"] = strconv.Itoa(threads)
+	if flags.threads > 0 {
+		options["threads"] = strconv.Itoa(flags.threads)
 	}
-	if ctxSize > 0 {
-		options["ctx_size"] = strconv.Itoa(ctxSize)
+	if flags.ctxSize > 0 {
+		options["ctx_size"] = strconv.Itoa(flags.ctxSize)
 	}
-	if gpuLayers > 0 {
-		options["gpu_layers"] = strconv.Itoa(gpuLayers)
+	if flags.gpuLayers > 0 {
+		options["gpu_layers"] = strconv.Itoa(flags.gpuLayers)
+	}
+	if flags.gpuMode != "" {
+		options["gpu"] = flags.gpuMode
+	}
+	if flags.mainGPU >= 0 {
+		options["main_gpu"] = strconv.Itoa(flags.mainGPU)
+	}
+	if flags.tensorSplit != "" {
+		options["tensor_split"] = flags.tensorSplit
+	}
+	if flags.splitMode != "" {
+		options["split_mode"] = flags.splitMode
+	}
+	if flags.flashAttention {
+		options["flash_attn"] = "true"
 	}
 	if len(options) == 0 {
 		return nil
 	}
 	return options
+}
+
+func validateRuntimeOptions(options map[string]string) error {
+	if len(options) == 0 {
+		return nil
+	}
+	for _, key := range []string{"threads", "ctx_size", "gpu_layers", "main_gpu"} {
+		if value := options[key]; value != "" {
+			n, err := strconv.Atoi(value)
+			if err != nil {
+				return fmt.Errorf("%s must be an integer", key)
+			}
+			if (key == "threads" || key == "ctx_size") && n <= 0 {
+				return fmt.Errorf("%s must be greater than 0", key)
+			}
+			if (key == "gpu_layers" || key == "main_gpu") && n < 0 {
+				return fmt.Errorf("%s must be greater than or equal to 0", key)
+			}
+		}
+	}
+	switch strings.ToLower(strings.TrimSpace(options["gpu"])) {
+	case "", "off", "none", "false", "0", "auto", "full", "all", "true", "1":
+	default:
+		return fmt.Errorf("gpu must be one of off, auto, or full")
+	}
+	switch strings.ToLower(strings.TrimSpace(options["split_mode"])) {
+	case "", "none", "layer", "row":
+	default:
+		return fmt.Errorf("split_mode must be one of none, layer, or row")
+	}
+	switch strings.ToLower(strings.TrimSpace(options["flash_attn"])) {
+	case "", "1", "t", "true", "yes", "y", "on", "0", "f", "false", "no", "n", "off":
+	default:
+		return fmt.Errorf("flash_attn must be a boolean")
+	}
+	return nil
 }
 
 func runServe(args []string, stdout, stderr io.Writer) int {
@@ -1213,6 +1846,11 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	var threads int
 	var ctxSize int
 	var gpuLayers int
+	var gpuMode string
+	var mainGPU int
+	var tensorSplit string
+	var splitMode string
+	var flashAttention bool
 
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -1222,6 +1860,11 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&threads, "threads", 0, "llama.cpp CPU threads")
 	fs.IntVar(&ctxSize, "ctx-size", 0, "llama.cpp context size")
 	fs.IntVar(&gpuLayers, "gpu-layers", 0, "llama.cpp GPU layers")
+	fs.StringVar(&gpuMode, "gpu", "", "llama.cpp GPU mode: off, auto, or full")
+	fs.IntVar(&mainGPU, "main-gpu", -1, "llama.cpp main GPU index")
+	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
+	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
+	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -1230,7 +1873,25 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
 		return 2
 	}
-	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: positionals[0], Options: runtimeOptions(nil, threads, ctxSize, gpuLayers)})
+	options := runtimeOptions(nil, runtimeFlagOptions{
+		threads:        threads,
+		ctxSize:        ctxSize,
+		gpuLayers:      gpuLayers,
+		gpuMode:        gpuMode,
+		mainGPU:        mainGPU,
+		tensorSplit:    tensorSplit,
+		splitMode:      splitMode,
+		flashAttention: flashAttention,
+	})
+	if err := validateRuntimeOptions(options); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
+		Backend: backend,
+		Path:    positionals[0],
+		Options: options,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
@@ -1313,6 +1974,108 @@ func runRuns(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+func runBackends(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		backendsUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "list":
+		return runBackendsList(args[1:], stdout, stderr)
+	case "info":
+		return runBackendsInfo(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		backendsUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown backends command %q\n", args[0])
+		backendsUsage(stderr)
+		return 2
+	}
+}
+
+func runBackendsList(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("backends list", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 0 {
+		fmt.Fprintln(stderr, "usage: nego backends list [flags]")
+		return 2
+	}
+	infos := nego.ListBackends()
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(infos)
+		return 0
+	}
+	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "NAME\tCAPABILITIES\tREQUIRED")
+	for _, info := range infos {
+		fmt.Fprintf(tw, "%s\t%s\t%s\n", info.Name, strings.Join(info.Capabilities, ", "), strings.Join(info.Required, ", "))
+	}
+	_ = tw.Flush()
+	return 0
+}
+
+func runBackendsInfo(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("backends info", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego backends info <name> [flags]")
+		return 2
+	}
+	info, ok := nego.BackendInfoByName(positionals[0])
+	if !ok {
+		fmt.Fprintf(stderr, "nego: backend %q is not registered\n", positionals[0])
+		return 4
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(info)
+		return 0
+	}
+	writeBackendInfo(stdout, info)
+	return 0
+}
+
+func writeBackendInfo(w io.Writer, info nego.BackendInfo) {
+	fmt.Fprintf(w, "Name:        %s\n", info.Name)
+	if info.Description != "" {
+		fmt.Fprintf(w, "Description: %s\n", info.Description)
+	}
+	if len(info.Capabilities) > 0 {
+		fmt.Fprintf(w, "Capabilities:%s\n", " "+strings.Join(info.Capabilities, ", "))
+	}
+	if len(info.Required) > 0 {
+		fmt.Fprintf(w, "Required:    %s\n", strings.Join(info.Required, ", "))
+	}
+	if len(info.Options) > 0 {
+		fmt.Fprintln(w, "Options:")
+		for _, option := range info.Options {
+			if option.Description == "" {
+				fmt.Fprintf(w, "  - %s\n", option.Name)
+				continue
+			}
+			fmt.Fprintf(w, "  - %s: %s\n", option.Name, option.Description)
+		}
+	}
+}
+
+func backendsUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego backends list [flags]")
+	fmt.Fprintln(w, "  nego backends info <name> [flags]")
+}
+
 func runDataset(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		datasetUsage(stderr)
@@ -1323,6 +2086,10 @@ func runDataset(args []string, stdout, stderr io.Writer) int {
 		return runDatasetInspect(args[1:], stdout, stderr)
 	case "validate":
 		return runDatasetValidate(args[1:], stdout, stderr)
+	case "convert":
+		return runDatasetConvert(args[1:], stdout, stderr)
+	case "filter":
+		return runDatasetFilter(args[1:], stdout, stderr)
 	case "split":
 		return runDatasetSplit(args[1:], stdout, stderr)
 	case "sample":
@@ -1395,6 +2162,88 @@ func runDatasetValidate(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "Valid %s dataset: %d rows\n", format, len(rows))
+	return 0
+}
+
+func runDatasetConvert(args []string, stdout, stderr io.Writer) int {
+	var output string
+	var format string
+	var selectFields string
+	var requireFields string
+	fs := flag.NewFlagSet("dataset convert", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&output, "out", "", "output JSONL file, or - for stdout")
+	fs.StringVar(&format, "format", "jsonl", "output format: jsonl")
+	fs.StringVar(&selectFields, "select", "", "comma-separated fields to keep")
+	fs.StringVar(&requireFields, "require", "", "comma-separated fields that must be present and non-empty")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || output == "" {
+		fmt.Fprintln(stderr, "usage: nego dataset convert <file> --out <file> [flags]")
+		return 2
+	}
+	if strings.ToLower(format) != "jsonl" {
+		fmt.Fprintf(stderr, "nego: unsupported output format %q\n", format)
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	rows = datasets.RequireFields(rows, splitCommaFields(requireFields))
+	rows = datasets.SelectFields(rows, splitCommaFields(selectFields))
+	if err := writeDatasetRows(output, rows, stdout); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if output != "-" {
+		fmt.Fprintf(stdout, "Converted: %d rows -> %s\n", len(rows), output)
+	}
+	return 0
+}
+
+func runDatasetFilter(args []string, stdout, stderr io.Writer) int {
+	var output string
+	var where repeatedFlag
+	var selectFields string
+	var requireFields string
+	fs := flag.NewFlagSet("dataset filter", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&output, "out", "", "output JSONL file, or - for stdout")
+	fs.Var(&where, "where", "filter expression, repeatable: field, field=value, field!=value, field~text, field!~text")
+	fs.StringVar(&selectFields, "select", "", "comma-separated fields to keep")
+	fs.StringVar(&requireFields, "require", "", "comma-separated fields that must be present and non-empty")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || output == "" {
+		fmt.Fprintln(stderr, "usage: nego dataset filter <file> --where <expr> --out <file> [flags]")
+		return 2
+	}
+	filters, err := parseDatasetFilters(where)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	rows = datasets.RequireFields(rows, splitCommaFields(requireFields))
+	rows = datasets.FilterRows(rows, filters)
+	rows = datasets.SelectFields(rows, splitCommaFields(selectFields))
+	if err := writeDatasetRows(output, rows, stdout); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if output != "-" {
+		fmt.Fprintf(stdout, "Filtered: %d rows -> %s\n", len(rows), output)
+	}
 	return 0
 }
 
@@ -1482,6 +2331,8 @@ func datasetUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset sample <file> [flags]")
 }
@@ -1544,6 +2395,40 @@ func writeDatasetFile(path string, rows []datasets.Row) error {
 	}
 	defer file.Close()
 	return datasets.WriteJSONL(file, rows)
+}
+
+func writeDatasetRows(path string, rows []datasets.Row, stdout io.Writer) error {
+	if path == "-" {
+		return datasets.WriteJSONL(stdout, rows)
+	}
+	return writeDatasetFile(path, rows)
+}
+
+func splitCommaFields(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	fields := make([]string, 0, len(parts))
+	for _, part := range parts {
+		field := strings.TrimSpace(part)
+		if field != "" {
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
+func parseDatasetFilters(values []string) ([]datasets.Filter, error) {
+	filters := make([]datasets.Filter, 0, len(values))
+	for _, value := range values {
+		filter, err := datasets.ParseFilter(value)
+		if err != nil {
+			return nil, err
+		}
+		filters = append(filters, filter)
+	}
+	return filters, nil
 }
 
 func runRunsList(args []string, stdout, stderr io.Writer) int {

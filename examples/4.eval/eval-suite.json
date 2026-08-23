@@ -1,0 +1,33 @@
+{
+  "backend": "llama.cpp",
+  "path": "./models/qwen3-gguf",
+  "cases": [
+    {
+      "name": "greeting",
+      "prompt": "Say hello in one short sentence.",
+      "contains": "hello",
+      "max_tokens": 32
+    },
+    {
+      "name": "json validity",
+      "prompt": "Return JSON with ok=true.",
+      "json_valid": true,
+      "max_tokens": 64
+    },
+    {
+      "name": "chat answer",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You answer briefly."
+        },
+        {
+          "role": "user",
+          "content": "What language is used by Nego?"
+        }
+      ],
+      "contains": "Go",
+      "max_tokens": 64
+    }
+  ]
+}

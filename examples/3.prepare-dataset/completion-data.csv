@@ -1,0 +1,4 @@
+prompt,completion,split
+"What is Go?","Go is a programming language.",train
+"Explain AI briefly.","AI is software that performs tasks requiring intelligence.",train
+"Say hello.","Hello!",test

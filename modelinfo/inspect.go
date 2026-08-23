@@ -3,10 +3,13 @@ package modelinfo
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+const maxModelCardBytes = 2 << 20
 
 type Info struct {
 	Path             string         `json:"path"`
@@ -14,8 +17,20 @@ type Info struct {
 	Architectures    []string       `json:"architectures,omitempty"`
 	Config           map[string]any `json:"config,omitempty"`
 	GenerationConfig map[string]any `json:"generation_config,omitempty"`
+	Card             *Card          `json:"card,omitempty"`
 	GGUF             *GGUFInfo      `json:"gguf,omitempty"`
 	Files            []File         `json:"files,omitempty"`
+}
+
+type Card struct {
+	Title       string   `json:"title,omitempty"`
+	License     string   `json:"license,omitempty"`
+	PipelineTag string   `json:"pipeline_tag,omitempty"`
+	LibraryName string   `json:"library_name,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	Languages   []string `json:"languages,omitempty"`
+	Datasets    []string `json:"datasets,omitempty"`
+	BaseModels  []string `json:"base_models,omitempty"`
 }
 
 type File struct {
@@ -38,6 +53,13 @@ func Inspect(path string) (*Info, error) {
 		kind := fileKind(root)
 		if kind != "" {
 			info.Files = []File{{Path: filepath.Base(root), Size: stat.Size(), Kind: kind}}
+		}
+		if kind == "model_card" {
+			card, err := readModelCard(root)
+			if err != nil {
+				return nil, err
+			}
+			info.Card = card
 		}
 		if kind == "gguf" {
 			gguf, err := InspectGGUF(root)
@@ -63,6 +85,12 @@ func Inspect(path string) (*Info, error) {
 		return nil, err
 	}
 	info.GenerationConfig = generationConfig
+
+	card, err := readModelCard(filepath.Join(root, "README.md"))
+	if err != nil {
+		return nil, err
+	}
+	info.Card = card
 
 	files, err := inspectFiles(root)
 	if err != nil {
@@ -95,6 +123,144 @@ func readJSON(path string) (map[string]any, error) {
 	return out, nil
 }
 
+func readModelCard(path string) (*Card, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxModelCardBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxModelCardBytes {
+		return nil, nil
+	}
+	content := strings.ReplaceAll(string(data), "\r\n", "\n")
+	frontMatter, markdown := splitFrontMatter(content)
+	card := cardFromFrontMatter(frontMatter)
+	card.Title = firstMarkdownHeading(markdown)
+	if card.Title == "" && emptyCard(card) {
+		return nil, nil
+	}
+	return card, nil
+}
+
+func splitFrontMatter(content string) (string, string) {
+	if !strings.HasPrefix(content, "---\n") {
+		return "", content
+	}
+	rest := content[len("---\n"):]
+	idx := strings.Index(rest, "\n---")
+	if idx < 0 {
+		return "", content
+	}
+	frontMatter := rest[:idx]
+	markdown := rest[idx+len("\n---"):]
+	markdown = strings.TrimPrefix(markdown, "\n")
+	return frontMatter, markdown
+}
+
+func cardFromFrontMatter(frontMatter string) *Card {
+	values := parseSimpleYAML(frontMatter)
+	return &Card{
+		License:     firstValue(values["license"]),
+		PipelineTag: firstValue(values["pipeline_tag"]),
+		LibraryName: firstValue(values["library_name"]),
+		Tags:        values["tags"],
+		Languages:   values["language"],
+		Datasets:    values["datasets"],
+		BaseModels:  values["base_model"],
+	}
+}
+
+func parseSimpleYAML(content string) map[string][]string {
+	values := make(map[string][]string)
+	var currentKey string
+	for _, rawLine := range strings.Split(content, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "- ") && currentKey != "" {
+			values[currentKey] = append(values[currentKey], cleanYAMLValue(strings.TrimSpace(strings.TrimPrefix(line, "- "))))
+			continue
+		}
+		key, value, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		currentKey = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if value == "" {
+			if _, ok := values[currentKey]; !ok {
+				values[currentKey] = nil
+			}
+			continue
+		}
+		values[currentKey] = append(values[currentKey], splitYAMLScalar(value)...)
+	}
+	return values
+}
+
+func splitYAMLScalar(value string) []string {
+	value = cleanYAMLValue(value)
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "["), "]"))
+		if value == "" {
+			return nil
+		}
+		parts := strings.Split(value, ",")
+		out := make([]string, 0, len(parts))
+		for _, part := range parts {
+			if cleaned := cleanYAMLValue(part); cleaned != "" {
+				out = append(out, cleaned)
+			}
+		}
+		return out
+	}
+	if value == "" {
+		return nil
+	}
+	return []string{value}
+}
+
+func cleanYAMLValue(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Trim(value, `"'`)
+	return value
+}
+
+func firstMarkdownHeading(markdown string) string {
+	for _, line := range strings.Split(markdown, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "# ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "# "))
+		}
+	}
+	return ""
+}
+
+func firstValue(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func emptyCard(card *Card) bool {
+	return card.License == "" &&
+		card.PipelineTag == "" &&
+		card.LibraryName == "" &&
+		len(card.Tags) == 0 &&
+		len(card.Languages) == 0 &&
+		len(card.Datasets) == 0 &&
+		len(card.BaseModels) == 0
+}
+
 func inspectFiles(root string) ([]File, error) {
 	var files []File
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -124,8 +290,9 @@ func inspectFiles(root string) ([]File, error) {
 }
 
 func fileKind(path string) string {
+	base := strings.ToLower(filepath.Base(path))
 	lower := strings.ToLower(path)
-	switch lower {
+	switch base {
 	case "config.json":
 		return "config"
 	case "generation_config.json":
@@ -136,6 +303,8 @@ func fileKind(path string) string {
 		return "tokenizer_config"
 	case "chat_template.jinja":
 		return "chat_template"
+	case "readme.md":
+		return "model_card"
 	}
 	switch {
 	case strings.HasSuffix(lower, ".safetensors"):

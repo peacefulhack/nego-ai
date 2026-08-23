@@ -1,0 +1,14 @@
+{
+  "backend": "llama.cpp",
+  "path": "./models/qwen3-gguf",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello"
+    },
+    {
+      "role": "assistant",
+      "content": "Hi!"
+    }
+  ]
+}
