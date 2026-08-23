@@ -79,7 +79,8 @@ type Model struct {
 	promptPath string
 }
 
-func (m *Model) Generate(context.Context, nego.GenerateRequest) (*nego.GenerateOutput, error) {
+func (m *Model) Generate(_ context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+	_ = generationOptions(req)
 	return nil, m.inferenceError()
 }
 
@@ -87,6 +88,7 @@ func (m *Model) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatRespons
 	if _, err := m.renderChatPrompt(req.Messages); err != nil {
 		return nil, err
 	}
+	_ = chatGenerationOptions(req)
 	return nil, m.inferenceError()
 }
 

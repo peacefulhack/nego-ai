@@ -157,6 +157,7 @@ Current status:
 - Includes residual/vector helpers and RoPE primitives for attention plumbing.
 - Includes scaled dot-product attention and KV cache primitives.
 - Includes embedding lookup and output-logits helpers for generation plumbing.
+- Includes generation option normalization and token sample/decode scaffolding.
 - Includes linear projection and MLP helpers for transformer feed-forward blocks.
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
 - Includes deterministic temperature, top-k, and top-p sampling primitives.
