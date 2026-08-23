@@ -102,12 +102,13 @@ func (m *Model) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatRespons
 		return nil, err
 	}
 	out, err := m.generateText(nego.GenerateRequest{
-		Prompt:      prompt,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		Stop:        req.Stop,
-		Seed:        req.Seed,
+		Prompt:        prompt,
+		MaxTokens:     req.MaxTokens,
+		Temperature:   req.Temperature,
+		TopP:          req.TopP,
+		RepeatPenalty: req.RepeatPenalty,
+		Stop:          req.Stop,
+		Seed:          req.Seed,
 	})
 	if err != nil {
 		return nil, err

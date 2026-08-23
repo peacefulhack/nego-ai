@@ -125,12 +125,13 @@ func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatRespo
 		return nil, err
 	}
 	out, err := m.Generate(ctx, nego.GenerateRequest{
-		Prompt:      prompt,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		Stop:        req.Stop,
-		Seed:        req.Seed,
+		Prompt:        prompt,
+		MaxTokens:     req.MaxTokens,
+		Temperature:   req.Temperature,
+		TopP:          req.TopP,
+		RepeatPenalty: req.RepeatPenalty,
+		Stop:          req.Stop,
+		Seed:          req.Seed,
 	})
 	if err != nil {
 		return nil, err
@@ -146,12 +147,13 @@ func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stre
 		return nil, err
 	}
 	genReq := nego.GenerateRequest{
-		Prompt:      prompt,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		Stop:        req.Stop,
-		Seed:        req.Seed,
+		Prompt:        prompt,
+		MaxTokens:     req.MaxTokens,
+		Temperature:   req.Temperature,
+		TopP:          req.TopP,
+		RepeatPenalty: req.RepeatPenalty,
+		Stop:          req.Stop,
+		Seed:          req.Seed,
 	}
 	cmd := exec.CommandContext(ctx, m.command, m.args(genReq.Prompt, genReq)...)
 	stdout, err := cmd.StdoutPipe()
@@ -219,6 +221,9 @@ func (m *Model) args(prompt string, req nego.GenerateRequest) []string {
 	}
 	if req.TopP > 0 {
 		args = append(args, "--top-p", strconv.FormatFloat(req.TopP, 'f', -1, 64))
+	}
+	if req.RepeatPenalty > 0 {
+		args = append(args, "--repeat-penalty", strconv.FormatFloat(req.RepeatPenalty, 'f', -1, 64))
 	}
 	if req.Seed != 0 {
 		args = append(args, "--seed", strconv.FormatInt(req.Seed, 10))

@@ -21,9 +21,10 @@ func generationOptions(req nego.GenerateRequest) GenerationOptions {
 	return GenerationOptions{
 		MaxTokens: maxTokens,
 		Sampling: SamplingOptions{
-			Temperature: float32(req.Temperature),
-			TopP:        float32(req.TopP),
-			Seed:        req.Seed,
+			Temperature:   float32(req.Temperature),
+			TopP:          float32(req.TopP),
+			RepeatPenalty: float32(req.RepeatPenalty),
+			Seed:          req.Seed,
 		},
 		Stop: append([]string(nil), req.Stop...),
 	}
@@ -31,11 +32,12 @@ func generationOptions(req nego.GenerateRequest) GenerationOptions {
 
 func chatGenerationOptions(req nego.ChatRequest) GenerationOptions {
 	return generationOptions(nego.GenerateRequest{
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		Stop:        req.Stop,
-		Seed:        req.Seed,
+		MaxTokens:     req.MaxTokens,
+		Temperature:   req.Temperature,
+		TopP:          req.TopP,
+		RepeatPenalty: req.RepeatPenalty,
+		Stop:          req.Stop,
+		Seed:          req.Seed,
 	})
 }
 
@@ -44,10 +46,14 @@ func sampleTokenText(logits []float32, vocab *modelinfo.GGUFVocab, options Sampl
 }
 
 func sampleTokenTextWithSampler(logits []float32, vocab *modelinfo.GGUFVocab, sampler *Sampler) (int, string, error) {
+	return sampleTokenTextWithHistory(logits, vocab, sampler, nil)
+}
+
+func sampleTokenTextWithHistory(logits []float32, vocab *modelinfo.GGUFVocab, sampler *Sampler, history []int) (int, string, error) {
 	if vocab == nil {
 		return 0, "", fmt.Errorf("gguf vocab is nil")
 	}
-	id, err := sampler.Sample(logits)
+	id, err := sampler.SampleWithHistory(logits, history)
 	if err != nil {
 		return 0, "", err
 	}
@@ -56,4 +62,19 @@ func sampleTokenTextWithSampler(logits []float32, vocab *modelinfo.GGUFVocab, sa
 		return 0, "", err
 	}
 	return id, text, nil
+}
+
+func isEOSToken(vocab *modelinfo.GGUFVocab, id int) bool {
+	if vocab == nil || id < 0 || id >= len(vocab.Tokens) {
+		return false
+	}
+	if vocab.EOSTokenID != 0 && id == int(vocab.EOSTokenID) {
+		return true
+	}
+	switch vocab.Tokens[id] {
+	case "</s>", "<eos>", "<|endoftext|>", "<|end_of_text|>", "<|im_end|>":
+		return true
+	default:
+		return false
+	}
 }

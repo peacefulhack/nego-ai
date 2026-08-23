@@ -28,12 +28,13 @@ type ModelOptions struct {
 }
 
 type GenerateRequest struct {
-	Prompt      string
-	MaxTokens   int
-	Temperature float64
-	TopP        float64
-	Stop        []string
-	Seed        int64
+	Prompt        string
+	MaxTokens     int
+	Temperature   float64
+	TopP          float64
+	RepeatPenalty float64
+	Stop          []string
+	Seed          int64
 }
 
 type GenerateOutput struct {
@@ -41,12 +42,13 @@ type GenerateOutput struct {
 }
 
 type ChatRequest struct {
-	Messages    []Message
-	MaxTokens   int
-	Temperature float64
-	TopP        float64
-	Stop        []string
-	Seed        int64
+	Messages      []Message
+	MaxTokens     int
+	Temperature   float64
+	TopP          float64
+	RepeatPenalty float64
+	Stop          []string
+	Seed          int64
 }
 
 type ChatResponse struct {

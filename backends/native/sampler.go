@@ -8,10 +8,11 @@ import (
 )
 
 type SamplingOptions struct {
-	Temperature float32
-	TopK        int
-	TopP        float32
-	Seed        int64
+	Temperature   float32
+	TopK          int
+	TopP          float32
+	RepeatPenalty float32
+	Seed          int64
 }
 
 type Sampler struct {
@@ -31,6 +32,10 @@ func NewSampler(options SamplingOptions) *Sampler {
 }
 
 func (s *Sampler) Sample(logits []float32) (int, error) {
+	return s.SampleWithHistory(logits, nil)
+}
+
+func (s *Sampler) SampleWithHistory(logits []float32, history []int) (int, error) {
 	if s == nil {
 		return 0, fmt.Errorf("sampler is nil")
 	}
@@ -40,12 +45,16 @@ func (s *Sampler) Sample(logits []float32) (int, error) {
 	if err := validateLogits(logits); err != nil {
 		return 0, err
 	}
+	adjusted, err := applyRepeatPenalty(logits, history, s.options.RepeatPenalty)
+	if err != nil {
+		return 0, err
+	}
 	temperature := float64(s.options.Temperature)
 	if math.IsNaN(temperature) || math.IsInf(temperature, 0) {
 		return 0, fmt.Errorf("temperature must be finite")
 	}
 	if temperature <= 0 {
-		return argmax(logits), nil
+		return argmax(adjusted), nil
 	}
 	topP := float64(s.options.TopP)
 	if math.IsNaN(topP) || math.IsInf(topP, 0) {
@@ -54,7 +63,7 @@ func (s *Sampler) Sample(logits []float32) (int, error) {
 	if s.rng == nil {
 		s.rng = rand.New(rand.NewSource(1))
 	}
-	candidates := sortedCandidates(logits)
+	candidates := sortedCandidates(adjusted)
 	if s.options.TopK > 0 && s.options.TopK < len(candidates) {
 		candidates = candidates[:s.options.TopK]
 	}
@@ -77,6 +86,33 @@ func validateLogits(logits []float32) error {
 		}
 	}
 	return nil
+}
+
+func applyRepeatPenalty(logits []float32, history []int, penalty float32) ([]float32, error) {
+	if penalty == 0 || penalty == 1 || len(history) == 0 {
+		return logits, nil
+	}
+	value := float64(penalty)
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 1 {
+		return nil, fmt.Errorf("repeat penalty must be finite and >= 1")
+	}
+	adjusted := append([]float32(nil), logits...)
+	seen := make(map[int]struct{}, len(history))
+	for _, id := range history {
+		if id < 0 || id >= len(adjusted) {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		if adjusted[id] < 0 {
+			adjusted[id] *= penalty
+		} else {
+			adjusted[id] /= penalty
+		}
+	}
+	return adjusted, nil
 }
 
 func argmax(logits []float32) int {

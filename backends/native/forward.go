@@ -111,11 +111,16 @@ func (m *Model) generateText(req nego.GenerateRequest) (*nego.GenerateOutput, er
 		}
 	}
 	sampler := NewSampler(plan.Options.Sampling)
+	history := append([]int(nil), plan.PromptTokenIDs...)
 	var b strings.Builder
 	for step := 0; step < plan.Options.MaxTokens; step++ {
-		nextID, text, err := sampleTokenTextWithSampler(logits, m.vocab, sampler)
+		nextID, text, err := sampleTokenTextWithHistory(logits, m.vocab, sampler, history)
 		if err != nil {
 			return nil, err
+		}
+		history = append(history, nextID)
+		if isEOSToken(m.vocab, nextID) {
+			return &nego.GenerateOutput{Text: b.String()}, nil
 		}
 		b.WriteString(text)
 		out := b.String()

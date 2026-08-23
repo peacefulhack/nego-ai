@@ -174,7 +174,7 @@ Current status:
 - Runs an early multi-token generate/chat loop over the float32 forward path for supported tiny GGUF fixtures.
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
 - Caches loaded float32 tensor buffers per model instance for native forward experiments.
-- Includes deterministic temperature, top-k, and top-p sampling primitives.
+- Includes deterministic temperature, top-k, top-p, repeat penalty, and EOS-aware sampling primitives.
 - Does not run production GGUF inference for large models or K-quant formats such as Q4_K_M yet.
 
 The native backend is the foundation for pure-Go chat/train/share. The next phases are real Qwen/Llama compatibility, performance work, and broader quantized kernels.

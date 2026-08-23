@@ -73,17 +73,18 @@ func TestGeneratePassesRuntimeOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := model.Generate(context.Background(), nego.GenerateRequest{
-		Prompt:      "hello",
-		MaxTokens:   8,
-		Temperature: 0.7,
-		TopP:        0.9,
-		Stop:        []string{"END"},
-		Seed:        42,
+		Prompt:        "hello",
+		MaxTokens:     8,
+		Temperature:   0.7,
+		TopP:          0.9,
+		RepeatPenalty: 1.2,
+		Stop:          []string{"END"},
+		Seed:          42,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
+	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--repeat-penalty 1.2", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
 		if !strings.Contains(out.Text, want) {
 			t.Fatalf("expected %q in command output: %q", want, out.Text)
 		}

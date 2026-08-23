@@ -608,6 +608,8 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 		"0.7",
 		"--top-p",
 		"0.9",
+		"--repeat-penalty",
+		"1.2",
 		"--seed",
 		"42",
 		"--stop",
@@ -631,7 +633,7 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
+	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--repeat-penalty 1.2", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected %q in output: %q", want, stdout.String())
 		}
@@ -671,6 +673,18 @@ func TestRunCommandRejectsInvalidGPUMode(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "gpu must be one of") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
+func TestRunCommandRejectsInvalidRepeatPenalty(t *testing.T) {
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--repeat-penalty", "0.5"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "repeat-penalty") {
 		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
@@ -1029,7 +1043,7 @@ func TestValidateRuntimeOptions(t *testing.T) {
 }
 
 func TestRuntimeLogEntrySanitizesEndpoint(t *testing.T) {
-	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, nil, 0, nil, nil)
+	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, 0, nil, 0, nil, nil)
 	if entry.Endpoint != "https://example.com/v1" {
 		t.Fatalf("Endpoint = %q", entry.Endpoint)
 	}
