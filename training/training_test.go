@@ -2,6 +2,7 @@ package training
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,6 +27,63 @@ func TestRunTrainingJob(t *testing.T) {
 func TestRunRequiresCommand(t *testing.T) {
 	if _, err := Run(context.Background(), JobSpec{}); err == nil {
 		t.Fatal("expected validation error")
+	}
+}
+
+func TestNewLoRAJobUsesDownloadedModelAndDataset(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	evalFile := filepath.Join(dir, "data", "test.jsonl")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evalFile, []byte(`{"prompt":"bye","completion":"later"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := NewLoRAJob(InitOptions{
+		Name:      "qwen3-lora",
+		BaseModel: modelDir,
+		TrainFile: trainFile,
+		EvalFile:  evalFile,
+		OutputDir: filepath.Join(dir, "outputs", "qwen3-lora"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.BaseModel != modelDir || spec.TrainFile != trainFile || spec.EvalFile != evalFile {
+		t.Fatalf("unexpected spec paths: %#v", spec)
+	}
+	joined := strings.Join(spec.Args, " ")
+	for _, want := range []string{"scripts/train_lora.py", "--model " + modelDir, "--train-file " + trainFile, "--eval-file " + evalFile} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected %q in args %q", want, joined)
+		}
+	}
+}
+
+func TestWriteJob(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "train-job.json")
+	spec := JobSpec{Name: "job", Command: "python", Args: []string{"train.py"}}
+	if err := WriteJob(path, spec); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got JobSpec
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "job" || got.Command != "python" {
+		t.Fatalf("unexpected job: %#v", got)
 	}
 }
 

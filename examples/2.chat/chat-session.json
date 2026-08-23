@@ -1,6 +1,6 @@
 {
   "backend": "llama.cpp",
-  "path": "./models/model.gguf",
+  "path": "./models/qwen3-gguf",
   "messages": [
     {
       "role": "user",

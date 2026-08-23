@@ -371,10 +371,20 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego eval compare <baseline.json> <candidate.json> [flags]")
 	fmt.Fprintln(w, "  nego version [flags]")
 	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
+	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
 
 func runTrain(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		switch args[0] {
+		case "init":
+			return runTrainInit(args[1:], stdout, stderr)
+		case "help", "-h", "--help":
+			trainUsage(stdout)
+			return 0
+		}
+	}
 	var jsonOutput bool
 	fs := flag.NewFlagSet("train", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -417,6 +427,60 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func runTrainInit(args []string, stdout, stderr io.Writer) int {
+	var name, method, baseModel, trainFile, evalFile, outputDir, command, script, workDir, out string
+	fs := flag.NewFlagSet("train init", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&name, "name", "qwen3-lora", "training job name")
+	fs.StringVar(&method, "method", "lora", "training method")
+	fs.StringVar(&baseModel, "base-model", "./models/qwen3", "downloaded Hugging Face model directory")
+	fs.StringVar(&trainFile, "train-file", "", "training dataset JSONL file")
+	fs.StringVar(&evalFile, "eval-file", "", "evaluation dataset JSONL file")
+	fs.StringVar(&outputDir, "output-dir", "./outputs/qwen3-lora", "trained model or adapter output directory")
+	fs.StringVar(&command, "command", "python", "training command")
+	fs.StringVar(&script, "script", "scripts/train_lora.py", "training script passed as first argument")
+	fs.StringVar(&workDir, "work-dir", ".", "training working directory")
+	fs.StringVar(&out, "out", "train-job.json", "output job JSON file")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 0 || trainFile == "" {
+		fmt.Fprintln(stderr, "usage: nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
+		return 2
+	}
+	spec, err := training.NewLoRAJob(training.InitOptions{
+		Name:      name,
+		Method:    method,
+		BaseModel: baseModel,
+		TrainFile: trainFile,
+		EvalFile:  evalFile,
+		OutputDir: outputDir,
+		Command:   command,
+		Script:    script,
+		WorkDir:   workDir,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := training.WriteJob(out, spec); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Training job: %s\n", out)
+	fmt.Fprintf(stdout, "Base model:   %s\n", spec.BaseModel)
+	fmt.Fprintf(stdout, "Train file:   %s\n", spec.TrainFile)
+	fmt.Fprintf(stdout, "Output dir:   %s\n", spec.OutputDir)
+	return 0
+}
+
+func trainUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
 
 func runConvert(args []string, stdout, stderr io.Writer) int {

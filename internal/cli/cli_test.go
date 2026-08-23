@@ -19,6 +19,7 @@ import (
 	nego "github.com/gakon/nego-ai"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/registry"
+	"github.com/gakon/nego-ai/training"
 )
 
 func TestSplitFlagsAllowsFlagsAfterPositionals(t *testing.T) {
@@ -1136,6 +1137,60 @@ func TestTrainCommand(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "training hello") {
 		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestTrainInitCommand(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	evalFile := filepath.Join(dir, "data", "test.jsonl")
+	jobPath := filepath.Join(dir, "train-job.json")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evalFile, []byte(`{"prompt":"bye","completion":"later"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"train",
+		"init",
+		"--name",
+		"qwen3-lora",
+		"--base-model",
+		modelDir,
+		"--train-file",
+		trainFile,
+		"--eval-file",
+		evalFile,
+		"--output-dir",
+		filepath.Join(dir, "outputs", "qwen3-lora"),
+		"--out",
+		jobPath,
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	data, err := os.ReadFile(jobPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec training.JobSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if spec.BaseModel != modelDir || spec.TrainFile != trainFile || spec.OutputDir == "" {
+		t.Fatalf("unexpected spec: %#v", spec)
+	}
+	if !strings.Contains(stdout.String(), "Training job:") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
 	}
 }
 

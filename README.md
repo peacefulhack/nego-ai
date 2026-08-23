@@ -69,9 +69,9 @@ info, err := modelinfo.Inspect("./models/qwen3")
 ```
 
 ```bash
-nego inspect ./models/model.gguf
-nego inspect ./models/model.gguf --json
-nego check ./models/model.gguf
+nego inspect ./models/qwen3
+nego inspect ./models/qwen3-gguf --json
+nego check ./models/qwen3-gguf
 ```
 
 ## Tokenizer
@@ -96,13 +96,14 @@ nego prompt ./models/qwen3 --system "You are helpful" --user "Hello"
 
 ```go
 model, err := nego.LoadModel(ctx, nego.ModelOptions{
-    Backend: "openai-compatible",
-    Model:   "qwen3",
+    Backend: "llama.cpp",
+    Path:    "./models/qwen3-gguf",
+    Options: map[string]string{"gpu": "auto"},
 })
 ```
 
 ```go
-import _ "github.com/gakon/nego-ai/backends/openai"
+import _ "github.com/gakon/nego-ai/backends/llama"
 ```
 
 ```bash
@@ -113,16 +114,15 @@ nego backends info llama.cpp
 ## Local llama.cpp runtime
 
 ```bash
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello"
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/gguf-model-dir "Hello"
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --threads 8 --ctx-size 4096 --gpu-layers 32
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --gpu full --flash-attn
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --gpu full --main-gpu 0 --tensor-split 3,1 --split-mode layer
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/model.gguf "Hello" --log runs.jsonl
-NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf "Hello"
-NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf --interactive
-NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/model.gguf --interactive --session chats/qwen.json
-NEGO_LLAMA_CLI=/path/to/llama-cli nego serve ./models/model.gguf --addr :8080
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/qwen3-gguf "Hello"
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/qwen3-gguf "Hello" --threads 8 --ctx-size 4096 --gpu-layers 32
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/qwen3-gguf "Hello" --gpu full --flash-attn
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/qwen3-gguf "Hello" --gpu full --main-gpu 0 --tensor-split 3,1 --split-mode layer
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/qwen3-gguf "Hello" --log runs.jsonl
+NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/qwen3-gguf "Hello"
+NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/qwen3-gguf --interactive
+NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/qwen3-gguf --interactive --session chats/qwen.json
+NEGO_LLAMA_CLI=/path/to/llama-cli nego serve ./models/qwen3-gguf --addr :8080
 ```
 
 When a GGUF file lives beside `chat_template.jinja` or `tokenizer_config.json`, the llama.cpp backend uses that template for chat prompts.
@@ -185,7 +185,10 @@ nego convert gguf ./models/qwen3 --out ./models/qwen3.gguf --converter /path/to/
 
 ## Training orchestration
 
+Use the Hugging Face-style model directory (`./models/qwen3`) for fine-tuning jobs. Use the GGUF directory (`./models/qwen3-gguf`) for local chat/runtime.
+
 ```bash
+nego train init --base-model ./models/qwen3 --train-file examples/5.train/train.jsonl --eval-file examples/5.train/test.jsonl --output-dir ./outputs/qwen3-lora --out examples/5.train/train-job.json
 nego train job.json
 ```
 

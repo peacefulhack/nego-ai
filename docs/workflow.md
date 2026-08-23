@@ -216,25 +216,25 @@ export NEGO_LLAMA_CLI=/path/to/llama-cli
 Run one prompt:
 
 ```bash
-nego run ./models/model.gguf "Explain Go in one paragraph."
+nego run ./models/qwen3-gguf "Explain Go in one paragraph."
 ```
 
 Run with GPU acceleration when your `llama-cli` build supports CUDA, Metal, Vulkan, ROCm, or another llama.cpp GPU backend:
 
 ```bash
-nego run ./models/model.gguf "Explain Go in one paragraph." --gpu full --flash-attn
+nego run ./models/qwen3-gguf "Explain Go in one paragraph." --gpu full --flash-attn
 ```
 
 Force CPU-only:
 
 ```bash
-nego run ./models/model.gguf "Explain Go in one paragraph." --gpu off
+nego run ./models/qwen3-gguf "Explain Go in one paragraph." --gpu off
 ```
 
 Use explicit multi-GPU placement:
 
 ```bash
-nego run ./models/model.gguf "Explain Go in one paragraph." \
+nego run ./models/qwen3-gguf "Explain Go in one paragraph." \
   --gpu full \
   --main-gpu 0 \
   --tensor-split 3,1 \
@@ -250,19 +250,19 @@ nego chat ./models/qwen3-gguf "Hello"
 Start interactive chat:
 
 ```bash
-nego chat ./models/model.gguf --interactive
+nego chat ./models/qwen3-gguf --interactive
 ```
 
 Start interactive chat with a resumable session:
 
 ```bash
-nego chat ./models/model.gguf --interactive --session chats/qwen.json
+nego chat ./models/qwen3-gguf --interactive --session chats/qwen.json
 ```
 
 Save a one-shot chat session:
 
 ```bash
-nego chat ./models/model.gguf "Hello" --save chats/hello.json
+nego chat ./models/qwen3-gguf "Hello" --save chats/hello.json
 ```
 
 Session JSON shape:
@@ -270,7 +270,7 @@ Session JSON shape:
 ```json
 {
   "backend": "llama.cpp",
-  "path": "./models/model.gguf",
+  "path": "./models/qwen3-gguf",
   "messages": [
     {
       "role": "user",
@@ -293,7 +293,7 @@ Create an eval suite:
 ```json
 {
   "backend": "llama.cpp",
-  "path": "./models/model.gguf",
+  "path": "./models/qwen3-gguf",
   "cases": [
     {
       "name": "greeting",
@@ -340,24 +340,40 @@ nego eval report reports/baseline.json
 
 ## 8. Train or Fine-Tune
 
-Current Nego training is an external process runner. It is useful for wrapping Python, shell scripts, or another training tool while keeping a consistent Nego workflow.
+Current Nego training is an external process runner. It is useful for wrapping Python, shell scripts, or another training tool while keeping a consistent Nego workflow. Training uses the Hugging Face-style model from step 1 (`./models/qwen3`), not the GGUF runtime copy used for chat.
+
+Create a job JSON from the downloaded model and prepared data:
+
+```bash
+nego train init \
+  --base-model ./models/qwen3 \
+  --train-file examples/5.train/train.jsonl \
+  --eval-file examples/5.train/test.jsonl \
+  --output-dir ./outputs/qwen3-lora \
+  --out examples/5.train/train-job.json
+```
 
 Minimal `job.json` shape:
 
 ```json
 {
-  "name": "qwen3-sft",
+  "name": "qwen3-lora",
+  "method": "lora",
+  "base_model": "./models/qwen3",
+  "train_file": "examples/5.train/train.jsonl",
+  "eval_file": "examples/5.train/test.jsonl",
+  "output_dir": "./outputs/qwen3-lora",
   "command": "python",
   "args": [
     "scripts/train_lora.py",
     "--model",
     "./models/qwen3",
     "--train-file",
-    "data/train.jsonl",
-    "--eval-file",
-    "data/test.jsonl",
+    "examples/5.train/train.jsonl",
     "--output-dir",
-    "./outputs/qwen3-sft"
+    "./outputs/qwen3-lora",
+    "--eval-file",
+    "examples/5.train/test.jsonl"
   ],
   "env": {
     "TOKENIZERS_PARALLELISM": "false"

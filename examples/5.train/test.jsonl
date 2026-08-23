@@ -1,0 +1,1 @@
+{"prompt":"What is a channel in Go?","completion":"A channel lets goroutines communicate by sending and receiving typed values."}

@@ -1,16 +1,21 @@
 {
-  "name": "qwen3-sft",
+  "name": "qwen3-lora",
+  "method": "lora",
+  "base_model": "./models/qwen3",
+  "train_file": "examples/5.train/train.jsonl",
+  "eval_file": "examples/5.train/test.jsonl",
+  "output_dir": "./outputs/qwen3-lora",
   "command": "python",
   "args": [
     "scripts/train_lora.py",
     "--model",
     "./models/qwen3",
     "--train-file",
-    "data/train.jsonl",
-    "--eval-file",
-    "data/test.jsonl",
+    "examples/5.train/train.jsonl",
     "--output-dir",
-    "./outputs/qwen3-sft"
+    "./outputs/qwen3-lora",
+    "--eval-file",
+    "examples/5.train/test.jsonl"
   ],
   "env": {
     "TOKENIZERS_PARALLELISM": "false"
