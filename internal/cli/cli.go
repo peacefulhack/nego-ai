@@ -92,7 +92,7 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 	case "train":
 		return runTrain(args[1:], stdout, stderr)
 	case "share":
-		return runShare(args[1:], stdout, stderr)
+		return runShare(ctx, args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -425,9 +425,10 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego share package <model-dir> --out <archive.tar.gz> [flags]")
+	fmt.Fprintln(w, "  nego share upload <repo-id> <local-path> [path-in-repo] [flags]")
 }
 
-func runShare(args []string, stdout, stderr io.Writer) int {
+func runShare(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		shareUsage(stderr)
 		return 2
@@ -437,6 +438,8 @@ func runShare(args []string, stdout, stderr io.Writer) int {
 		return runShareManifest(args[1:], stdout, stderr)
 	case "package":
 		return runSharePackage(args[1:], stdout, stderr)
+	case "upload":
+		return runShareUpload(ctx, args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		shareUsage(stdout)
 		return 0
@@ -528,10 +531,113 @@ func runSharePackage(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runShareUpload(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	var repoType string
+	var revision string
+	var token string
+	var endpoint string
+	var message string
+	var description string
+	var createPR bool
+	var maxInlineSize int64
+	var jsonOutput bool
+	var include repeatedFlag
+	var exclude repeatedFlag
+	fs := flag.NewFlagSet("share upload", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&repoType, "repo-type", "model", "repo type: model, dataset, or space")
+	fs.StringVar(&revision, "revision", "main", "target branch or revision")
+	fs.StringVar(&token, "token", "", "Hugging Face token")
+	fs.StringVar(&endpoint, "endpoint", "", "Hugging Face Hub endpoint")
+	fs.StringVar(&message, "message", "", "commit message")
+	fs.StringVar(&description, "description", "", "commit description")
+	fs.BoolVar(&createPR, "create-pr", false, "open a pull request instead of committing directly")
+	fs.Int64Var(&maxInlineSize, "max-inline-size", 0, "maximum inline file size in bytes")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.Var(&include, "include", "include glob pattern for folder upload, repeatable")
+	fs.Var(&exclude, "exclude", "exclude glob pattern for folder upload, repeatable")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) < 2 || len(positionals) > 3 {
+		fmt.Fprintln(stderr, "usage: nego share upload <repo-id> <local-path> [path-in-repo] [flags]")
+		return 2
+	}
+	repoID := positionals[0]
+	localPath := positionals[1]
+	pathInRepo := ""
+	if len(positionals) == 3 {
+		pathInRepo = positionals[2]
+	}
+	clientOpts := []hub.ClientOption{}
+	if endpoint != "" {
+		clientOpts = append(clientOpts, hub.WithEndpoint(endpoint))
+	}
+	client := hub.NewClient(clientOpts...)
+	info, err := os.Stat(localPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	var result *hub.UploadResult
+	if info.IsDir() {
+		result, err = client.UploadFolder(ctx, hub.UploadFolderOptions{
+			RepoID:            repoID,
+			RepoType:          hub.RepoType(repoType),
+			Revision:          revision,
+			LocalDir:          localPath,
+			PathInRepo:        pathInRepo,
+			Token:             token,
+			Include:           include,
+			Exclude:           exclude,
+			CommitMessage:     message,
+			CommitDescription: description,
+			CreatePR:          createPR,
+			MaxInlineSize:     maxInlineSize,
+		})
+	} else {
+		result, err = client.UploadFile(ctx, hub.UploadFileOptions{
+			RepoID:            repoID,
+			RepoType:          hub.RepoType(repoType),
+			Revision:          revision,
+			LocalPath:         localPath,
+			PathInRepo:        pathInRepo,
+			Token:             token,
+			CommitMessage:     message,
+			CommitDescription: description,
+			CreatePR:          createPR,
+			MaxInlineSize:     maxInlineSize,
+		})
+	}
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(result)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Uploaded:       %s@%s\n", result.RepoID, result.Revision)
+	fmt.Fprintf(stdout, "Files:          %d\n", len(result.Files))
+	fmt.Fprintf(stdout, "Size:           %s\n", humanBytes(result.TotalSize))
+	if result.Commit != "" {
+		fmt.Fprintf(stdout, "Commit:         %s\n", result.Commit)
+	}
+	if result.CommitURL != "" {
+		fmt.Fprintf(stdout, "Commit URL:     %s\n", result.CommitURL)
+	}
+	if result.PRURL != "" {
+		fmt.Fprintf(stdout, "Pull request:   %s\n", result.PRURL)
+	}
+	return 0
+}
+
 func shareUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego share package <model-dir> --out <archive.tar.gz> [flags]")
+	fmt.Fprintln(w, "  nego share upload <repo-id> <local-path> [path-in-repo] [flags]")
 }
 
 func runTrain(args []string, stdout, stderr io.Writer) int {

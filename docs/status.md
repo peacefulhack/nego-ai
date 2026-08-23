@@ -14,6 +14,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 8. Run eval suites and compare reports.
 9. Create, validate, and run external training job JSON files.
 10. Create local share manifests and archive packages for trained model output directories.
+11. Upload regular files or small folders to Hub repos through inline commit uploads.
 
 ## Pure-Go Native Runtime Status
 
@@ -44,5 +45,5 @@ Not production-ready yet:
 1. Add K-quant tensor kernels and compatibility tests with small fixture blocks.
 2. Validate native forward math against known tiny Llama/Qwen GGUF fixtures.
 3. Add tokenizer coverage for real SentencePiece/BPE metadata variants.
-4. Add hub upload after auth, retry, and large-file handling are designed.
+4. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
 5. Design native training separately from runtime inference; keep external training orchestration stable until then.

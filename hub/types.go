@@ -119,6 +119,55 @@ type ResolveGGUFFileOptions struct {
 	Quant    string
 }
 
+type UploadFileOptions struct {
+	RepoID            string
+	RepoType          RepoType
+	Revision          string
+	LocalPath         string
+	PathInRepo        string
+	Token             string
+	CommitMessage     string
+	CommitDescription string
+	CreatePR          bool
+	ParentCommit      string
+	MaxInlineSize     int64
+	Progress          ProgressReporter
+}
+
+type UploadFolderOptions struct {
+	RepoID            string
+	RepoType          RepoType
+	Revision          string
+	LocalDir          string
+	PathInRepo        string
+	Token             string
+	Include           []string
+	Exclude           []string
+	CommitMessage     string
+	CommitDescription string
+	CreatePR          bool
+	ParentCommit      string
+	MaxInlineSize     int64
+	Progress          ProgressReporter
+}
+
+type UploadResult struct {
+	RepoID    string         `json:"repo_id"`
+	RepoType  RepoType       `json:"repo_type"`
+	Revision  string         `json:"revision"`
+	Commit    string         `json:"commit,omitempty"`
+	CommitURL string         `json:"commit_url,omitempty"`
+	PRURL     string         `json:"pr_url,omitempty"`
+	Files     []UploadedFile `json:"files"`
+	TotalSize int64          `json:"total_size"`
+}
+
+type UploadedFile struct {
+	LocalPath  string `json:"local_path"`
+	PathInRepo string `json:"path_in_repo"`
+	Size       int64  `json:"size"`
+}
+
 type GGUFFile struct {
 	RepoID   string
 	Filename string
@@ -154,4 +203,12 @@ func ListFiles(ctx context.Context, opts ListFilesOptions) ([]FileInfo, error) {
 
 func ResolveGGUFFile(ctx context.Context, opts ResolveGGUFFileOptions) (*GGUFFile, error) {
 	return NewClient().ResolveGGUFFile(ctx, opts)
+}
+
+func UploadFile(ctx context.Context, opts UploadFileOptions) (*UploadResult, error) {
+	return NewClient().UploadFile(ctx, opts)
+}
+
+func UploadFolder(ctx context.Context, opts UploadFolderOptions) (*UploadResult, error) {
+	return NewClient().UploadFolder(ctx, opts)
 }

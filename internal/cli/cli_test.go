@@ -1365,6 +1365,34 @@ func TestSharePackageCommand(t *testing.T) {
 	}
 }
 
+func TestShareUploadCommand(t *testing.T) {
+	var sawUpload bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/models/user/model/commit/main" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		sawUpload = true
+		_, _ = w.Write([]byte(`{"oid":"abc123","commitUrl":"https://huggingface.co/user/model/commit/abc123"}`))
+	}))
+	defer server.Close()
+
+	filePath := filepath.Join(t.TempDir(), "README.md")
+	if err := os.WriteFile(filePath, []byte("model card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "upload", "user/model", filePath, "README.md", "--endpoint", server.URL, "--token", "test-token"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !sawUpload || !strings.Contains(stdout.String(), "Uploaded:") || !strings.Contains(stdout.String(), "abc123") {
+		t.Fatalf("unexpected upload output: saw=%v stdout=%q", sawUpload, stdout.String())
+	}
+}
+
 func writeCLITokenizer(t *testing.T, dir string) {
 	t.Helper()
 	body := `{

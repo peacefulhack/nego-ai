@@ -459,7 +459,7 @@ http://localhost:8080/v1/chat/completions
 
 ## 12. Package or Share the Model
 
-Direct hub upload commands are planned. For now, prepare the output directory, write a local share manifest, and optionally create an archive:
+Direct large-file LFS/Xet upload is still planned. Today, you can prepare the output directory, write a local share manifest, create an archive, and upload regular files through an inline Hub commit:
 
 ```text
 outputs/qwen3-sft/
@@ -507,6 +507,15 @@ nego share package ./outputs/qwen3-sft \
   --base-model Qwen/Qwen3-0.6B
 ```
 
+Upload a regular file or small output folder:
+
+```bash
+nego share upload username/qwen3-sft ./outputs/qwen3-sft/README.md README.md --token $HF_TOKEN
+nego share upload username/qwen3-sft ./outputs/qwen3-sft release --include "*.json" --include "*.md" --token $HF_TOKEN
+```
+
+Large `.safetensors`, `.gguf`, and adapter files may require Hugging Face LFS/Xet support, which is not implemented yet.
+
 Planned upload command:
 
 ```bash
@@ -526,4 +535,4 @@ nego hub upload ./outputs/qwen3-sft --repo username/qwen3-sft
 9. Inspect and evaluate the trained output: implemented.
 10. Convert or optimize the model: implemented through an external GGUF converter.
 11. Serve locally: implemented.
-12. Package or share the model: local share manifest and archive packaging implemented; direct hub upload planned.
+12. Package or share the model: local share manifest, archive packaging, and inline Hub commit upload implemented; large LFS/Xet upload planned.
