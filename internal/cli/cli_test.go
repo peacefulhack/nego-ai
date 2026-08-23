@@ -861,6 +861,16 @@ func TestBackendsCommands(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
+	code = Run(context.Background(), []string{"backends", "info", "native"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("native info code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "generate_experimental") || !strings.Contains(stdout.String(), "legacy_quant_dequant") {
+		t.Fatalf("unexpected native info output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
 	code = Run(context.Background(), []string{"backends", "info", "openai-compatible", "--json"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("json info code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
