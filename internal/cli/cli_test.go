@@ -1328,6 +1328,29 @@ func TestShareManifestCommand(t *testing.T) {
 	}
 }
 
+func TestSharePackageCommand(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "README.md"), []byte("model card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "model.tar.gz")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "package", modelDir, "--out", outPath, "--repo", "user/model"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Share package:") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+	if info, err := os.Stat(outPath); err != nil || info.Size() == 0 {
+		t.Fatalf("archive was not written: info=%#v err=%v", info, err)
+	}
+}
+
 func writeCLITokenizer(t *testing.T, dir string) {
 	t.Helper()
 	body := `{

@@ -13,7 +13,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 7. Prepare, validate, convert, filter, split, and sample datasets.
 8. Run eval suites and compare reports.
 9. Create, validate, and run external training job JSON files.
-10. Create local share manifests for trained model output directories.
+10. Create local share manifests and archive packages for trained model output directories.
 
 ## Pure-Go Native Runtime Status
 
@@ -44,6 +44,5 @@ Not production-ready yet:
 2. Validate native forward math against known tiny Llama/Qwen GGUF fixtures.
 3. Add tokenizer coverage for real SentencePiece/BPE metadata variants.
 4. Add native generation quality controls: repeat penalty, EOS handling, and streaming.
-5. Add model packaging archive support on top of share manifests.
-6. Add hub upload after auth, retry, and large-file handling are designed.
-7. Design native training separately from runtime inference; keep external training orchestration stable until then.
+5. Add hub upload after auth, retry, and large-file handling are designed.
+6. Design native training separately from runtime inference; keep external training orchestration stable until then.

@@ -337,7 +337,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native", "no-manifest":
 		return true
 	default:
 		return false
@@ -423,6 +423,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego share package <model-dir> --out <archive.tar.gz> [flags]")
 }
 
 func runShare(args []string, stdout, stderr io.Writer) int {
@@ -433,6 +434,8 @@ func runShare(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "manifest":
 		return runShareManifest(args[1:], stdout, stderr)
+	case "package":
+		return runSharePackage(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		shareUsage(stdout)
 		return 0
@@ -488,9 +491,46 @@ func runShareManifest(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runSharePackage(args []string, stdout, stderr io.Writer) int {
+	var out string
+	var repo string
+	var baseModel string
+	var noManifest bool
+	fs := flag.NewFlagSet("share package", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&out, "out", "", "archive output path")
+	fs.StringVar(&repo, "repo", "", "target repository id")
+	fs.StringVar(&baseModel, "base-model", "", "base model id")
+	fs.BoolVar(&noManifest, "no-manifest", false, "do not include generated manifest in the archive")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || out == "" {
+		fmt.Fprintln(stderr, "usage: nego share package <model-dir> --out <archive.tar.gz> [flags]")
+		return 2
+	}
+	manifest, err := share.PackageArchive(share.PackageOptions{
+		Path:            positionals[0],
+		Output:          out,
+		RepoID:          repo,
+		BaseModel:       baseModel,
+		IncludeManifest: !noManifest,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Share package:  %s\n", out)
+	fmt.Fprintf(stdout, "Files:          %d\n", len(manifest.Files))
+	fmt.Fprintf(stdout, "Size:           %s\n", humanBytes(manifest.TotalSize))
+	return 0
+}
+
 func shareUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego share package <model-dir> --out <archive.tar.gz> [flags]")
 }
 
 func runTrain(args []string, stdout, stderr io.Writer) int {
