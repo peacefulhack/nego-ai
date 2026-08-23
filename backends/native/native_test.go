@@ -106,6 +106,21 @@ func TestDecodeTokenIDsUsesGGUFVocab(t *testing.T) {
 	}
 }
 
+func TestEncodeTextUsesGGUFVocab(t *testing.T) {
+	model := &Model{
+		vocab: &modelinfo.GGUFVocab{
+			Tokens: []string{"hello", "▁world"},
+		},
+	}
+	got, err := model.EncodeText("hello world")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != 0 || got[1] != 1 {
+		t.Fatalf("unexpected ids: %#v", got)
+	}
+}
+
 func fakeGGUF(t *testing.T) string {
 	t.Helper()
 	var buf bytes.Buffer

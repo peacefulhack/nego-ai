@@ -157,6 +157,13 @@ func (m *Model) DecodeTokenIDs(ids []int) (string, error) {
 	return m.vocab.Decode(ids, modelinfo.DecodeOptions{SkipSpecial: true})
 }
 
+func (m *Model) EncodeText(text string) ([]int, error) {
+	if m.vocab == nil {
+		return nil, fmt.Errorf("native GGUF vocab is not loaded")
+	}
+	return m.vocab.Encode(text, modelinfo.EncodeOptions{})
+}
+
 func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {
 	if m.promptPath == "" {
 		return fallbackChatPrompt(messages), nil
