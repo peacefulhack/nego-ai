@@ -35,6 +35,7 @@ import (
 	"github.com/gakon/nego-ai/modelinfo"
 	"github.com/gakon/nego-ai/runs"
 	"github.com/gakon/nego-ai/server"
+	"github.com/gakon/nego-ai/share"
 	"github.com/gakon/nego-ai/tokenizer"
 	"github.com/gakon/nego-ai/training"
 )
@@ -89,6 +90,8 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runConvert(args[1:], stdout, stderr)
 	case "train":
 		return runTrain(args[1:], stdout, stderr)
+	case "share":
+		return runShare(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		usage(stdout)
 		return 0
@@ -419,6 +422,75 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
+	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
+}
+
+func runShare(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		shareUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "manifest":
+		return runShareManifest(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		shareUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown share command %q\n", args[0])
+		shareUsage(stderr)
+		return 2
+	}
+}
+
+func runShareManifest(args []string, stdout, stderr io.Writer) int {
+	var out string
+	var repo string
+	var baseModel string
+	var jsonOutput bool
+	fs := flag.NewFlagSet("share manifest", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&out, "out", "", "manifest output path")
+	fs.StringVar(&repo, "repo", "", "target repository id")
+	fs.StringVar(&baseModel, "base-model", "", "base model id")
+	fs.BoolVar(&jsonOutput, "json", false, "write manifest JSON to stdout")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego share manifest <model-dir> --out <file> [flags]")
+		return 2
+	}
+	manifest, err := share.BuildManifest(share.ManifestOptions{
+		Path:      positionals[0],
+		RepoID:    repo,
+		BaseModel: baseModel,
+		Exclude:   []string{out},
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if out != "" {
+		if err := share.WriteManifest(out, manifest); err != nil {
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			return 1
+		}
+	}
+	if jsonOutput || out == "" {
+		_ = json.NewEncoder(stdout).Encode(manifest)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Share manifest: %s\n", out)
+	fmt.Fprintf(stdout, "Files:          %d\n", len(manifest.Files))
+	fmt.Fprintf(stdout, "Size:           %s\n", humanBytes(manifest.TotalSize))
+	return 0
+}
+
+func shareUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
 }
 
 func runTrain(args []string, stdout, stderr io.Writer) int {

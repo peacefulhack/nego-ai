@@ -459,7 +459,7 @@ http://localhost:8080/v1/chat/completions
 
 ## 12. Package or Share the Model
 
-Direct model packaging and hub upload commands are planned. For now, prepare the output directory manually:
+Direct hub upload commands are planned. For now, prepare the output directory and write a local share manifest:
 
 ```text
 outputs/qwen3-sft/
@@ -489,10 +489,18 @@ tags:
 # qwen3-sft
 ```
 
-Planned Nego commands:
+Create a manifest with file sizes and SHA-256 checksums:
 
 ```bash
-nego model package ./outputs/qwen3-sft --out qwen3-sft.tar
+nego share manifest ./outputs/qwen3-sft \
+  --out ./outputs/qwen3-sft/share-manifest.json \
+  --repo username/qwen3-sft \
+  --base-model Qwen/Qwen3-0.6B
+```
+
+Planned upload command:
+
+```bash
 nego hub upload ./outputs/qwen3-sft --repo username/qwen3-sft
 ```
 
@@ -509,4 +517,4 @@ nego hub upload ./outputs/qwen3-sft --repo username/qwen3-sft
 9. Inspect and evaluate the trained output: implemented.
 10. Convert or optimize the model: implemented through an external GGUF converter.
 11. Serve locally: implemented.
-12. Package or share the model: planned.
+12. Package or share the model: local share manifest implemented; direct hub upload planned.

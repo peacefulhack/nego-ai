@@ -262,6 +262,12 @@ nego train validate examples/5.train/train-job.json
 nego train job.json
 ```
 
+## Share Preparation
+
+```bash
+nego share manifest ./outputs/qwen3-lora --out ./outputs/qwen3-lora/share-manifest.json --repo username/qwen3-lora --base-model Qwen/Qwen3-0.6B
+```
+
 ## Eval
 
 ```bash

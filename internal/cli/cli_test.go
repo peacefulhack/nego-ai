@@ -1298,6 +1298,36 @@ func TestTrainInitCommand(t *testing.T) {
 	}
 }
 
+func TestShareManifestCommand(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "README.md"), []byte("model card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "adapter.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "share-manifest.json")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "manifest", modelDir, "--out", outPath, "--repo", "user/model", "--base-model", "Qwen/Qwen3-0.6B"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Share manifest:") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"repo_id": "user/model"`) || !strings.Contains(string(data), `"adapter.safetensors"`) {
+		t.Fatalf("unexpected manifest: %s", string(data))
+	}
+}
+
 func writeCLITokenizer(t *testing.T, dir string) {
 	t.Helper()
 	body := `{
