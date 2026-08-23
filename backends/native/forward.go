@@ -1,6 +1,7 @@
 package native
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -87,7 +88,14 @@ func (m *Model) forwardToken(tokenID int, position int, cache *KVCache) ([]float
 	return logitsFromOutputWeightFloat32(hidden, outputValues, outputTensor)
 }
 
-func (m *Model) generateText(req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+	return m.generateTextWithEmitter(ctx, req, nil)
+}
+
+func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRequest, emit func(string) error) (*nego.GenerateOutput, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	options := generationOptions(req)
 	plan, err := m.planGeneration(req.Prompt, options)
 	if err != nil {
@@ -105,6 +113,9 @@ func (m *Model) generateText(req nego.GenerateRequest) (*nego.GenerateOutput, er
 	}
 	var logits []float32
 	for _, id := range plan.PromptTokenIDs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		logits, err = m.ForwardTokenWithState(id, state)
 		if err != nil {
 			return nil, err
@@ -113,7 +124,11 @@ func (m *Model) generateText(req nego.GenerateRequest) (*nego.GenerateOutput, er
 	sampler := NewSampler(plan.Options.Sampling)
 	history := append([]int(nil), plan.PromptTokenIDs...)
 	var b strings.Builder
+	emittedLen := 0
 	for step := 0; step < plan.Options.MaxTokens; step++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		nextID, text, err := sampleTokenTextWithHistory(logits, m.vocab, sampler, history)
 		if err != nil {
 			return nil, err
@@ -125,7 +140,14 @@ func (m *Model) generateText(req nego.GenerateRequest) (*nego.GenerateOutput, er
 		b.WriteString(text)
 		out := b.String()
 		if stopReached(out, plan.Options.Stop) {
-			return &nego.GenerateOutput{Text: trimAtStop(out, plan.Options.Stop)}, nil
+			trimmed := trimAtStop(out, plan.Options.Stop)
+			if err := emitDelta(emit, trimmed, &emittedLen); err != nil {
+				return nil, err
+			}
+			return &nego.GenerateOutput{Text: trimmed}, nil
+		}
+		if err := emitDelta(emit, out, &emittedLen); err != nil {
+			return nil, err
 		}
 		if step == plan.Options.MaxTokens-1 {
 			break
@@ -136,6 +158,18 @@ func (m *Model) generateText(req nego.GenerateRequest) (*nego.GenerateOutput, er
 		}
 	}
 	return &nego.GenerateOutput{Text: b.String()}, nil
+}
+
+func emitDelta(emit func(string) error, text string, emittedLen *int) error {
+	if emit == nil || emittedLen == nil || len(text) <= *emittedLen {
+		return nil
+	}
+	delta := text[*emittedLen:]
+	*emittedLen = len(text)
+	if delta == "" {
+		return nil
+	}
+	return emit(delta)
 }
 
 func stopReached(text string, stops []string) bool {

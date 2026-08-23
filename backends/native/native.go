@@ -92,16 +92,16 @@ type Model struct {
 	promptPath string
 }
 
-func (m *Model) Generate(_ context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
-	return m.generateText(req)
+func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+	return m.generateText(ctx, req)
 }
 
-func (m *Model) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
+func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
 	prompt, err := m.renderChatPrompt(req.Messages)
 	if err != nil {
 		return nil, err
 	}
-	out, err := m.generateText(nego.GenerateRequest{
+	out, err := m.generateText(ctx, nego.GenerateRequest{
 		Prompt:        prompt,
 		MaxTokens:     req.MaxTokens,
 		Temperature:   req.Temperature,
@@ -116,8 +116,29 @@ func (m *Model) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatRespons
 	return &nego.ChatResponse{Message: nego.Message{Role: nego.RoleAssistant, Content: out.Text}}, nil
 }
 
-func (m *Model) StreamChat(context.Context, nego.ChatRequest) (nego.Stream, error) {
-	return nil, m.inferenceError()
+func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stream, error) {
+	prompt, err := m.renderChatPrompt(req.Messages)
+	if err != nil {
+		return nil, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stream := newNativeStream(cancel)
+	go stream.run(ctx, func(emit func(string) error) error {
+		_, err := m.generateTextWithEmitter(ctx, nego.GenerateRequest{
+			Prompt:        prompt,
+			MaxTokens:     req.MaxTokens,
+			Temperature:   req.Temperature,
+			TopP:          req.TopP,
+			RepeatPenalty: req.RepeatPenalty,
+			Stop:          req.Stop,
+			Seed:          req.Seed,
+		}, emit)
+		return err
+	})
+	return stream, nil
 }
 
 func (m *Model) Close() error {

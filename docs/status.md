@@ -28,7 +28,7 @@ Implemented:
 5. RMSNorm, SiLU, softmax, vector math, RoPE, attention, KV-cache, MLP, logits, and transformer block primitives.
 6. Decode state plumbing that processes prompt tokens and appends K/V vectors.
 7. Early `Generate` and `Chat` loops for supported tiny GGUF fixtures.
-8. EOS stopping and repeat penalty controls for native sampling.
+8. EOS stopping, repeat penalty controls, and streaming chat for native sampling.
 9. CLI access through `nego run --native` and `nego chat --native`.
 
 Not production-ready yet:
@@ -44,6 +44,5 @@ Not production-ready yet:
 1. Add K-quant tensor kernels and compatibility tests with small fixture blocks.
 2. Validate native forward math against known tiny Llama/Qwen GGUF fixtures.
 3. Add tokenizer coverage for real SentencePiece/BPE metadata variants.
-4. Add native streaming generation.
-5. Add hub upload after auth, retry, and large-file handling are designed.
-6. Design native training separately from runtime inference; keep external training orchestration stable until then.
+4. Add hub upload after auth, retry, and large-file handling are designed.
+5. Design native training separately from runtime inference; keep external training orchestration stable until then.
