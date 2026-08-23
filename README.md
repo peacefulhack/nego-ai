@@ -149,9 +149,10 @@ Current status:
 - Loads GGUF files without `llama-cli`.
 - Parses GGUF metadata and tensor directories in Go.
 - Reads raw GGUF tensor bytes in Go.
+- Includes early CPU tensor math primitives for F32, F16, BF16, and Q8_0 data.
 - Does not run transformer inference yet.
 
-The native backend is the foundation for pure-Go chat/train/share. The next phases are tensor ops, Qwen/Llama forward pass, sampling, KV cache, and quantized kernels.
+The native backend is the foundation for pure-Go chat/train/share. The next phases are Qwen/Llama transformer blocks, sampling, KV cache, and broader quantized kernels.
 
 ## Local llama.cpp runtime
 

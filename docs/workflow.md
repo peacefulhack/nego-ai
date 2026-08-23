@@ -94,7 +94,7 @@ nego backends info native
 nego backends info openai-compatible
 ```
 
-`native` is the pure-Go runtime track. It can load GGUF metadata, tensor directories, and raw tensor bytes today, but full transformer inference is still under development.
+`native` is the pure-Go runtime track. It can load GGUF metadata, tensor directories, raw tensor bytes, and early CPU tensor math primitives today, but full transformer inference is still under development.
 
 ## 3. Prepare a Dataset
 
