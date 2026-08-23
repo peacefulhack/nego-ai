@@ -30,6 +30,14 @@ func TestLoadReadsGGUFWithoutExternalRuntime(t *testing.T) {
 	if nativeModel.Vocab() == nil {
 		t.Fatal("expected vocab metadata object")
 	}
+	spec := nativeModel.Spec()
+	if spec.EmbeddingLength != 16 || spec.BlockCount != 1 || spec.AttentionHeadCount != 4 || spec.KVHeadCount != 2 {
+		t.Fatalf("unexpected model spec: %#v", spec)
+	}
+	names := nativeModel.TensorNames()
+	if names.TokenEmbedding != "token_embd.weight" || names.Blocks[0].AttentionQ != "blk.0.attn_q.weight" {
+		t.Fatalf("unexpected tensor names: %#v", names)
+	}
 }
 
 func TestGenerateReportsExperimentalInference(t *testing.T) {
@@ -102,7 +110,7 @@ func fakeGGUF(t *testing.T) string {
 	t.Helper()
 	var buf bytes.Buffer
 	buf.WriteString("GGUF")
-	for _, value := range []any{uint32(3), uint64(1), uint64(3)} {
+	for _, value := range []any{uint32(3), uint64(1), uint64(8)} {
 		if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
 			t.Fatal(err)
 		}
@@ -110,6 +118,11 @@ func fakeGGUF(t *testing.T) string {
 	writeStringKV(t, &buf, "general.architecture", "llama")
 	writeUint32KV(t, &buf, "general.file_type", 1)
 	writeUint32KV(t, &buf, "llama.context_length", 128)
+	writeUint32KV(t, &buf, "llama.embedding_length", 16)
+	writeUint32KV(t, &buf, "llama.block_count", 1)
+	writeUint32KV(t, &buf, "llama.feed_forward_length", 32)
+	writeUint32KV(t, &buf, "llama.attention.head_count", 4)
+	writeUint32KV(t, &buf, "llama.attention.head_count_kv", 2)
 	writeTensor(t, &buf, "token_embd.weight", []uint64{8, 16}, 1, 0)
 	padToAlignment(&buf, 32)
 	buf.Write(bytes.Repeat([]byte{0x7b}, 256))
