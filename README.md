@@ -158,6 +158,7 @@ Current status:
 - Includes RMSNorm, SiLU, and softmax primitives for transformer blocks.
 - Includes residual/vector helpers and RoPE primitives for attention plumbing.
 - Includes scaled dot-product attention and KV cache primitives.
+- Includes single-step multi-head attention assembly for Q/K/V/O projections.
 - Includes embedding lookup and output-logits helpers for generation plumbing.
 - Includes generation option normalization and token sample/decode scaffolding.
 - Includes prompt planning for native generation before the transformer forward pass lands.
