@@ -3,6 +3,7 @@ package native
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -43,9 +44,14 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if len(info.Tensors) == 0 {
 		return nil, fmt.Errorf("native GGUF model %q has no tensor directory", modelPath)
 	}
+	tensors, err := openTensorStore(modelPath, info)
+	if err != nil {
+		return nil, fmt.Errorf("open native tensor store: %w", err)
+	}
 	return &Model{
 		path:       modelPath,
 		info:       info,
+		tensors:    tensors,
 		promptPath: promptPath(opts.Path, modelPath, opts.Options),
 	}, nil
 }
@@ -53,6 +59,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 type Model struct {
 	path       string
 	info       *modelinfo.GGUFInfo
+	tensors    *tensorStore
 	promptPath string
 }
 
@@ -72,11 +79,30 @@ func (m *Model) StreamChat(context.Context, nego.ChatRequest) (nego.Stream, erro
 }
 
 func (m *Model) Close() error {
-	return nil
+	if m.tensors == nil {
+		return nil
+	}
+	err := m.tensors.Close()
+	m.tensors = nil
+	return err
 }
 
 func (m *Model) Info() *modelinfo.GGUFInfo {
 	return m.info
+}
+
+func (m *Model) ReadTensor(name string) ([]byte, modelinfo.GGUFTensor, error) {
+	if m.tensors == nil {
+		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("native tensor store is closed")
+	}
+	return m.tensors.ReadTensor(name)
+}
+
+func (m *Model) TensorReader(name string) (*io.SectionReader, modelinfo.GGUFTensor, error) {
+	if m.tensors == nil {
+		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("native tensor store is closed")
+	}
+	return m.tensors.TensorReader(name)
 }
 
 func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {

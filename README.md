@@ -147,10 +147,11 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 Current status:
 
 - Loads GGUF files without `llama-cli`.
-- Parses GGUF metadata and tensor directory in Go.
+- Parses GGUF metadata and tensor directories in Go.
+- Reads raw GGUF tensor bytes in Go.
 - Does not run transformer inference yet.
 
-The native backend is the foundation for pure-Go chat/train/share. The next phases are tensor data loading, tensor ops, Qwen/Llama forward pass, sampling, KV cache, and quantized kernels.
+The native backend is the foundation for pure-Go chat/train/share. The next phases are tensor ops, Qwen/Llama forward pass, sampling, KV cache, and quantized kernels.
 
 ## Local llama.cpp runtime
 
