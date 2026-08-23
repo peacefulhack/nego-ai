@@ -152,6 +152,7 @@ Current status:
 - Decodes GGUF token IDs into text for native generation plumbing.
 - Reads raw GGUF tensor bytes in Go.
 - Includes early CPU tensor math primitives for F32, F16, BF16, and Q8_0 data.
+- Includes RMSNorm, SiLU, and softmax primitives for transformer blocks.
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
 - Includes deterministic temperature, top-k, and top-p sampling primitives.
 - Does not run transformer inference yet.
