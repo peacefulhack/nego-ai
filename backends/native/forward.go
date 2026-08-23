@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	nego "github.com/gakon/nego-ai"
 	"github.com/gakon/nego-ai/modelinfo"
 )
 
@@ -66,6 +67,62 @@ func (m *Model) ForwardToken(tokenID int, position int) ([]float32, error) {
 		return nil, err
 	}
 	return logitsFromOutputWeightFloat32(hidden, outputValues, outputTensor)
+}
+
+func (m *Model) generateText(req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+	options := generationOptions(req)
+	plan, err := m.planGeneration(req.Prompt, options)
+	if err != nil {
+		return nil, err
+	}
+	if len(plan.PromptTokenIDs) == 0 {
+		return nil, m.inferenceError()
+	}
+	if !m.manifest.Ready() {
+		return nil, m.inferenceError()
+	}
+	current := plan.PromptTokenIDs[len(plan.PromptTokenIDs)-1]
+	sampler := NewSampler(plan.Options.Sampling)
+	var b strings.Builder
+	for step := 0; step < plan.Options.MaxTokens; step++ {
+		logits, err := m.ForwardToken(current, len(plan.PromptTokenIDs)+step-1)
+		if err != nil {
+			return nil, err
+		}
+		nextID, text, err := sampleTokenTextWithSampler(logits, m.vocab, sampler)
+		if err != nil {
+			return nil, err
+		}
+		b.WriteString(text)
+		out := b.String()
+		if stopReached(out, plan.Options.Stop) {
+			return &nego.GenerateOutput{Text: trimAtStop(out, plan.Options.Stop)}, nil
+		}
+		current = nextID
+	}
+	return &nego.GenerateOutput{Text: b.String()}, nil
+}
+
+func stopReached(text string, stops []string) bool {
+	for _, stop := range stops {
+		if stop != "" && strings.Contains(text, stop) {
+			return true
+		}
+	}
+	return false
+}
+
+func trimAtStop(text string, stops []string) string {
+	end := len(text)
+	for _, stop := range stops {
+		if stop == "" {
+			continue
+		}
+		if idx := strings.Index(text, stop); idx >= 0 && idx < end {
+			end = idx
+		}
+	}
+	return text[:end]
 }
 
 func (m *Model) outputWeights() ([]float32, modelinfo.GGUFTensor, error) {

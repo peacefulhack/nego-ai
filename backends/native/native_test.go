@@ -121,6 +121,18 @@ func TestEncodeTextUsesGGUFVocab(t *testing.T) {
 	}
 }
 
+func TestPromptPathUsesModelDirectoryForGGUFFile(t *testing.T) {
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("GGUF"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := promptPath(modelPath, modelPath, nil)
+	if got != dir {
+		t.Fatalf("promptPath = %q, want %q", got, dir)
+	}
+}
+
 func fakeGGUF(t *testing.T) string {
 	t.Helper()
 	var buf bytes.Buffer

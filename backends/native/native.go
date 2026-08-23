@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -83,10 +84,7 @@ type Model struct {
 }
 
 func (m *Model) Generate(_ context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
-	if _, err := m.planGeneration(req.Prompt, generationOptions(req)); err != nil {
-		return nil, err
-	}
-	return nil, m.inferenceError()
+	return m.generateText(req)
 }
 
 func (m *Model) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
@@ -94,10 +92,18 @@ func (m *Model) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatRespons
 	if err != nil {
 		return nil, err
 	}
-	if _, err := m.planGeneration(prompt, chatGenerationOptions(req)); err != nil {
+	out, err := m.generateText(nego.GenerateRequest{
+		Prompt:      prompt,
+		MaxTokens:   req.MaxTokens,
+		Temperature: req.Temperature,
+		TopP:        req.TopP,
+		Stop:        req.Stop,
+		Seed:        req.Seed,
+	})
+	if err != nil {
 		return nil, err
 	}
-	return nil, m.inferenceError()
+	return &nego.ChatResponse{Message: nego.Message{Role: nego.RoleAssistant, Content: out.Text}}, nil
 }
 
 func (m *Model) StreamChat(context.Context, nego.ChatRequest) (nego.Stream, error) {
@@ -192,6 +198,9 @@ func promptPath(inputPath, modelPath string, options map[string]string) string {
 		return value
 	}
 	if inputPath != "" {
+		if info, err := os.Stat(inputPath); err == nil && !info.IsDir() {
+			return filepath.Dir(inputPath)
+		}
 		return inputPath
 	}
 	if modelPath != "" {

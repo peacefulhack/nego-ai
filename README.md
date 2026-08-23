@@ -166,11 +166,12 @@ Current status:
 - Includes linear projection and MLP helpers for transformer feed-forward blocks.
 - Includes a float32 transformer block scaffold for attention, residuals, and MLP.
 - Runs a single-token float32 forward path when a small GGUF has supported tensors.
+- Runs an early multi-token generate/chat loop over the float32 forward path for supported tiny GGUF fixtures.
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
 - Includes deterministic temperature, top-k, and top-p sampling primitives.
-- Does not run transformer inference yet.
+- Does not run production GGUF inference for large or quantized models yet.
 
-The native backend is the foundation for pure-Go chat/train/share. The next phases are Qwen/Llama transformer blocks, sampling, KV cache, and broader quantized kernels.
+The native backend is the foundation for pure-Go chat/train/share. The next phases are real Qwen/Llama compatibility, KV-cache-backed decoding, performance work, and broader quantized kernels.
 
 ## Local llama.cpp runtime
 

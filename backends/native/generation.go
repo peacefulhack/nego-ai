@@ -40,10 +40,14 @@ func chatGenerationOptions(req nego.ChatRequest) GenerationOptions {
 }
 
 func sampleTokenText(logits []float32, vocab *modelinfo.GGUFVocab, options SamplingOptions) (int, string, error) {
+	return sampleTokenTextWithSampler(logits, vocab, NewSampler(options))
+}
+
+func sampleTokenTextWithSampler(logits []float32, vocab *modelinfo.GGUFVocab, sampler *Sampler) (int, string, error) {
 	if vocab == nil {
 		return 0, "", fmt.Errorf("gguf vocab is nil")
 	}
-	id, err := NewSampler(options).Sample(logits)
+	id, err := sampler.Sample(logits)
 	if err != nil {
 		return 0, "", err
 	}

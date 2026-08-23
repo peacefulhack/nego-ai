@@ -52,7 +52,7 @@ func TestForwardToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(logits) != 2 {
+	if len(logits) != 6 {
 		t.Fatalf("unexpected logits: %#v", logits)
 	}
 }
@@ -70,12 +70,60 @@ func TestForwardTokenRejectsUnreadyManifest(t *testing.T) {
 	}
 }
 
+func TestGenerateTextRunsForwardLoop(t *testing.T) {
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeBlockGGUF(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: "hello", MaxTokens: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Text == "" {
+		t.Fatal("expected generated text")
+	}
+}
+
+func TestGenerateTextAppliesStop(t *testing.T) {
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeBlockGGUF(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: "hello", MaxTokens: 2, Stop: []string{"hello"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Text != "" {
+		t.Fatalf("expected stop to trim generated text, got %q", out.Text)
+	}
+}
+
+func TestChatRunsForwardLoop(t *testing.T) {
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeBlockGGUF(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	out, err := model.Chat(context.Background(), nego.ChatRequest{
+		Messages:  []nego.Message{{Role: nego.RoleUser, Content: "hello"}},
+		MaxTokens: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Message.Role != nego.RoleAssistant || out.Message.Content == "" {
+		t.Fatalf("unexpected chat output: %#v", out.Message)
+	}
+}
+
 func fakeBlockGGUF(t *testing.T) string {
 	t.Helper()
 	var buf bytes.Buffer
 	buf.WriteString("GGUF")
 	tensorCount := uint64(12)
-	metadataCount := uint64(8)
+	metadataCount := uint64(9)
 	for _, value := range []any{uint32(3), tensorCount, metadataCount} {
 		if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
 			t.Fatal(err)
@@ -89,9 +137,10 @@ func fakeBlockGGUF(t *testing.T) string {
 	writeUint32KV(t, &buf, "llama.feed_forward_length", 2)
 	writeUint32KV(t, &buf, "llama.attention.head_count", 1)
 	writeUint32KV(t, &buf, "llama.attention.head_count_kv", 1)
+	writeStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"hello", " done", "USER:", " hello", "\nASSISTANT:", " "})
 
 	offset := uint64(0)
-	writeF32TensorDir(t, &buf, "token_embd.weight", []uint64{2, 2}, &offset)
+	writeF32TensorDir(t, &buf, "token_embd.weight", []uint64{2, 6}, &offset)
 	writeF32TensorDir(t, &buf, "output_norm.weight", []uint64{2}, &offset)
 	writeF32TensorDir(t, &buf, "blk.0.attn_norm.weight", []uint64{2}, &offset)
 	writeF32TensorDir(t, &buf, "blk.0.attn_q.weight", []uint64{2, 2}, &offset)
@@ -102,7 +151,7 @@ func fakeBlockGGUF(t *testing.T) string {
 	writeF32TensorDir(t, &buf, "blk.0.ffn_gate.weight", []uint64{2, 2}, &offset)
 	writeF32TensorDir(t, &buf, "blk.0.ffn_up.weight", []uint64{2, 2}, &offset)
 	writeF32TensorDir(t, &buf, "blk.0.ffn_down.weight", []uint64{2, 2}, &offset)
-	writeF32TensorDir(t, &buf, "output.weight", []uint64{2, 2}, &offset)
+	writeF32TensorDir(t, &buf, "output.weight", []uint64{2, 6}, &offset)
 
 	padToAlignment(&buf, 32)
 	for i := uint64(0); i < offset/4; i++ {
@@ -125,4 +174,17 @@ func writeF32TensorDir(t *testing.T, buf *bytes.Buffer, name string, shape []uin
 		elements *= dim
 	}
 	*offset += elements * 4
+}
+
+func writeStringArrayKV(t *testing.T, buf *bytes.Buffer, key string, values []string) {
+	t.Helper()
+	writeString(t, buf, key)
+	for _, value := range []any{uint32(9), uint32(8), uint64(len(values))} {
+		if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, value := range values {
+		writeString(t, buf, value)
+	}
 }
