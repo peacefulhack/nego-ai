@@ -136,6 +136,23 @@ func TestRenderProgressEntryShowsMaterializing(t *testing.T) {
 	}
 }
 
+func TestDownloadRuntimeWarningForSafetensorsOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	warning := downloadRuntimeWarning(dir)
+	if !strings.Contains(warning, "cannot run this directly") || !strings.Contains(warning, "--gguf") {
+		t.Fatalf("unexpected warning: %q", warning)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.gguf"), []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if warning := downloadRuntimeWarning(dir); warning != "" {
+		t.Fatalf("unexpected warning with GGUF present: %q", warning)
+	}
+}
+
 func TestModelsListShowsRegistryEntries(t *testing.T) {
 	cacheDir := t.TempDir()
 	err := registry.NewStore(cacheDir).Upsert(registry.Entry{

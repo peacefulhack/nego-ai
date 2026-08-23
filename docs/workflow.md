@@ -29,7 +29,7 @@ Download a full model snapshot into a local directory:
 nego download Qwen/Qwen3-0.6B --local-dir ./models/qwen3
 ```
 
-That downloads the original Hugging Face files, usually `*.safetensors`. Use this for inspection, tokenizer work, dataset checks, or future training flows.
+That downloads the original Hugging Face files, usually `*.safetensors`. Use this for inspection, tokenizer work, dataset checks, or training flows. Nego will warn that safetensors are not directly runnable by the local llama.cpp backend.
 
 Download a llama.cpp-ready GGUF file when you want to run local chat immediately:
 
@@ -408,12 +408,20 @@ nego eval compare reports/baseline.json reports/trained.json
 
 ## 10. Convert or Optimize
 
-Convert a Hugging Face-style model directory to GGUF using a llama.cpp converter:
+Convert a Hugging Face-style model directory to GGUF using a llama.cpp converter. Nego does not natively transform safetensors into GGUF yet; it wraps the converter as a safe, explicit external process.
 
 ```bash
 nego convert gguf ./outputs/qwen3-sft \
   --out ./outputs/qwen3-sft.gguf \
-  --converter /path/to/convert_hf_to_gguf.py
+  --converter /path/to/convert_hf_to_gguf.py \
+  --python python
+```
+
+You can also set the converter once:
+
+```bash
+export NEGO_LLAMA_CONVERTER=/path/to/convert_hf_to_gguf.py
+nego convert gguf ./outputs/qwen3-sft --out ./outputs/qwen3-sft.gguf --python python
 ```
 
 Optionally request an output type supported by your converter:
@@ -422,6 +430,7 @@ Optionally request an output type supported by your converter:
 nego convert gguf ./outputs/qwen3-sft \
   --out ./outputs/qwen3-sft-q4.gguf \
   --converter /path/to/convert_hf_to_gguf.py \
+  --python python \
   --quantize q4_0
 ```
 

@@ -243,11 +243,18 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		printError(stderr, err)
 		return exitCode(err)
 	}
+	warning := ""
+	if !gguf && commonRepoType == hub.RepoTypeModel {
+		warning = downloadRuntimeWarning(path)
+	}
 	if jsonOutput {
 		result := map[string]string{"path": path}
 		if resolvedGGUF != nil {
 			result["repo"] = resolvedGGUF.RepoID
 			result["file"] = resolvedGGUF.Filename
+		}
+		if warning != "" {
+			result["warning"] = warning
 		}
 		_ = json.NewEncoder(stdout).Encode(result)
 	} else if quiet {
@@ -257,8 +264,45 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		if resolvedGGUF != nil {
 			fmt.Fprintf(stdout, "Runtime file: %s/%s\n", resolvedGGUF.RepoID, resolvedGGUF.Filename)
 		}
+		if warning != "" {
+			fmt.Fprintf(stderr, "nego: %s\n", warning)
+		}
 	}
 	return 0
+}
+
+func downloadRuntimeWarning(path string) string {
+	hasSafeTensors, hasGGUF := pathHasRuntimeExtension(path, ".safetensors"), pathHasRuntimeExtension(path, ".gguf")
+	if !hasSafeTensors || hasGGUF {
+		return ""
+	}
+	return "downloaded Hugging Face safetensors; Nego cannot run this directly with the local llama.cpp backend. Use `nego download <repo-id> --gguf --local-dir <dir>` for chat/runtime, or `nego convert gguf <model-dir> --out <file>` with a llama.cpp converter."
+}
+
+func pathHasRuntimeExtension(root, ext string) bool {
+	if root == "" {
+		return false
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return false
+	}
+	ext = strings.ToLower(ext)
+	if !info.IsDir() {
+		return strings.HasSuffix(strings.ToLower(root), ext)
+	}
+	found := false
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(strings.ToLower(entry.Name()), ext) {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
 }
 
 func splitFlags(args []string) ([]string, []string) {
@@ -370,7 +414,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego eval report <report.json> [flags]")
 	fmt.Fprintln(w, "  nego eval compare <baseline.json> <candidate.json> [flags]")
 	fmt.Fprintln(w, "  nego version [flags]")
-	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
+	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> [--converter <path>] [--python <path>]")
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
@@ -504,22 +548,25 @@ func runConvert(args []string, stdout, stderr io.Writer) int {
 func runConvertGGUF(args []string, stdout, stderr io.Writer) int {
 	var output string
 	var converter string
+	var python string
 	var quantize string
 	fs := flag.NewFlagSet("convert gguf", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&output, "out", "", "output GGUF path")
 	fs.StringVar(&converter, "converter", "", "path to llama.cpp conversion script/binary")
+	fs.StringVar(&python, "python", "", "python executable for converter scripts")
 	fs.StringVar(&quantize, "quantize", "", "output quantization type")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
 	if len(positionals) != 1 {
-		fmt.Fprintln(stderr, "usage: nego convert gguf <model-dir> --out <file> --converter <path>")
+		fmt.Fprintln(stderr, "usage: nego convert gguf <model-dir> --out <file> [--converter <path>] [--python <path>]")
 		return 2
 	}
 	if err := convert.ConvertGGUF(context.Background(), convert.GGUFOptions{
 		Converter: converter,
+		Python:    python,
 		ModelDir:  positionals[0],
 		Output:    output,
 		Quantize:  quantize,
@@ -533,7 +580,7 @@ func runConvertGGUF(args []string, stdout, stderr io.Writer) int {
 
 func convertUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
-	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> --converter <path>")
+	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> [--converter <path>] [--python <path>]")
 }
 
 func runVersion(args []string, stdout, stderr io.Writer) int {

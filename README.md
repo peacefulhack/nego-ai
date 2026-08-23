@@ -36,6 +36,8 @@ nego download Qwen/Qwen3-0.6B --gguf --local-dir ./models/qwen3-gguf
 nego download Qwen/Qwen3-0.6B --gguf --gguf-repo unsloth/Qwen3-0.6B-GGUF --quant Q4_K_M --local-dir ./models/qwen3-gguf
 ```
 
+Regular Hugging Face downloads are useful for inspection, tokenization, and training jobs. Local chat through llama.cpp needs GGUF, so Nego warns when a downloaded model only contains safetensors.
+
 ## Go API
 
 ```go
@@ -180,8 +182,11 @@ nego cache gc --yes
 ## Conversion helpers
 
 ```bash
-nego convert gguf ./models/qwen3 --out ./models/qwen3.gguf --converter /path/to/convert_hf_to_gguf.py
+nego convert gguf ./models/qwen3 --out ./models/qwen3.gguf --converter /path/to/convert_hf_to_gguf.py --python python
+NEGO_LLAMA_CONVERTER=/path/to/convert_hf_to_gguf.py nego convert gguf ./models/qwen3 --out ./models/qwen3.gguf --python python
 ```
+
+Nego does not natively convert Hugging Face safetensors to GGUF yet. Use `nego download <repo> --gguf` when a GGUF repo exists, or use `nego convert gguf` with a llama.cpp converter.
 
 ## Training orchestration
 
