@@ -156,6 +156,7 @@ Current status:
 - Includes RMSNorm, SiLU, and softmax primitives for transformer blocks.
 - Includes residual/vector helpers and RoPE primitives for attention plumbing.
 - Includes embedding lookup and output-logits helpers for generation plumbing.
+- Includes linear projection and MLP helpers for transformer feed-forward blocks.
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
 - Includes deterministic temperature, top-k, and top-p sampling primitives.
 - Does not run transformer inference yet.
