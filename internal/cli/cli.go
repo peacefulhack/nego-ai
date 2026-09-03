@@ -1461,6 +1461,20 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 			fmt.Fprintln(w, "  Chat template: yes")
 		}
 	}
+	if info.Safetensors != nil {
+		fmt.Fprintln(w, "Safetensors:")
+		fmt.Fprintf(w, "  Files:        %d\n", len(info.Safetensors.Files))
+		fmt.Fprintf(w, "  Tensors:      %d\n", len(info.Safetensors.Tensors))
+		if info.Safetensors.ParamCount > 0 {
+			fmt.Fprintf(w, "  Parameters:   %d\n", info.Safetensors.ParamCount)
+		}
+		if info.Safetensors.TotalSize > 0 {
+			fmt.Fprintf(w, "  Tensor bytes: %s\n", humanBytes(int64(info.Safetensors.TotalSize)))
+		}
+		if len(info.Safetensors.DTypeCounts) > 0 {
+			fmt.Fprintf(w, "  DTypes:       %s\n", formatDTypeCounts(info.Safetensors.DTypeCounts))
+		}
+	}
 	if info.Card != nil {
 		fmt.Fprintln(w, "Model card:")
 		if info.Card.Title != "" {
@@ -1505,6 +1519,19 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 			fmt.Fprintln(w)
 		}
 	}
+}
+
+func formatDTypeCounts(counts map[string]int) string {
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", key, counts[key]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func runCheck(args []string, stdout, stderr io.Writer) int {

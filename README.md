@@ -15,6 +15,7 @@ Core Nego features use Go only:
 
 - Hugging Face-style downloads and cache management
 - Model registry, inspection, tokenizer helpers, prompt rendering
+- Safetensors header and tensor metadata inspection
 - Dataset utilities, eval helpers, run logs, and training job orchestration
 
 Some AI runtime and conversion features need third-party tools:

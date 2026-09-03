@@ -544,6 +544,26 @@ func TestInspectCommandShowsModelCard(t *testing.T) {
 	}
 }
 
+func TestInspectCommandShowsSafetensorsMetadata(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), cliSafetensorsFixture(t, `{
+		"weight":{"dtype":"F16","shape":[2,2],"data_offsets":[0,8]}
+	}`, 8), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"inspect", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Safetensors:", "Tensors:      1", "Parameters:   4", "DTypes:       F16=1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestCheckCommandReportsCompatibility(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	var stdout, stderr bytes.Buffer
@@ -1520,6 +1540,15 @@ func fakeCLIGGUF(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func cliSafetensorsFixture(t *testing.T, header string, dataBytes int) []byte {
+	t.Helper()
+	header = strings.TrimSpace(header)
+	data := make([]byte, 8+len(header)+dataBytes)
+	binary.LittleEndian.PutUint64(data[:8], uint64(len(header)))
+	copy(data[8:], header)
+	return data
 }
 
 func fakeInspectGGUF(t *testing.T) string {
