@@ -1243,6 +1243,74 @@ func TestTrainValidateCommand(t *testing.T) {
 	}
 }
 
+func TestTrainCheckCommand(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	jobPath := filepath.Join(dir, "job.json")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"name":"test","base_model":` + strconv.Quote(modelDir) + `,"train_file":` + strconv.Quote(trainFile) + `,"dataset_format":"completion","command":` + strconv.Quote(fakeTrainingCommand(t)) + `}`
+	if err := os.WriteFile(jobPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "check", jobPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Training job check passed") || !strings.Contains(stdout.String(), "Train file:") || !strings.Contains(stdout.String(), "(1 rows)") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"train", "check", jobPath, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"valid":true`) || !strings.Contains(stdout.String(), `"train_rows":1`) {
+		t.Fatalf("unexpected json: %q", stdout.String())
+	}
+}
+
+func TestTrainCheckCommandRedactsSensitiveArgs(t *testing.T) {
+	dir := t.TempDir()
+	jobPath := filepath.Join(dir, "job.json")
+	body := `{"name":"secret","command":` + strconv.Quote(fakeTrainingCommand(t)) + `,"args":["--token","super-secret","API_KEY=also-secret"]}`
+	if err := os.WriteFile(jobPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "check", jobPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "super-secret") || strings.Contains(stdout.String(), "also-secret") {
+		t.Fatalf("sensitive value leaked: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "<redacted>") {
+		t.Fatalf("expected redaction: %q", stdout.String())
+	}
+}
+
 func TestTrainValidateCommandReportsInvalidJob(t *testing.T) {
 	jobPath := filepath.Join(t.TempDir(), "job.json")
 	if err := os.WriteFile(jobPath, []byte(`{"name":"bad"}`), 0o644); err != nil {
@@ -1306,6 +1374,9 @@ func TestTrainInitCommand(t *testing.T) {
 	}
 	if spec.BaseModel != modelDir || spec.TrainFile != trainFile || spec.OutputDir == "" {
 		t.Fatalf("unexpected spec: %#v", spec)
+	}
+	if spec.DatasetFormat != "auto" {
+		t.Fatalf("unexpected dataset format: %#v", spec)
 	}
 	if !strings.Contains(stdout.String(), "Training job:") {
 		t.Fatalf("unexpected stdout: %q", stdout.String())

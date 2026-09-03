@@ -2,6 +2,7 @@ package training
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -63,6 +64,15 @@ func TestNewLoRAJobUsesDownloadedModelAndDataset(t *testing.T) {
 	if err := os.MkdirAll(modelDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +100,103 @@ func TestNewLoRAJobUsesDownloadedModelAndDataset(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected %q in args %q", want, joined)
 		}
+	}
+}
+
+func TestPreflightReportsModelAndDataset(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	evalFile := filepath.Join(dir, "data", "test.jsonl")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evalFile, []byte(`{"prompt":"bye","completion":"later"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Preflight(JobSpec{
+		Name:      "qwen3-lora",
+		Method:    "lora",
+		BaseModel: modelDir,
+		TrainFile: trainFile,
+		EvalFile:  evalFile,
+		OutputDir: filepath.Join(dir, "outputs", "qwen3-lora"),
+		Command:   fakeTrainingCommand(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ModelType != "qwen3" || report.TrainRows != 1 || report.EvalRows != 1 {
+		t.Fatalf("unexpected report: %#v", report)
+	}
+	if len(report.Warnings) != 0 {
+		t.Fatalf("unexpected warnings: %#v", report.Warnings)
+	}
+}
+
+func TestPreflightWarnsForGGUFTrainingArtifact(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3-gguf")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.gguf"), minimalGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Preflight(JobSpec{
+		Name:      "qwen3-lora",
+		BaseModel: modelDir,
+		TrainFile: trainFile,
+		Command:   fakeTrainingCommand(t),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Warnings) == 0 || !strings.Contains(report.Warnings[0], "GGUF") {
+		t.Fatalf("expected GGUF warning, got %#v", report.Warnings)
+	}
+}
+
+func TestValidateRejectsInvalidDatasetFormat(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "model")
+	trainFile := filepath.Join(dir, "train.jsonl")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"messages":[]}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Validate(JobSpec{
+		Command:       "python",
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+	})
+	if err == nil || !strings.Contains(err.Error(), "completion") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -127,4 +234,14 @@ func fakeTrainingCommand(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func minimalGGUF(t *testing.T) []byte {
+	t.Helper()
+	data := make([]byte, 4+4+8+8)
+	copy(data, "GGUF")
+	binary.LittleEndian.PutUint32(data[4:], 3)
+	binary.LittleEndian.PutUint64(data[8:], 0)
+	binary.LittleEndian.PutUint64(data[16:], 0)
+	return data
 }

@@ -421,6 +421,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego version [flags]")
 	fmt.Fprintln(w, "  nego convert gguf <model-dir> --out <file> [--converter <path>] [--python <path>]")
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
@@ -647,6 +648,8 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 			return runTrainInit(args[1:], stdout, stderr)
 		case "validate":
 			return runTrainValidate(args[1:], stdout, stderr)
+		case "check":
+			return runTrainCheck(args[1:], stdout, stderr)
 		case "help", "-h", "--help":
 			trainUsage(stdout)
 			return 0
@@ -674,6 +677,16 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
+	if !jsonOutput {
+		fmt.Fprintln(stdout, "Checking training job...")
+		report, err := training.Preflight(spec)
+		if err != nil {
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			return 1
+		}
+		printTrainingPreflight(stdout, report)
+		fmt.Fprintln(stdout, "Starting training process...")
+	}
 	result, err := training.Run(context.Background(), spec)
 	if jsonOutput {
 		_ = json.NewEncoder(stdout).Encode(result)
@@ -697,7 +710,7 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 }
 
 func runTrainInit(args []string, stdout, stderr io.Writer) int {
-	var name, method, baseModel, trainFile, evalFile, outputDir, command, script, workDir, out string
+	var name, method, baseModel, trainFile, evalFile, datasetFormat, outputDir, command, script, workDir, out string
 	fs := flag.NewFlagSet("train init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&name, "name", "qwen3-lora", "training job name")
@@ -705,6 +718,7 @@ func runTrainInit(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&baseModel, "base-model", "./models/qwen3", "downloaded Hugging Face model directory")
 	fs.StringVar(&trainFile, "train-file", "", "training dataset JSONL file")
 	fs.StringVar(&evalFile, "eval-file", "", "evaluation dataset JSONL file")
+	fs.StringVar(&datasetFormat, "dataset-format", "auto", "dataset format: auto, chat, completion, or instruction")
 	fs.StringVar(&outputDir, "output-dir", "./outputs/qwen3-lora", "trained model or adapter output directory")
 	fs.StringVar(&command, "command", "python", "training command")
 	fs.StringVar(&script, "script", "scripts/train_lora.py", "training script passed as first argument")
@@ -719,15 +733,16 @@ func runTrainInit(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	spec, err := training.NewLoRAJob(training.InitOptions{
-		Name:      name,
-		Method:    method,
-		BaseModel: baseModel,
-		TrainFile: trainFile,
-		EvalFile:  evalFile,
-		OutputDir: outputDir,
-		Command:   command,
-		Script:    script,
-		WorkDir:   workDir,
+		Name:          name,
+		Method:        method,
+		BaseModel:     baseModel,
+		TrainFile:     trainFile,
+		EvalFile:      evalFile,
+		DatasetFormat: datasetFormat,
+		OutputDir:     outputDir,
+		Command:       command,
+		Script:        script,
+		WorkDir:       workDir,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -741,6 +756,51 @@ func runTrainInit(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Base model:   %s\n", spec.BaseModel)
 	fmt.Fprintf(stdout, "Train file:   %s\n", spec.TrainFile)
 	fmt.Fprintf(stdout, "Output dir:   %s\n", spec.OutputDir)
+	return 0
+}
+
+func runTrainCheck(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("train check", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON report")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego train check <job.json> [flags]")
+		return 2
+	}
+	data, err := os.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	var spec training.JobSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	report, err := training.Preflight(spec)
+	if jsonOutput {
+		body := map[string]any{
+			"valid":  err == nil,
+			"report": report,
+		}
+		if err != nil {
+			body["error"] = err.Error()
+		}
+		_ = json.NewEncoder(stdout).Encode(body)
+	} else if err == nil {
+		fmt.Fprintln(stdout, "Training job check passed")
+		printTrainingPreflight(stdout, report)
+	} else {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+	}
+	if err != nil {
+		return 1
+	}
 	return 0
 }
 
@@ -792,9 +852,83 @@ func runTrainValidate(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func printTrainingPreflight(w io.Writer, report training.PreflightReport) {
+	name := report.Name
+	if name == "" {
+		name = "(unnamed)"
+	}
+	fmt.Fprintf(w, "Job:            %s\n", name)
+	if report.Method != "" {
+		fmt.Fprintf(w, "Method:         %s\n", report.Method)
+	}
+	if report.BaseModel != "" {
+		fmt.Fprintf(w, "Base model:     %s\n", report.BaseModel)
+	}
+	if report.ModelType != "" {
+		fmt.Fprintf(w, "Model type:     %s\n", report.ModelType)
+	}
+	if len(report.Architectures) > 0 {
+		fmt.Fprintf(w, "Architecture:   %s\n", strings.Join(report.Architectures, ", "))
+	}
+	if report.TrainFile != "" {
+		fmt.Fprintf(w, "Train file:     %s (%d rows)\n", report.TrainFile, report.TrainRows)
+	}
+	if report.EvalFile != "" {
+		fmt.Fprintf(w, "Eval file:      %s (%d rows)\n", report.EvalFile, report.EvalRows)
+	}
+	if report.DatasetFormat != "" {
+		fmt.Fprintf(w, "Dataset format: %s\n", report.DatasetFormat)
+	}
+	if report.OutputDir != "" {
+		fmt.Fprintf(w, "Output dir:     %s\n", report.OutputDir)
+	}
+	if report.Command != "" {
+		command := strings.TrimSpace(strings.Join(append([]string{report.Command}, redactTrainingArgs(report.Args)...), " "))
+		fmt.Fprintf(w, "Command:        %s\n", command)
+	}
+	for _, warning := range report.Warnings {
+		fmt.Fprintf(w, "Warning:        %s\n", warning)
+	}
+}
+
+func redactTrainingArgs(args []string) []string {
+	out := append([]string(nil), args...)
+	redactNext := false
+	for i, arg := range out {
+		if redactNext {
+			out[i] = "<redacted>"
+			redactNext = false
+			continue
+		}
+		lower := strings.ToLower(arg)
+		if key, _, ok := strings.Cut(lower, "="); ok && sensitiveTrainingArg(key) {
+			out[i] = arg[:strings.Index(arg, "=")+1] + "<redacted>"
+			continue
+		}
+		trimmed := strings.TrimLeft(lower, "-")
+		if sensitiveTrainingArg(trimmed) {
+			redactNext = true
+		}
+	}
+	return out
+}
+
+func sensitiveTrainingArg(key string) bool {
+	key = strings.TrimSpace(strings.TrimLeft(strings.ToLower(key), "-"))
+	return strings.Contains(key, "token") ||
+		strings.Contains(key, "api-key") ||
+		strings.Contains(key, "api_key") ||
+		strings.Contains(key, "apikey") ||
+		strings.Contains(key, "access-key") ||
+		strings.Contains(key, "access_key") ||
+		strings.Contains(key, "secret") ||
+		strings.Contains(key, "password")
+}
+
 func trainUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }

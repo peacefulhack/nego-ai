@@ -352,6 +352,7 @@ nego train init \
   --base-model ./models/qwen3 \
   --train-file examples/5.train/train.jsonl \
   --eval-file examples/5.train/test.jsonl \
+  --dataset-format completion \
   --output-dir ./outputs/qwen3-lora \
   --out examples/5.train/train-job.json
 ```
@@ -365,6 +366,7 @@ Minimal `job.json` shape:
   "base_model": "./models/qwen3",
   "train_file": "examples/5.train/train.jsonl",
   "eval_file": "examples/5.train/test.jsonl",
+  "dataset_format": "completion",
   "output_dir": "./outputs/qwen3-lora",
   "command": "python",
   "args": [
@@ -388,6 +390,7 @@ Minimal `job.json` shape:
 Validate it before running the trainer:
 
 ```bash
+nego train check examples/5.train/train-job.json
 nego train validate examples/5.train/train-job.json
 ```
 
