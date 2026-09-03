@@ -146,7 +146,7 @@ func nativeUnsupportedTensorTypes(info *Info) []string {
 
 func nativeSupportsGGMLType(typ uint32) bool {
 	switch typ {
-	case 0, 1, 2, 3, 6, 7, 8, 9, 30:
+	case 0, 1, 2, 3, 6, 7, 8, 9, 12, 13, 14, 30:
 		return true
 	default:
 		return false
