@@ -25,7 +25,7 @@ Implemented:
 1. GGUF metadata, tensor directory, and tokenizer vocabulary loading.
 2. Basic GGUF vocabulary encode/decode.
 3. Tensor loading into float32 buffers with per-model caching.
-4. F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, and Q8_1 dequantization.
+4. F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1, Q4_K, Q5_K, and Q6_K dequantization.
 5. RMSNorm, SiLU, softmax, vector math, RoPE, attention, KV-cache, MLP, logits, and transformer block primitives.
 6. Decode state plumbing that processes prompt tokens and appends K/V vectors.
 7. Early `Generate` and `Chat` loops for supported tiny GGUF fixtures.
@@ -35,14 +35,14 @@ Implemented:
 Not production-ready yet:
 
 1. Real Qwen/Llama compatibility for common downloaded GGUF models.
-2. K-quant kernels such as Q4_K_M, Q5_K_M, and Q6_K.
+2. Compatibility validation for mixed K-quant variants such as Q4_K_M and Q5_K_M in real model files.
 3. Optimized CPU execution, batching, and memory planning.
 4. GPU execution.
 5. Native fine-tuning/training.
 
 ## Next Critical Phases
 
-1. Add K-quant tensor kernels and compatibility tests with small fixture blocks.
-2. Validate native forward math against known tiny Llama/Qwen GGUF fixtures.
+1. Validate native forward math against known tiny Llama/Qwen GGUF fixtures.
+2. Run K-quant compatibility tests against small real GGUF fixtures.
 3. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
 4. Design native training separately from runtime inference; keep external training orchestration stable until then.

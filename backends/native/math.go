@@ -265,6 +265,125 @@ func dequantizeQ8_1(src []byte, elements int) ([]float32, error) {
 	return out, nil
 }
 
+func dequantizeQ4_K(src []byte, elements int) ([]float32, error) {
+	return dequantizeQKWithMin(src, elements, 12, "q4_k", false)
+}
+
+func dequantizeQ5_K(src []byte, elements int) ([]float32, error) {
+	return dequantizeQKWithMin(src, elements, 13, "q5_k", true)
+}
+
+func dequantizeQKWithMin(src []byte, elements int, typeID uint32, name string, highBits bool) ([]float32, error) {
+	if elements < 0 {
+		return nil, fmt.Errorf("element count must be non-negative")
+	}
+	layout := ggmlLayouts[typeID]
+	blocks := (uint64(elements) + layout.blockSize - 1) / layout.blockSize
+	need := blocks * layout.typeSize
+	if uint64(len(src)) < need {
+		return nil, fmt.Errorf("%s tensor data is %d bytes, need %d", name, len(src), need)
+	}
+	out := make([]float32, elements)
+	for block := uint64(0); block < blocks; block++ {
+		start := block * layout.typeSize
+		scale := float16ToFloat32(binary.LittleEndian.Uint16(src[start:]))
+		minScale := float16ToFloat32(binary.LittleEndian.Uint16(src[start+2:]))
+		scales := src[start+4 : start+16]
+		qhOffset := start + 16
+		qsOffset := qhOffset
+		if highBits {
+			qsOffset += 32
+		}
+		quantized := src[qsOffset : qsOffset+128]
+		for group := 0; group < 8; group++ {
+			groupScale, groupMin := unpackKScaleMin(scales, group)
+			d := scale * float32(groupScale)
+			m := minScale * float32(groupMin)
+			for i := 0; i < 32; i++ {
+				outIndex := block*layout.blockSize + uint64(group*32+i)
+				if outIndex >= uint64(len(out)) {
+					return out, nil
+				}
+				packed := quantized[(group/2)*32+i]
+				q := int(packed & 0x0f)
+				if group%2 == 1 {
+					q = int(packed >> 4)
+				}
+				if highBits && ((src[qhOffset+uint64(i)]>>uint(group))&1) != 0 {
+					q |= 16
+				}
+				out[outIndex] = d*float32(q) - m
+			}
+		}
+	}
+	return out, nil
+}
+
+func dequantizeQ6_K(src []byte, elements int) ([]float32, error) {
+	if elements < 0 {
+		return nil, fmt.Errorf("element count must be non-negative")
+	}
+	layout := ggmlLayouts[14]
+	blocks := (uint64(elements) + layout.blockSize - 1) / layout.blockSize
+	need := blocks * layout.typeSize
+	if uint64(len(src)) < need {
+		return nil, fmt.Errorf("q6_k tensor data is %d bytes, need %d", len(src), need)
+	}
+	out := make([]float32, elements)
+	for block := uint64(0); block < blocks; block++ {
+		start := block * layout.typeSize
+		ql := src[start : start+128]
+		qh := src[start+128 : start+192]
+		scales := src[start+192 : start+208]
+		scale := float16ToFloat32(binary.LittleEndian.Uint16(src[start+208:]))
+		for group := 0; group < 16; group++ {
+			groupScale := scale * float32(int8(scales[group]))
+			for i := 0; i < 16; i++ {
+				valueIndex := group*16 + i
+				outIndex := block*layout.blockSize + uint64(valueIndex)
+				if outIndex >= uint64(len(out)) {
+					return out, nil
+				}
+				q := q6KValue(ql, qh, valueIndex)
+				out[outIndex] = groupScale * float32(q)
+			}
+		}
+	}
+	return out, nil
+}
+
+func unpackKScaleMin(scales []byte, group int) (int, int) {
+	if group < 4 {
+		return int(scales[group] & 0x3f), int(scales[group+4] & 0x3f)
+	}
+	scale := int((scales[group+4] & 0x0f) | ((scales[group-4] >> 6) << 4))
+	minValue := int((scales[group+4] >> 4) | ((scales[group] >> 6) << 4))
+	return scale, minValue
+}
+
+func q6KValue(ql, qh []byte, index int) int {
+	qGroup := index / 32
+	offset := index % 32
+
+	lowChunk := qGroup / 4
+	lowGroup := qGroup % 4
+	lowOffset := lowChunk*64 + offset
+	if lowGroup%2 == 1 {
+		lowOffset += 32
+	}
+	lowShift := uint(0)
+	if lowGroup >= 2 {
+		lowShift = 4
+	}
+	low := int((ql[lowOffset] >> lowShift) & 0x0f)
+
+	highChunk := qGroup / 4
+	highShift := uint((qGroup % 4) * 2)
+	highByte := qh[highChunk*32+offset]
+	high := int((highByte >> highShift) & 0x03)
+	return (low | (high << 4)) - 32
+}
+
 func float16ToFloat32(value uint16) float32 {
 	sign := uint32(value&0x8000) << 16
 	exp := (value >> 10) & 0x1f

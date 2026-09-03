@@ -140,6 +140,71 @@ func TestDequantizeQ8_1(t *testing.T) {
 	assertFloat32Slice(t, got, []float32{-2, -1, 0, 1})
 }
 
+func TestDequantizeQ4K(t *testing.T) {
+	block := make([]byte, 144)
+	binary.LittleEndian.PutUint16(block[0:], 0x3c00)
+	binary.LittleEndian.PutUint16(block[2:], 0x3c00)
+	block[4] = 2
+	block[8] = 3
+	block[16] = 0x21
+	block[17] = 0x02
+
+	got, err := dequantizeQ4_K(block, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFloat32Slice(t, got[:2], []float32{-1, 1})
+	if got[32] != 0 {
+		t.Fatalf("unexpected second group value: %v", got[32])
+	}
+}
+
+func TestDequantizeQ5K(t *testing.T) {
+	block := make([]byte, 176)
+	binary.LittleEndian.PutUint16(block[0:], 0x3c00)
+	binary.LittleEndian.PutUint16(block[2:], 0x3c00)
+	block[4] = 2
+	block[8] = 3
+	block[16] = 1
+	block[48] = 0x01
+	block[49] = 0x02
+
+	got, err := dequantizeQ5_K(block, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFloat32Slice(t, got[:2], []float32{31, 1})
+	if got[32] != 0 {
+		t.Fatalf("unexpected second group value: %v", got[32])
+	}
+}
+
+func TestDequantizeQ6K(t *testing.T) {
+	block := make([]byte, 210)
+	block[0] = 0x01
+	block[32] = 0x02
+	block[128] = 0x01
+	block[144] = 0x01
+	block[192] = 2
+	block[193] = 3
+	block[194] = 3
+	binary.LittleEndian.PutUint16(block[208:], 0x3c00)
+
+	got, err := dequantizeQ6_K(block, 33)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0] != -30 {
+		t.Fatalf("first value: got %v, want -30", got[0])
+	}
+	if got[16] != -48 {
+		t.Fatalf("second scale group value: got %v, want -48", got[16])
+	}
+	if got[32] != -90 {
+		t.Fatalf("second q group value: got %v, want -90", got[32])
+	}
+}
+
 func TestMatVecFloat32(t *testing.T) {
 	got, err := matVecFloat32([]float32{
 		1, 2, 3,

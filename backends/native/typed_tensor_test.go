@@ -90,10 +90,10 @@ func TestLoadTensorFloat32RejectsClosedModel(t *testing.T) {
 func TestTensorFloat32RejectsUnsupportedType(t *testing.T) {
 	_, err := tensorFloat32(modelinfo.GGUFTensor{
 		Name:         "blk.0.attn_q.weight",
-		Type:         "q4_k",
-		GGMLType:     12,
+		Type:         "q2_k",
+		GGMLType:     10,
 		ElementCount: 32,
-	}, make([]byte, 144))
+	}, make([]byte, 84))
 	if err == nil || !strings.Contains(err.Error(), "cannot be loaded as float32 yet") {
 		t.Fatalf("unexpected error: %v", err)
 	}
