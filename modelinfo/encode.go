@@ -16,6 +16,7 @@ func (v *GGUFVocab) Encode(text string, options EncodeOptions) ([]int, error) {
 		return nil, fmt.Errorf("gguf vocab is nil")
 	}
 	index := v.tokenIndex()
+	merges := v.mergeRanks()
 	var ids []int
 	if options.AddBOS {
 		if id, ok := specialTokenID(index, v.BOSTokenID, "<s>", "<bos>", "<|begin_of_text|>"); ok {
@@ -23,6 +24,16 @@ func (v *GGUFVocab) Encode(text string, options EncodeOptions) ([]int, error) {
 		}
 	}
 	for _, segment := range splitEncodeSegments(text) {
+		if len(merges) > 0 {
+			encoded, ok, err := v.encodeBPESegment(segment, index, merges)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				ids = append(ids, encoded...)
+				continue
+			}
+		}
 		encoded, err := v.encodeSegment(segment, index)
 		if err != nil {
 			return nil, err
@@ -45,6 +56,20 @@ func (v *GGUFVocab) tokenIndex() map[string]int {
 		}
 	}
 	return index
+}
+
+func (v *GGUFVocab) mergeRanks() map[string]int {
+	if len(v.Merges) == 0 {
+		return nil
+	}
+	merges := make(map[string]int, len(v.Merges))
+	for rank, merge := range v.Merges {
+		fields := strings.Fields(merge)
+		if len(fields) == 2 {
+			merges[fields[0]+" "+fields[1]] = rank
+		}
+	}
+	return merges
 }
 
 func (v *GGUFVocab) encodeSegment(segment string, index map[string]int) ([]int, error) {
@@ -78,6 +103,45 @@ func (v *GGUFVocab) encodeSegment(segment string, index map[string]int) ([]int, 
 	return ids, nil
 }
 
+func (v *GGUFVocab) encodeBPESegment(segment string, index map[string]int, merges map[string]int) ([]int, bool, error) {
+	pieces := bpeInitialPieces(segment, index)
+	if len(pieces) == 0 {
+		return nil, false, nil
+	}
+	for {
+		bestIndex := -1
+		bestRank := int(^uint(0) >> 1)
+		for i := 0; i+1 < len(pieces); i++ {
+			joined := pieces[i] + pieces[i+1]
+			if _, ok := index[joined]; !ok {
+				continue
+			}
+			if rank, ok := merges[pieces[i]+" "+pieces[i+1]]; ok && rank < bestRank {
+				bestRank = rank
+				bestIndex = i
+			}
+		}
+		if bestIndex < 0 {
+			break
+		}
+		pieces[bestIndex] += pieces[bestIndex+1]
+		pieces = append(pieces[:bestIndex+1], pieces[bestIndex+2:]...)
+	}
+	ids := make([]int, 0, len(pieces))
+	for _, piece := range pieces {
+		if id, ok := index[piece]; ok {
+			ids = append(ids, id)
+			continue
+		}
+		if encodedBytes, ok := encodeByteFallback(piece, index); ok {
+			ids = append(ids, encodedBytes...)
+			continue
+		}
+		return nil, false, nil
+	}
+	return ids, true, nil
+}
+
 func longestVocabToken(text string, index map[string]int) (string, int, bool) {
 	for n := len(text); n > 0; n-- {
 		candidate := text[:n]
@@ -99,6 +163,47 @@ func prefixedEncodeCandidates(text string) []string {
 		return []string{"▁" + trimmed, "Ġ" + trimmed}
 	}
 	return nil
+}
+
+func bpeInitialPieces(segment string, index map[string]int) []string {
+	if segment == "" {
+		return nil
+	}
+	var pieces []string
+	if strings.HasPrefix(segment, " ") {
+		spaces := len(segment) - len(strings.TrimLeft(segment, " "))
+		for i := 0; i < spaces-1; i++ {
+			pieces = append(pieces, " ")
+		}
+		rest := segment[spaces:]
+		if rest == "" {
+			return append(pieces, " ")
+		}
+		r, size := utf8.DecodeRuneInString(rest)
+		first := string(r)
+		switch {
+		case hasVocabToken(index, "Ġ"+first):
+			pieces = append(pieces, "Ġ"+first)
+		case hasVocabToken(index, "▁"+first):
+			pieces = append(pieces, "▁"+first)
+		case hasVocabToken(index, "Ġ"):
+			pieces = append(pieces, "Ġ", first)
+		case hasVocabToken(index, "▁"):
+			pieces = append(pieces, "▁", first)
+		default:
+			pieces = append(pieces, " ", first)
+		}
+		segment = rest[size:]
+	}
+	for _, r := range segment {
+		pieces = append(pieces, string(r))
+	}
+	return pieces
+}
+
+func hasVocabToken(index map[string]int, token string) bool {
+	_, ok := index[token]
+	return ok
 }
 
 func specialTokenID(index map[string]int, configured uint32, candidates ...string) (int, bool) {

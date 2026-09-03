@@ -9,11 +9,12 @@ import (
 
 func TestReadGGUFVocabParsesTokenizerMetadata(t *testing.T) {
 	var buf bytes.Buffer
-	writeGGUFHeader(t, &buf, 3, 0, 7)
+	writeGGUFHeader(t, &buf, 3, 0, 8)
 	writeGGUFStringKV(t, &buf, "tokenizer.ggml.model", "llama")
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello", "world"})
 	writeGGUFFloat32ArrayKV(t, &buf, "tokenizer.ggml.scores", []float32{0, -1, -2})
 	writeGGUFUint32ArrayKV(t, &buf, "tokenizer.ggml.token_type", []uint32{3, 1, 1})
+	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.merges", []string{"h e", "he llo"})
 	writeGGUFUint32KV(t, &buf, "tokenizer.ggml.bos_token_id", 1)
 	writeGGUFUint32KV(t, &buf, "tokenizer.ggml.eos_token_id", 2)
 	writeGGUFStringKV(t, &buf, "tokenizer.chat_template", "{{ .Prompt }}")
@@ -33,6 +34,9 @@ func TestReadGGUFVocabParsesTokenizerMetadata(t *testing.T) {
 	}
 	if len(vocab.TokenTypes) != 3 || vocab.TokenTypes[0] != 3 {
 		t.Fatalf("unexpected token types: %#v", vocab.TokenTypes)
+	}
+	if strings.Join(vocab.Merges, ",") != "h e,he llo" {
+		t.Fatalf("unexpected merges: %#v", vocab.Merges)
 	}
 	if vocab.ChatTemplate != "{{ .Prompt }}" {
 		t.Fatalf("unexpected chat template: %q", vocab.ChatTemplate)

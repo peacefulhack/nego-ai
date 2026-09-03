@@ -157,8 +157,8 @@ Current status:
 - Builds native model specs and standard tensor-name maps from GGUF metadata.
 - Reports missing or mismatched native runtime tensors before forward-pass work.
 - Loads per-block native runtime weights from GGUF tensor storage.
-- Reads GGUF tokenizer vocabulary metadata in Go.
-- Encodes and decodes text with a basic GGUF vocabulary tokenizer path.
+- Reads GGUF tokenizer vocabulary and BPE merge metadata in Go.
+- Encodes and decodes text with a GGUF vocabulary tokenizer path.
 - Decodes GGUF token IDs into text for native generation plumbing.
 - Reads raw GGUF tensor bytes in Go.
 - Includes early CPU tensor math primitives for F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1, Q2_K, Q3_K, Q4_K, Q5_K, and Q6_K data.
