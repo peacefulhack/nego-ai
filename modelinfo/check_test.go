@@ -43,7 +43,7 @@ func TestCheckReportsNativeUnsupportedTensorTypes(t *testing.T) {
 	if native.Compatible {
 		t.Fatalf("expected native incompatibility: %#v", native)
 	}
-	if len(native.UnsupportedTensorTypes) != 1 || native.UnsupportedTensorTypes[0] != "q2_k" {
+	if len(native.UnsupportedTensorTypes) != 1 || native.UnsupportedTensorTypes[0] != "i8" {
 		t.Fatalf("unexpected unsupported types: %#v", native.UnsupportedTensorTypes)
 	}
 	if len(report.Warnings) == 0 {
@@ -92,19 +92,22 @@ func testUnsupportedNativeGGUF(t *testing.T) []byte {
 	writeGGUFStringKV(t, &buf, "general.architecture", "llama")
 	writeGGUFUint32KV(t, &buf, "general.file_type", 15)
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
-	writeGGUFTensor(t, &buf, "blk.0.attn_q.weight", []uint64{16, 16}, 10, 0)
+	writeGGUFTensor(t, &buf, "blk.0.attn_q.weight", []uint64{1}, 24, 0)
 	return buf.Bytes()
 }
 
 func testNativeKQuantGGUF(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer
-	writeGGUFHeader(t, &buf, 3, 2, 3)
+	writeGGUFHeader(t, &buf, 3, 5, 3)
 	writeGGUFStringKV(t, &buf, "general.architecture", "llama")
 	writeGGUFUint32KV(t, &buf, "general.file_type", 15)
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
-	writeGGUFTensor(t, &buf, "blk.0.attn_q.weight", []uint64{16, 16}, 12, 0)
-	writeGGUFTensor(t, &buf, "blk.0.ffn_gate.weight", []uint64{16, 16}, 14, 144)
+	writeGGUFTensor(t, &buf, "blk.0.attn_q.weight", []uint64{16, 16}, 10, 0)
+	writeGGUFTensor(t, &buf, "blk.0.attn_k.weight", []uint64{16, 16}, 11, 84)
+	writeGGUFTensor(t, &buf, "blk.0.attn_v.weight", []uint64{16, 16}, 12, 194)
+	writeGGUFTensor(t, &buf, "blk.0.attn_output.weight", []uint64{16, 16}, 13, 338)
+	writeGGUFTensor(t, &buf, "blk.0.ffn_gate.weight", []uint64{16, 16}, 14, 514)
 	return buf.Bytes()
 }
 

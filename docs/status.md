@@ -25,7 +25,7 @@ Implemented:
 1. GGUF metadata, tensor directory, and tokenizer vocabulary loading.
 2. Basic GGUF vocabulary encode/decode.
 3. Tensor loading into float32 buffers with per-model caching.
-4. F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1, Q4_K, Q5_K, and Q6_K dequantization.
+4. F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1, Q2_K, Q3_K, Q4_K, Q5_K, and Q6_K dequantization.
 5. RMSNorm, SiLU, softmax, vector math, RoPE, attention, KV-cache, MLP, logits, and transformer block primitives.
 6. Decode state plumbing that processes prompt tokens and appends K/V vectors.
 7. Early `Generate` and `Chat` loops for supported tiny GGUF fixtures.

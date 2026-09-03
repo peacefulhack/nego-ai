@@ -140,6 +140,41 @@ func TestDequantizeQ8_1(t *testing.T) {
 	assertFloat32Slice(t, got, []float32{-2, -1, 0, 1})
 }
 
+func TestDequantizeQ2K(t *testing.T) {
+	block := make([]byte, 84)
+	block[0] = 0x32
+	block[1] = 0x41
+	block[16] = 0x01
+	block[32] = 0x02
+	binary.LittleEndian.PutUint16(block[80:], 0x3c00)
+	binary.LittleEndian.PutUint16(block[82:], 0x3c00)
+
+	got, err := dequantizeQ2_K(block, 17)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFloat32Slice(t, []float32{got[0], got[16]}, []float32{-1, -2})
+}
+
+func TestDequantizeQ3K(t *testing.T) {
+	block := make([]byte, 110)
+	block[0] = 0x01
+	block[16] = 0x01
+	block[32] = 0x01
+	block[48] = 0x02
+	block[96] = 0x02
+	block[97] = 0x03
+	block[104] = 0x02
+	block[105] = 0x02
+	binary.LittleEndian.PutUint16(block[108:], 0x3c00)
+
+	got, err := dequantizeQ3_K(block, 17)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFloat32Slice(t, []float32{got[0], got[16]}, []float32{2, 6})
+}
+
 func TestDequantizeQ4K(t *testing.T) {
 	block := make([]byte, 144)
 	binary.LittleEndian.PutUint16(block[0:], 0x3c00)
