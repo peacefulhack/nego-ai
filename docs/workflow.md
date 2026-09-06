@@ -96,6 +96,15 @@ Artifact:
 
 Use that summary as the current source of truth for what Nego can do with a downloaded path. `hf-safetensors` models are valid for tokenizer work, inspection, and external training orchestration today. Native Go chat/training for safetensors is planned. GGUF artifacts resolve to the experimental pure-Go `native` backend when the tensor types are supported.
 
+The safetensors path also exposes a native Go tensor store for runtime development:
+
+```go
+store, err := modelinfo.OpenSafetensors("./models/qwen3")
+values, tensor, err := store.LoadTensorFloat32("model.embed_tokens.weight")
+reader, tensor, err := store.TensorReader("model.embed_tokens.weight")
+defer reader.Close()
+```
+
 List available runtime backends:
 
 ```bash

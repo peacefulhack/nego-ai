@@ -7,15 +7,16 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 1. Download Hugging Face-style model files and GGUF runtime files.
 2. Cache downloads and list, inspect, or remove local model registry entries.
 3. Inspect model directories, model cards, config files, tokenizer files, safetensors metadata, and GGUF metadata.
-4. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
-5. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
-6. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
-7. Use remote OpenAI-compatible chat and embedding APIs.
-8. Prepare, validate, convert, filter, split, and sample datasets.
-9. Run eval suites and compare reports.
-10. Create, validate, and run external training job JSON files.
-11. Create local share manifests and archive packages for trained model output directories.
-12. Upload regular files or small folders to Hub repos through inline commit uploads.
+4. Load safetensors F32/F16/BF16 tensors into float32 buffers for native runtime development.
+5. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
+6. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
+7. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
+8. Use remote OpenAI-compatible chat and embedding APIs.
+9. Prepare, validate, convert, filter, split, and sample datasets.
+10. Run eval suites and compare reports.
+11. Create, validate, and run external training job JSON files.
+12. Create local share manifests and archive packages for trained model output directories.
+13. Upload regular files or small folders to Hub repos through inline commit uploads.
 
 ## Pure-Go Native Runtime Status
 
@@ -45,7 +46,7 @@ Not production-ready yet:
 
 ## Next Critical Phases
 
-1. Add native safetensors tensor reading into typed buffers.
+1. Map Hugging Face safetensors tensor names into native Qwen/Llama weight manifests.
 2. Validate native forward math against known tiny Llama/Qwen GGUF fixtures.
 3. Run K-quant compatibility tests against small real GGUF fixtures.
 4. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
