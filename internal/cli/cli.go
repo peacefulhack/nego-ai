@@ -423,6 +423,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train native <gguf-model-path> --train-file <file> --out <dir> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego share package <model-dir> --out <archive.tar.gz> [flags]")
@@ -650,6 +651,8 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 			return runTrainValidate(args[1:], stdout, stderr)
 		case "check":
 			return runTrainCheck(args[1:], stdout, stderr)
+		case "native":
+			return runTrainNative(args[1:], stdout, stderr)
 		case "help", "-h", "--help":
 			trainUsage(stdout)
 			return 0
@@ -852,6 +855,81 @@ func runTrainValidate(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runTrainNative(args []string, stdout, stderr io.Writer) int {
+	var trainFile string
+	var evalFile string
+	var datasetFormat string
+	var outputDir string
+	var method string
+	var learningRate float64
+	var epochs int
+	var jsonOutput bool
+	fs := flag.NewFlagSet("train native", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&trainFile, "train-file", "", "training dataset file")
+	fs.StringVar(&evalFile, "eval-file", "", "evaluation dataset file")
+	fs.StringVar(&datasetFormat, "dataset-format", "auto", "dataset format: auto, chat, completion, or instruction")
+	fs.StringVar(&outputDir, "out", "", "output adapter directory")
+	fs.StringVar(&method, "method", "token-bias", "native training method")
+	fs.Float64Var(&learningRate, "learning-rate", 0.1, "adapter learning-rate scale")
+	fs.IntVar(&epochs, "epochs", 1, "number of passes over the dataset")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || trainFile == "" || outputDir == "" {
+		fmt.Fprintln(stderr, "usage: nego train native <gguf-model-path> --train-file <file> --out <dir> [flags]")
+		return 2
+	}
+	result, err := training.RunNative(context.Background(), training.NativeOptions{
+		BaseModel:     positionals[0],
+		TrainFile:     trainFile,
+		EvalFile:      evalFile,
+		DatasetFormat: datasetFormat,
+		OutputDir:     outputDir,
+		Method:        method,
+		LearningRate:  learningRate,
+		Epochs:        epochs,
+	})
+	if jsonOutput {
+		body := map[string]any{
+			"success": err == nil,
+			"result":  result,
+		}
+		if err != nil {
+			body["error"] = err.Error()
+		}
+		_ = json.NewEncoder(stdout).Encode(body)
+	} else if err == nil {
+		printNativeTrainingResult(stdout, result)
+	} else {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
+}
+
+func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
+	fmt.Fprintln(w, "Native training completed")
+	fmt.Fprintf(w, "Base model:     %s\n", result.BaseModel)
+	fmt.Fprintf(w, "Train file:     %s (%d rows)\n", result.TrainFile, result.TrainRows)
+	if result.EvalFile != "" {
+		fmt.Fprintf(w, "Eval file:      %s (%d rows)\n", result.EvalFile, result.EvalRows)
+	}
+	fmt.Fprintf(w, "Dataset format: %s\n", result.DatasetFormat)
+	fmt.Fprintf(w, "Method:         %s\n", result.Method)
+	fmt.Fprintf(w, "Epochs:         %d\n", result.Epochs)
+	fmt.Fprintf(w, "Train tokens:   %d\n", result.TrainTokens)
+	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
+	fmt.Fprintf(w, "Adapter:        %s\n", result.AdapterPath)
+	for _, warning := range result.Warnings {
+		fmt.Fprintf(w, "Warning:        %s\n", warning)
+	}
+}
+
 func printTrainingPreflight(w io.Writer, report training.PreflightReport) {
 	name := report.Name
 	if name == "" {
@@ -930,6 +1008,7 @@ func trainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train native <gguf-model-path> --train-file <file> --out <dir> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
 
@@ -1636,6 +1715,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var splitMode string
 	var flashAttention bool
 	var native bool
+	var adapterPath string
 	var configFile string
 	var logPath string
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
@@ -1656,6 +1736,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
+	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.StringVar(&configFile, "f", "", "run config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
 	parseArgs, positionals := splitFlags(args)
@@ -1723,6 +1804,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		tensorSplit:    tensorSplit,
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
+		adapterPath:    adapterPath,
 	})
 	if err := validateRuntimeOptions(options); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -1777,6 +1859,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var savePath string
 	var interactive bool
 	var native bool
+	var adapterPath string
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
@@ -1796,6 +1879,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
+	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.StringVar(&configFile, "f", "", "chat config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
 	fs.StringVar(&sessionPath, "session", "", "load and save chat history JSON")
@@ -1909,6 +1993,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		tensorSplit:    tensorSplit,
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
+		adapterPath:    adapterPath,
 	})
 	if err := validateRuntimeOptions(options); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2255,10 +2340,11 @@ type runtimeFlagOptions struct {
 	tensorSplit    string
 	splitMode      string
 	flashAttention bool
+	adapterPath    string
 }
 
 func runtimeOptions(base map[string]string, flags runtimeFlagOptions) map[string]string {
-	options := make(map[string]string, len(base)+8)
+	options := make(map[string]string, len(base)+9)
 	for key, value := range base {
 		if value != "" {
 			options[key] = value
@@ -2287,6 +2373,9 @@ func runtimeOptions(base map[string]string, flags runtimeFlagOptions) map[string
 	}
 	if flags.flashAttention {
 		options["flash_attn"] = "true"
+	}
+	if flags.adapterPath != "" {
+		options["adapter_path"] = flags.adapterPath
 	}
 	if len(options) == 0 {
 		return nil

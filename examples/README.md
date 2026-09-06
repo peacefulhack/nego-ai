@@ -6,7 +6,7 @@ Examples are numbered to show the usual AI model development flow.
 2. [Chat](2.chat): chat with the GGUF model downloaded in step 1.
 3. [Prepare Dataset](3.prepare-dataset): load CSV data and emit JSONL rows.
 4. [Eval](4.eval): define an eval suite for the GGUF model downloaded in step 1; the Go example runs the same cases against a tiny in-memory model.
-5. [Train](5.train): create a LoRA training job that uses the base model downloaded in step 1.
+5. [Train](5.train): create a LoRA training job for the Hugging Face model and a native token-bias adapter for the GGUF model downloaded in step 1.
 6. [Serve](6.serve): serve a local llama.cpp model through Nego HTTP.
 7. [Embeddings](7.embeddings): call an embedding backend and compare vectors.
 8. [Share Trained Model](8.share-trained-model): inspect a model card template and sharing checklist.
@@ -19,6 +19,7 @@ go run ./examples/2.chat
 go run ./examples/3.prepare-dataset
 go run ./examples/4.eval
 go run ./examples/5.train
+go run ./examples/5.train/native_adapter
 go run ./examples/8.share-trained-model
 ```
 

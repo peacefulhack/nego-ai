@@ -129,7 +129,7 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		nextID, text, err := sampleTokenTextWithHistory(logits, m.vocab, sampler, history)
+		nextID, text, err := sampleTokenTextWithHistory(m.applyAdapter(logits), m.vocab, sampler, history)
 		if err != nil {
 			return nil, err
 		}

@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	nego "github.com/gakon/nego-ai"
+	"github.com/gakon/nego-ai/adapters"
 	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/modelinfo"
 )
@@ -30,6 +31,8 @@ func (b Backend) Info() nego.BackendInfo {
 		Required:     []string{"path"},
 		Options: []nego.BackendOption{
 			{Name: "template_path", Description: "directory or file path for chat template sidecars"},
+			{Name: "adapter", Description: "token-bias adapter JSON produced by native training"},
+			{Name: "adapter_path", Description: "alias for adapter"},
 		},
 	}
 }
@@ -61,6 +64,11 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		return nil, fmt.Errorf("build native model spec: %w", err)
 	}
 	manifest := buildTensorManifest(info, spec, tensorNames)
+	adapter, err := loadAdapter(opts.Options)
+	if err != nil {
+		tensors.Close()
+		return nil, err
+	}
 	return &Model{
 		path:       modelPath,
 		info:       info,
@@ -70,6 +78,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		manifest:   manifest,
 		tensors:    tensors,
 		float32:    make(map[string]cachedFloat32Tensor),
+		adapter:    adapter,
 		promptPath: promptPath(opts.Path, modelPath, opts.Options),
 	}, nil
 }
@@ -89,6 +98,7 @@ type Model struct {
 	tensors    *tensorStore
 	float32    map[string]cachedFloat32Tensor
 	tensorMu   sync.Mutex
+	adapter    *adapters.TokenBiasAdapter
 	promptPath string
 }
 
@@ -173,6 +183,10 @@ func (m *Model) TensorManifest() TensorManifestReport {
 	return m.manifest
 }
 
+func (m *Model) Adapter() *adapters.TokenBiasAdapter {
+	return m.adapter
+}
+
 func (m *Model) ReadTensor(name string) ([]byte, modelinfo.GGUFTensor, error) {
 	if m.tensors == nil {
 		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("native tensor store is closed")
@@ -242,6 +256,31 @@ func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {
 
 func (m *Model) inferenceError() error {
 	return fmt.Errorf("native GGUF inference is not implemented yet for architecture %q with %d tensors; loaded %s without llama-cli, but transformer forward pass and sampling are still in progress", m.info.Architecture, len(m.info.Tensors), m.path)
+}
+
+func (m *Model) applyAdapter(logits []float32) []float32 {
+	if m.adapter == nil {
+		return logits
+	}
+	return m.adapter.Apply(logits)
+}
+
+func loadAdapter(options map[string]string) (*adapters.TokenBiasAdapter, error) {
+	if len(options) == 0 {
+		return nil, nil
+	}
+	path := options["adapter"]
+	if path == "" {
+		path = options["adapter_path"]
+	}
+	if path == "" {
+		return nil, nil
+	}
+	adapter, err := adapters.Load(path)
+	if err != nil {
+		return nil, fmt.Errorf("load native adapter: %w", err)
+	}
+	return adapter, nil
 }
 
 func promptPath(inputPath, modelPath string, options map[string]string) string {

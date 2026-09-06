@@ -1031,6 +1031,7 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		tensorSplit:    "3,1",
 		splitMode:      "layer",
 		flashAttention: true,
+		adapterPath:    "adapter.json",
 	})
 	want := map[string]string{
 		"threads":      "4",
@@ -1041,6 +1042,7 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		"tensor_split": "3,1",
 		"split_mode":   "layer",
 		"flash_attn":   "true",
+		"adapter_path": "adapter.json",
 		"custom":       "value",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -1312,6 +1314,37 @@ func TestTrainCheckCommand(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), `"valid":true`) || !strings.Contains(stdout.String(), `"train_rows":1`) {
 		t.Fatalf("unexpected json: %q", stdout.String())
+	}
+}
+
+func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	dir := t.TempDir()
+	trainFile := filepath.Join(dir, "train.jsonl")
+	outputDir := filepath.Join(dir, "adapter")
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--dataset-format",
+		"completion",
+		"--out",
+		outputDir,
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Native training completed") || !strings.Contains(stdout.String(), "Adapter:") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); err != nil {
+		t.Fatal(err)
 	}
 }
 

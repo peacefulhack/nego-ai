@@ -354,9 +354,14 @@ nego eval report reports/baseline.json
 
 ## 8. Train or Fine-Tune
 
-Current Nego training is an external process runner. It is useful for wrapping Python, shell scripts, or another training tool while keeping a consistent Nego workflow. Training uses the Hugging Face-style model from step 1 (`./models/qwen3`), not the GGUF runtime copy used for chat.
+Nego has two training paths today:
 
-Create a job JSON from the downloaded model and prepared data:
+1. External job orchestration for Hugging Face-style safetensors directories.
+2. Early pure-Go native adapter training for GGUF directories.
+
+The native GGUF path writes a token-bias adapter. It is useful for validating the end-to-end local workflow and adapter loading without Python. Full LoRA/backprop training is still planned.
+
+For Hugging Face-style training orchestration, create a job JSON from the downloaded model and prepared data:
 
 ```bash
 nego train init \
@@ -412,6 +417,38 @@ nego train examples/5.train/train-job.json
 ```
 
 The command prints stdout/stderr from the training process and exits non-zero if the process fails.
+
+For pure-Go GGUF adapter training, use the GGUF copy from the download step:
+
+```bash
+nego train native ./models/qwen3-gguf \
+  --train-file examples/5.train/train.jsonl \
+  --dataset-format completion \
+  --out ./outputs/qwen3-token-bias
+```
+
+The output directory contains:
+
+```text
+adapter.json
+```
+
+Load the adapter for native generation:
+
+```bash
+nego run --native ./models/qwen3-gguf "Hello" \
+  --adapter ./outputs/qwen3-token-bias/adapter.json
+```
+
+```go
+model, err := nego.LoadModel(ctx, nego.ModelOptions{
+    Backend: "native",
+    Path:    "./models/qwen3-gguf",
+    Options: map[string]string{
+        "adapter_path": "./outputs/qwen3-token-bias/adapter.json",
+    },
+})
+```
 
 ## 9. Inspect and Evaluate the Trained Output
 

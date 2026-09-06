@@ -179,6 +179,49 @@ func TestPreflightWarnsForGGUFTrainingArtifact(t *testing.T) {
 	}
 }
 
+func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3-gguf")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	outputDir := filepath.Join(dir, "outputs", "qwen3-adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.gguf"), minimalGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0,"▁world":1,"later":2},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello world"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		OutputDir:     outputDir,
+		Epochs:        2,
+		LearningRate:  0.2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AdapterPath == "" || result.TrainRows != 1 || result.TrainTokens != 4 || result.UpdatedTokens != 2 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if _, err := os.Stat(result.AdapterPath); err != nil {
+		t.Fatal(err)
+	}
+	if result.Adapter.Bias[0] <= 0 || result.Adapter.Bias[1] <= 0 {
+		t.Fatalf("unexpected adapter bias: %#v", result.Adapter.Bias)
+	}
+}
+
 func TestValidateRejectsInvalidDatasetFormat(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "model")

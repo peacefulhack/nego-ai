@@ -32,6 +32,7 @@ Implemented:
 7. Early `Generate` and `Chat` loops for supported tiny GGUF fixtures.
 8. EOS stopping, repeat penalty controls, and streaming chat for native sampling.
 9. CLI access through `nego run --native` and `nego chat --native`.
+10. Early pure-Go GGUF token-bias adapter training through `nego train native`.
 
 Not production-ready yet:
 
@@ -40,6 +41,7 @@ Not production-ready yet:
 3. Optimized CPU execution, batching, and memory planning.
 4. GPU execution.
 5. Native safetensors forward-pass loading and fine-tuning/training.
+6. Full GGUF LoRA/backprop training and optimizer support.
 
 ## Next Critical Phases
 

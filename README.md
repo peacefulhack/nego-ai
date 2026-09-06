@@ -190,6 +190,7 @@ Current status:
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
 - Caches loaded float32 tensor buffers per model instance for native forward experiments.
 - Includes deterministic temperature, top-k, top-p, repeat penalty, EOS-aware sampling, and native stream plumbing.
+- Loads token-bias adapters produced by native GGUF training.
 - Does not run production GGUF inference for large Qwen/Llama models yet.
 
 The native backend is the foundation for pure-Go chat/train/share. The next phases are real Qwen/Llama compatibility, performance work, and broader quantized kernels.
@@ -279,6 +280,25 @@ nego train check examples/5.train/train-job.json
 nego train validate examples/5.train/train-job.json
 nego train job.json
 ```
+
+Native GGUF adapter training is available as an early pure-Go path:
+
+```bash
+nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --out ./outputs/qwen3-token-bias
+nego run --native ./models/qwen3-gguf "Hello" --adapter ./outputs/qwen3-token-bias/adapter.json --max-tokens 16
+```
+
+```go
+model, err := nego.LoadModel(ctx, nego.ModelOptions{
+    Backend: "native",
+    Path:    "./models/qwen3-gguf",
+    Options: map[string]string{
+        "adapter_path": "./outputs/qwen3-token-bias/adapter.json",
+    },
+})
+```
+
+This writes a small token-bias adapter from the dataset. Full LoRA/backprop training for GGUF remains planned.
 
 ## Share Preparation
 
