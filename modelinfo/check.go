@@ -13,6 +13,7 @@ type CheckReport struct {
 	ChatTemplate  bool                   `json:"chat_template"`
 	ContextLength uint64                 `json:"context_length,omitempty"`
 	Quantization  string                 `json:"quantization,omitempty"`
+	Artifact      *Artifact              `json:"artifact,omitempty"`
 	Backends      []BackendCompatibility `json:"backends"`
 	Warnings      []string               `json:"warnings,omitempty"`
 }
@@ -30,6 +31,10 @@ func Check(path string) (*CheckReport, error) {
 	if err != nil {
 		return nil, err
 	}
+	return checkInfo(info)
+}
+
+func checkInfo(info *Info) (*CheckReport, error) {
 	report := &CheckReport{
 		Path:         info.Path,
 		ModelType:    info.ModelType,
@@ -42,11 +47,12 @@ func Check(path string) (*CheckReport, error) {
 		report.ContextLength = info.GGUF.ContextLength
 		report.Quantization = info.GGUF.Quantization
 	}
-	if runtimeFile, err := FindRuntimeFile(path, "gguf", "onnx"); err == nil {
+	if runtimeFile, err := FindRuntimeFile(info.Path, "gguf", "onnx"); err == nil {
 		report.RuntimeFile = runtimeFile
 	}
 	report.Backends = backendCompatibility(report, info)
 	report.Warnings = checkWarnings(report, info)
+	report.Artifact = resolveArtifact(info, report)
 	return report, nil
 }
 

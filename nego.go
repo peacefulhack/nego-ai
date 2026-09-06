@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/gakon/nego-ai/chattemplate"
+	"github.com/gakon/nego-ai/modelinfo"
 )
 
 type Role = chattemplate.Role
@@ -159,7 +161,11 @@ func BackendInfoByName(name string) (BackendInfo, bool) {
 
 func LoadModel(ctx context.Context, opts ModelOptions) (Model, error) {
 	if opts.Backend == "" {
-		return nil, fmt.Errorf("model backend is required")
+		backend, err := ResolveBackend(opts)
+		if err != nil {
+			return nil, err
+		}
+		opts.Backend = backend
 	}
 	backendRegistry.RLock()
 	backend := backendRegistry.backends[opts.Backend]
@@ -168,6 +174,26 @@ func LoadModel(ctx context.Context, opts ModelOptions) (Model, error) {
 		return nil, fmt.Errorf("backend %q is not registered", opts.Backend)
 	}
 	return backend.Load(ctx, opts)
+}
+
+func ResolveBackend(opts ModelOptions) (string, error) {
+	if opts.Backend != "" {
+		return opts.Backend, nil
+	}
+	if strings.TrimSpace(opts.Endpoint) != "" || strings.TrimSpace(opts.Model) != "" {
+		return "openai-compatible", nil
+	}
+	if strings.TrimSpace(opts.Path) == "" {
+		return "", fmt.Errorf("model path or remote model endpoint is required")
+	}
+	artifact, err := modelinfo.Resolve(opts.Path)
+	if err != nil {
+		return "", err
+	}
+	if artifact.RecommendedRunBackend != "" {
+		return artifact.RecommendedRunBackend, nil
+	}
+	return "", modelinfo.FormatResolveError(opts.Path, artifact)
 }
 
 func backendInfo(name string, backend Backend) BackendInfo {

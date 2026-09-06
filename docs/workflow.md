@@ -85,6 +85,17 @@ Check runtime compatibility:
 nego check ./models/qwen3
 ```
 
+The check output includes an artifact summary:
+
+```text
+Artifact:
+  Format:       hf-safetensors
+  Run:          not ready
+  Train:        process
+```
+
+Use that summary as the current source of truth for what Nego can do with a downloaded path. `hf-safetensors` models are valid for tokenizer work, inspection, and external training orchestration today. Native Go chat/training for safetensors is planned. GGUF artifacts resolve to the experimental pure-Go `native` backend when the tensor types are supported.
+
 List available runtime backends:
 
 ```bash

@@ -572,7 +572,7 @@ func TestCheckCommandReportsCompatibility(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
+	for _, want := range []string{"Artifact:", "Format:       gguf", "Run:          native", "Train:        not ready", "Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output:\n%s", want, out)
 		}
@@ -588,7 +588,11 @@ func TestCheckCommandJSON(t *testing.T) {
 	}
 	var body struct {
 		ChatTemplate bool `json:"chat_template"`
-		Backends     []struct {
+		Artifact     struct {
+			Format                string `json:"format"`
+			RecommendedRunBackend string `json:"recommended_run_backend"`
+		} `json:"artifact"`
+		Backends []struct {
 			Name       string `json:"name"`
 			Compatible bool   `json:"compatible"`
 		} `json:"backends"`
@@ -596,7 +600,7 @@ func TestCheckCommandJSON(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !body.ChatTemplate || len(body.Backends) == 0 {
+	if !body.ChatTemplate || body.Artifact.Format != "gguf" || body.Artifact.RecommendedRunBackend == "" || len(body.Backends) == 0 {
 		t.Fatalf("unexpected check json: %s", stdout.String())
 	}
 }

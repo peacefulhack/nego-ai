@@ -67,6 +67,29 @@ func TestLoadModelRequiresRegisteredBackend(t *testing.T) {
 	}
 }
 
+func TestLoadModelAutoSelectsRemoteBackend(t *testing.T) {
+	name := "openai-compatible"
+	if _, ok := BackendInfoByName(name); !ok {
+		if err := RegisterBackend(name, mockBackend{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model, err := LoadModel(context.Background(), ModelOptions{
+		Endpoint: "http://localhost:8080/v1",
+		Model:    "local-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+}
+
+func TestResolveBackendRequiresLocalOrRemoteTarget(t *testing.T) {
+	if _, err := ResolveBackend(ModelOptions{}); err == nil {
+		t.Fatal("expected target error")
+	}
+}
+
 func TestBackendInfoDiscovery(t *testing.T) {
 	name := "described-test-backend"
 	if err := RegisterBackend(name, describedBackend{}); err != nil {

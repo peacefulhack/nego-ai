@@ -7,14 +7,15 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 1. Download Hugging Face-style model files and GGUF runtime files.
 2. Cache downloads and list, inspect, or remove local model registry entries.
 3. Inspect model directories, model cards, config files, tokenizer files, safetensors metadata, and GGUF metadata.
-4. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
-5. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
-6. Use remote OpenAI-compatible chat and embedding APIs.
-7. Prepare, validate, convert, filter, split, and sample datasets.
-8. Run eval suites and compare reports.
-9. Create, validate, and run external training job JSON files.
-10. Create local share manifests and archive packages for trained model output directories.
-11. Upload regular files or small folders to Hub repos through inline commit uploads.
+4. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
+5. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
+6. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
+7. Use remote OpenAI-compatible chat and embedding APIs.
+8. Prepare, validate, convert, filter, split, and sample datasets.
+9. Run eval suites and compare reports.
+10. Create, validate, and run external training job JSON files.
+11. Create local share manifests and archive packages for trained model output directories.
+12. Upload regular files or small folders to Hub repos through inline commit uploads.
 
 ## Pure-Go Native Runtime Status
 
@@ -42,7 +43,8 @@ Not production-ready yet:
 
 ## Next Critical Phases
 
-1. Validate native forward math against known tiny Llama/Qwen GGUF fixtures.
-2. Run K-quant compatibility tests against small real GGUF fixtures.
-3. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
-4. Design native training separately from runtime inference; keep external training orchestration stable until then.
+1. Add native safetensors tensor reading into typed buffers.
+2. Validate native forward math against known tiny Llama/Qwen GGUF fixtures.
+3. Run K-quant compatibility tests against small real GGUF fixtures.
+4. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
+5. Design native training separately from runtime inference; keep external training orchestration stable until then.

@@ -16,6 +16,7 @@ Core Nego features use Go only:
 - Hugging Face-style downloads and cache management
 - Model registry, inspection, tokenizer helpers, prompt rendering
 - Safetensors header and tensor metadata inspection
+- Model artifact resolution for local run/train compatibility checks
 - Dataset utilities, eval helpers, run logs, and training job orchestration
 
 Some AI runtime and conversion features need third-party tools:
@@ -88,6 +89,7 @@ path, err := hub.DownloadFile(ctx, hub.DownloadFileOptions{
 
 ```go
 info, err := modelinfo.Inspect("./models/qwen3")
+artifact, err := modelinfo.Resolve("./models/qwen3")
 ```
 
 ```bash
@@ -125,6 +127,16 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
     Options: map[string]string{"gpu": "auto"},
 })
 ```
+
+For local or remote auto-selection, leave `Backend` empty:
+
+```go
+model, err := nego.LoadModel(ctx, nego.ModelOptions{
+    Path: "./models/qwen3-gguf",
+})
+```
+
+Nego resolves GGUF artifacts to the experimental pure-Go `native` backend when possible. Hugging Face safetensors downloads are detected as trainable through the external training job path today, while native safetensors chat/training is still being built.
 
 ```go
 import _ "github.com/gakon/nego-ai/backends/llama"

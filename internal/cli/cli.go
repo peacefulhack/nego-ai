@@ -1582,6 +1582,23 @@ func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 	} else {
 		fmt.Fprintln(w, "Chat template: no")
 	}
+	if report.Artifact != nil {
+		fmt.Fprintln(w, "Artifact:")
+		fmt.Fprintf(w, "  Format:       %s\n", report.Artifact.Format)
+		if report.Artifact.RecommendedRunBackend != "" {
+			fmt.Fprintf(w, "  Run:          %s\n", report.Artifact.RecommendedRunBackend)
+		} else {
+			fmt.Fprintln(w, "  Run:          not ready")
+		}
+		if report.Artifact.RecommendedTrainBackend != "" {
+			fmt.Fprintf(w, "  Train:        %s\n", report.Artifact.RecommendedTrainBackend)
+		} else {
+			fmt.Fprintln(w, "  Train:        not ready")
+		}
+		if report.Artifact.ParameterCount > 0 {
+			fmt.Fprintf(w, "  Parameters:   %d\n", report.Artifact.ParameterCount)
+		}
+	}
 	fmt.Fprintln(w, "Backends:")
 	for _, backend := range report.Backends {
 		status := "no"
