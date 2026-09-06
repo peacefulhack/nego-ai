@@ -1554,6 +1554,24 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 			fmt.Fprintf(w, "  DTypes:       %s\n", formatDTypeCounts(info.Safetensors.DTypeCounts))
 		}
 	}
+	if info.HFWeights != nil {
+		fmt.Fprintln(w, "HF weights:")
+		fmt.Fprintf(w, "  Ready:        %v\n", info.HFWeights.Ready)
+		if info.HFWeights.BlockCount > 0 {
+			fmt.Fprintf(w, "  Blocks:       %d\n", info.HFWeights.BlockCount)
+		}
+		if info.HFWeights.TokenEmbedding != "" {
+			fmt.Fprintf(w, "  Embedding:    %s\n", info.HFWeights.TokenEmbedding)
+		}
+		if info.HFWeights.TiedOutput {
+			fmt.Fprintln(w, "  Output:       tied")
+		} else if info.HFWeights.Output != "" {
+			fmt.Fprintf(w, "  Output:       %s\n", info.HFWeights.Output)
+		}
+		if len(info.HFWeights.Missing) > 0 {
+			fmt.Fprintf(w, "  Missing:      %d\n", len(info.HFWeights.Missing))
+		}
+	}
 	if info.Card != nil {
 		fmt.Fprintln(w, "Model card:")
 		if info.Card.Title != "" {

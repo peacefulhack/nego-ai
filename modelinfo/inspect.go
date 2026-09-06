@@ -12,15 +12,16 @@ import (
 const maxModelCardBytes = 2 << 20
 
 type Info struct {
-	Path             string           `json:"path"`
-	ModelType        string           `json:"model_type,omitempty"`
-	Architectures    []string         `json:"architectures,omitempty"`
-	Config           map[string]any   `json:"config,omitempty"`
-	GenerationConfig map[string]any   `json:"generation_config,omitempty"`
-	Card             *Card            `json:"card,omitempty"`
-	GGUF             *GGUFInfo        `json:"gguf,omitempty"`
-	Safetensors      *SafetensorsInfo `json:"safetensors,omitempty"`
-	Files            []File           `json:"files,omitempty"`
+	Path             string            `json:"path"`
+	ModelType        string            `json:"model_type,omitempty"`
+	Architectures    []string          `json:"architectures,omitempty"`
+	Config           map[string]any    `json:"config,omitempty"`
+	GenerationConfig map[string]any    `json:"generation_config,omitempty"`
+	Card             *Card             `json:"card,omitempty"`
+	GGUF             *GGUFInfo         `json:"gguf,omitempty"`
+	Safetensors      *SafetensorsInfo  `json:"safetensors,omitempty"`
+	HFWeights        *HFWeightManifest `json:"hf_weights,omitempty"`
+	Files            []File            `json:"files,omitempty"`
 }
 
 type Card struct {
@@ -76,6 +77,7 @@ func Inspect(path string) (*Info, error) {
 				return nil, err
 			}
 			info.Safetensors = safetensors
+			info.HFWeights, _ = HFWeightManifestFromInfo(info)
 		}
 		return info, nil
 	}
@@ -115,6 +117,7 @@ func Inspect(path string) (*Info, error) {
 	}
 	if safetensors, err := InspectSafetensors(root); err == nil {
 		info.Safetensors = safetensors
+		info.HFWeights, _ = HFWeightManifestFromInfo(info)
 	}
 	return info, nil
 }

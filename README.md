@@ -16,6 +16,7 @@ Core Nego features use Go only:
 - Hugging Face-style downloads and cache management
 - Model registry, inspection, tokenizer helpers, prompt rendering
 - Safetensors header, tensor metadata, and F32/F16/BF16 tensor buffer loading
+- Hugging Face Qwen/Llama safetensors weight manifest checks
 - Model artifact resolution for local run/train compatibility checks
 - Dataset utilities, eval helpers, run logs, and training job orchestration
 
