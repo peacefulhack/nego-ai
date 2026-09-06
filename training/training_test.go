@@ -222,6 +222,44 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	}
 }
 
+func TestRunNativeSupportsHFSafetensorsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	outputDir := filepath.Join(dir, "outputs", "qwen3-adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"num_hidden_layers":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0,"▁world":1},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), minimalSafetensors(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello world"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		OutputDir:     outputDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Artifact == nil || string(result.Artifact.Format) != "hf-safetensors" || result.UpdatedTokens != 2 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
 func TestValidateRejectsInvalidDatasetFormat(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "model")
@@ -286,5 +324,14 @@ func minimalGGUF(t *testing.T) []byte {
 	binary.LittleEndian.PutUint32(data[4:], 3)
 	binary.LittleEndian.PutUint64(data[8:], 0)
 	binary.LittleEndian.PutUint64(data[16:], 0)
+	return data
+}
+
+func minimalSafetensors(t *testing.T) []byte {
+	t.Helper()
+	header := `{"model.embed_tokens.weight":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}}`
+	data := make([]byte, 8+len(header)+4)
+	binary.LittleEndian.PutUint64(data[:8], uint64(len(header)))
+	copy(data[8:], header)
 	return data
 }

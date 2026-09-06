@@ -366,9 +366,9 @@ nego eval report reports/baseline.json
 Nego has two training paths today:
 
 1. External job orchestration for Hugging Face-style safetensors directories.
-2. Early pure-Go native adapter training for GGUF directories.
+2. Early pure-Go native adapter training for GGUF or Hugging Face safetensors directories.
 
-The native GGUF path writes a token-bias adapter. It is useful for validating the end-to-end local workflow and adapter loading without Python. Full LoRA/backprop training is still planned.
+The native path writes a token-bias adapter from either a Hugging Face safetensors directory or a GGUF directory. It is useful for validating the end-to-end local workflow and adapter loading without Python. Full LoRA/backprop training is still planned.
 
 For Hugging Face-style training orchestration, create a job JSON from the downloaded model and prepared data:
 
@@ -427,9 +427,14 @@ nego train examples/5.train/train-job.json
 
 The command prints stdout/stderr from the training process and exits non-zero if the process fails.
 
-For pure-Go GGUF adapter training, use the GGUF copy from the download step:
+For pure-Go adapter training, use the safetensors or GGUF copy from the download step:
 
 ```bash
+nego train native ./models/qwen3 \
+  --train-file examples/5.train/train.jsonl \
+  --dataset-format completion \
+  --out ./outputs/qwen3-token-bias
+
 nego train native ./models/qwen3-gguf \
   --train-file examples/5.train/train.jsonl \
   --dataset-format completion \

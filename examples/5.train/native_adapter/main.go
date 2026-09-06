@@ -10,12 +10,12 @@ import (
 )
 
 func main() {
-	baseModel := "./models/qwen3-gguf"
+	baseModel := "./models/qwen3"
 	if len(os.Args) > 1 {
 		baseModel = os.Args[1]
 	}
 	if _, err := os.Stat(baseModel); err != nil {
-		log.Fatalf("base model %s is missing; run step 1 with GGUF first: go run ./cmd/nego download Qwen/Qwen3-0.6B --gguf --local-dir ./models/qwen3-gguf", baseModel)
+		log.Fatalf("base model %s is missing; run step 1 first: go run ./cmd/nego download Qwen/Qwen3-0.6B --local-dir ./models/qwen3", baseModel)
 	}
 	result, err := training.RunNative(context.Background(), training.NativeOptions{
 		BaseModel:     baseModel,
@@ -30,7 +30,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Native GGUF adapter written")
+	fmt.Println("Native adapter written")
 	fmt.Printf("Base model: %s\n", result.BaseModel)
 	fmt.Printf("Train file: %s (%d rows)\n", result.TrainFile, result.TrainRows)
 	fmt.Printf("Adapter: %s\n", result.AdapterPath)

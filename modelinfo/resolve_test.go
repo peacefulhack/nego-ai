@@ -22,7 +22,7 @@ func TestResolveGGUFArtifact(t *testing.T) {
 	if artifact.RecommendedRunBackend != "native" {
 		t.Fatalf("RecommendedRunBackend = %q", artifact.RecommendedRunBackend)
 	}
-	if artifact.RecommendedTrainBackend != "" {
+	if artifact.RecommendedTrainBackend != "native-token-bias" {
 		t.Fatalf("RecommendedTrainBackend = %q", artifact.RecommendedTrainBackend)
 	}
 	if artifact.ParameterCount != 32 {
@@ -53,13 +53,13 @@ func TestResolveHFSafetensorsArtifact(t *testing.T) {
 	if artifact.RecommendedRunBackend != "" {
 		t.Fatalf("RecommendedRunBackend = %q", artifact.RecommendedRunBackend)
 	}
-	if artifact.RecommendedTrainBackend != "process" {
+	if artifact.RecommendedTrainBackend != "native-token-bias" {
 		t.Fatalf("RecommendedTrainBackend = %q", artifact.RecommendedTrainBackend)
 	}
 	if artifact.ParameterCount != 4 || artifact.TensorBytes != 8 {
 		t.Fatalf("unexpected tensor summary: %#v", artifact)
 	}
-	if !capabilityStatus(artifact.TrainBackends, "native-lora", CapabilityPlanned) {
+	if !capabilityStatus(artifact.TrainBackends, "native-token-bias", CapabilityExperimental) {
 		t.Fatalf("unexpected train backends: %#v", artifact.TrainBackends)
 	}
 }

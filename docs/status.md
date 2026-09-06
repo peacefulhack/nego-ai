@@ -34,7 +34,7 @@ Implemented:
 7. Early `Generate` and `Chat` loops for supported tiny GGUF fixtures.
 8. EOS stopping, repeat penalty controls, and streaming chat for native sampling.
 9. CLI access through `nego run --native` and `nego chat --native`.
-10. Early pure-Go GGUF token-bias adapter training through `nego train native`.
+10. Early pure-Go token-bias adapter training for GGUF or Hugging Face safetensors downloads through `nego train native`.
 
 Not production-ready yet:
 

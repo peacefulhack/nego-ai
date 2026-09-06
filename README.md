@@ -137,7 +137,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 })
 ```
 
-Nego resolves GGUF artifacts to the experimental pure-Go `native` backend when possible. Hugging Face safetensors downloads are detected as trainable through the external training job path today, while native safetensors chat/training is still being built.
+Nego resolves GGUF artifacts to the experimental pure-Go `native` backend when possible. Hugging Face safetensors downloads are detected for native tensor loading and token-bias adapter training, while native safetensors chat and full LoRA/backprop training are still being built.
 
 ```go
 import _ "github.com/gakon/nego-ai/backends/llama"
@@ -192,7 +192,7 @@ Current status:
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
 - Caches loaded float32 tensor buffers per model instance for native forward experiments.
 - Includes deterministic temperature, top-k, top-p, repeat penalty, EOS-aware sampling, and native stream plumbing.
-- Loads token-bias adapters produced by native GGUF training.
+- Loads token-bias adapters produced by native training.
 - Does not run production GGUF inference for large Qwen/Llama models yet.
 
 The native backend is the foundation for pure-Go chat/train/share. The next phases are real Qwen/Llama compatibility, performance work, and broader quantized kernels.
@@ -283,9 +283,10 @@ nego train validate examples/5.train/train-job.json
 nego train job.json
 ```
 
-Native GGUF adapter training is available as an early pure-Go path:
+Native token-bias adapter training is available as an early pure-Go path for GGUF or Hugging Face safetensors downloads:
 
 ```bash
+nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --out ./outputs/qwen3-token-bias
 nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --out ./outputs/qwen3-token-bias
 nego run --native ./models/qwen3-gguf "Hello" --adapter ./outputs/qwen3-token-bias/adapter.json --max-tokens 16
 ```
@@ -300,7 +301,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 })
 ```
 
-This writes a small token-bias adapter from the dataset. Full LoRA/backprop training for GGUF remains planned.
+This writes a small token-bias adapter from the dataset. Full LoRA/backprop training remains planned.
 
 ## Share Preparation
 

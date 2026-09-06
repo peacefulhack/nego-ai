@@ -572,7 +572,7 @@ func TestCheckCommandReportsCompatibility(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Artifact:", "Format:       gguf", "Run:          native", "Train:        not ready", "Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
+	for _, want := range []string{"Artifact:", "Format:       gguf", "Run:          native", "Train:        native-token-bias", "Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output:\n%s", want, out)
 		}

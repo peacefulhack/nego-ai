@@ -72,8 +72,8 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 		return result, fmt.Errorf("resolve base model: %w", err)
 	}
 	result.Artifact = artifact
-	if artifact.Format != modelinfo.ArtifactFormatGGUF && artifact.Format != modelinfo.ArtifactFormatMixed {
-		return result, fmt.Errorf("native GGUF training requires a GGUF model artifact, got %s", artifact.Format)
+	if !nativeTrainingFormat(artifact.Format) {
+		return result, fmt.Errorf("native token-bias training requires GGUF or Hugging Face safetensors weights, got %s", artifact.Format)
 	}
 	tok, err := loadNativeTrainingTokenizer(normalized.BaseModel, artifact)
 	if err != nil {
@@ -130,10 +130,19 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.UpdatedTokens = len(adapter.Bias)
 	result.Duration = time.Since(start)
 	result.Warnings = []string{
-		"native GGUF training currently writes a token-bias adapter; full LoRA/backprop training is still planned",
-		"load the adapter with native backend option adapter_path",
+		"native training currently writes a token-bias adapter; full LoRA/backprop training is still planned",
+		"load the adapter with native backend option adapter_path when using a compatible runtime vocabulary",
 	}
 	return result, nil
+}
+
+func nativeTrainingFormat(format modelinfo.ArtifactFormat) bool {
+	switch format {
+	case modelinfo.ArtifactFormatGGUF, modelinfo.ArtifactFormatHFSafetensors, modelinfo.ArtifactFormatMixed:
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeNativeOptions(opts NativeOptions) (NativeOptions, error) {

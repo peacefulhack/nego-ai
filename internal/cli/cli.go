@@ -423,7 +423,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
-	fmt.Fprintln(w, "  nego train native <gguf-model-path> --train-file <file> --out <dir> [flags]")
+	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego share package <model-dir> --out <archive.tar.gz> [flags]")
@@ -879,7 +879,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if len(positionals) != 1 || trainFile == "" || outputDir == "" {
-		fmt.Fprintln(stderr, "usage: nego train native <gguf-model-path> --train-file <file> --out <dir> [flags]")
+		fmt.Fprintln(stderr, "usage: nego train native <model-path> --train-file <file> --out <dir> [flags]")
 		return 2
 	}
 	result, err := training.RunNative(context.Background(), training.NativeOptions{
@@ -1008,7 +1008,7 @@ func trainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
-	fmt.Fprintln(w, "  nego train native <gguf-model-path> --train-file <file> --out <dir> [flags]")
+	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
 

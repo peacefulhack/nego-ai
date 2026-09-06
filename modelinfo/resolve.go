@@ -162,6 +162,11 @@ func trainCapabilities(artifact *Artifact) []ArtifactCapability {
 	case ArtifactFormatHFSafetensors, ArtifactFormatMixed:
 		return []ArtifactCapability{
 			{
+				Name:   "native-token-bias",
+				Status: CapabilityExperimental,
+				Reason: "pure-Go token-bias adapter training can use this model vocabulary",
+			},
+			{
 				Name:   "process",
 				Status: CapabilityExternal,
 				Reason: "Hugging Face-style weights can be used as a base model for external training jobs",
@@ -174,6 +179,11 @@ func trainCapabilities(artifact *Artifact) []ArtifactCapability {
 		}
 	case ArtifactFormatGGUF:
 		return []ArtifactCapability{
+			{
+				Name:   "native-token-bias",
+				Status: CapabilityExperimental,
+				Reason: "pure-Go token-bias adapter training can use this GGUF or sidecar vocabulary",
+			},
 			{
 				Name:   "native-lora",
 				Status: CapabilityPlanned,
