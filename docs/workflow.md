@@ -67,7 +67,7 @@ nego download meta-llama/Llama-3.2-1B --token "$HF_TOKEN" --local-dir ./models/l
 
 ## 2. Inspect the Downloaded Model
 
-Check model files, config, GGUF metadata, and model card metadata:
+Check model files, config, safetensors/GGUF metadata, and model card metadata:
 
 ```bash
 nego inspect ./models/qwen3
@@ -85,6 +85,26 @@ Check runtime compatibility:
 nego check ./models/qwen3
 ```
 
+The check output includes an artifact summary:
+
+```text
+Artifact:
+  Format:       hf-safetensors
+  Run:          not ready
+  Train:        process
+```
+
+Use that summary as the current source of truth for what Nego can do with a downloaded path. `hf-safetensors` models are valid for tokenizer work, inspection, and external training orchestration today. Native Go chat/training for safetensors is planned. GGUF artifacts resolve to the experimental pure-Go `native` backend when the tensor types are supported.
+
+The safetensors path also exposes a native Go tensor store for runtime development:
+
+```go
+store, err := modelinfo.OpenSafetensors("./models/qwen3")
+values, tensor, err := store.LoadTensorFloat32("model.embed_tokens.weight")
+reader, tensor, err := store.TensorReader("model.embed_tokens.weight")
+defer reader.Close()
+```
+
 List available runtime backends:
 
 ```bash
@@ -94,7 +114,7 @@ nego backends info native
 nego backends info openai-compatible
 ```
 
-`native` is the pure-Go runtime track. It can load GGUF metadata, build model specs and tensor-name maps, report missing runtime tensors, load per-block weights from GGUF tensor storage, read tokenizer vocabulary metadata, encode/decode text through a basic GGUF vocab path, plan prompt tokens for generation, read tensor directories and raw tensor bytes, load and cache selected tensors as float32 buffers, run early CPU tensor math, activation, vector, RoPE, attention, KV cache, single-step multi-head attention, embedding, MLP, logits, transformer-block, and single-token forward primitives, sample deterministically, and run an early multi-token generate/chat loop for supported tiny float32 GGUF fixtures today. Production inference for real Qwen/Llama GGUF models is still under development.
+`native` is the pure-Go runtime track. It can load GGUF metadata, build model specs and tensor-name maps, report missing runtime tensors, load per-block weights from GGUF tensor storage, read tokenizer vocabulary and BPE merge metadata, encode/decode text through a GGUF vocab path, plan prompt tokens for generation, read tensor directories and raw tensor bytes, load and cache selected tensors as float32 buffers, dequantize early F32/F16/BF16/Q4_0/Q4_1/Q5_0/Q5_1/Q8_0/Q8_1/Q2_K/Q3_K/Q4_K/Q5_K/Q6_K tensors, run early CPU tensor math, activation, vector, RoPE, attention, KV cache, decode-state, single-step multi-head attention, embedding, MLP, logits, transformer-block, and single-token forward primitives, sample deterministically with repeat penalty and EOS stopping, and run early multi-token generate/chat/streaming loops for supported tiny GGUF fixtures today. Production inference for real Qwen/Llama GGUF models is still under development.
 
 ## 3. Prepare a Dataset
 
@@ -225,19 +245,19 @@ nego run ./models/qwen3-gguf "Explain Go in one paragraph."
 Run with GPU acceleration when your `llama-cli` build supports CUDA, Metal, Vulkan, ROCm, or another llama.cpp GPU backend:
 
 ```bash
-nego run ./models/qwen3-gguf "Explain Go in one paragraph." --gpu full --flash-attn
+nego run --backend llama.cpp ./models/qwen3-gguf "Explain Go in one paragraph." --gpu full --flash-attn
 ```
 
 Force CPU-only:
 
 ```bash
-nego run ./models/qwen3-gguf "Explain Go in one paragraph." --gpu off
+nego run --backend llama.cpp ./models/qwen3-gguf "Explain Go in one paragraph." --gpu off
 ```
 
 Use explicit multi-GPU placement:
 
 ```bash
-nego run ./models/qwen3-gguf "Explain Go in one paragraph." \
+nego run --backend llama.cpp ./models/qwen3-gguf "Explain Go in one paragraph." \
   --gpu full \
   --main-gpu 0 \
   --tensor-split 3,1 \
@@ -253,13 +273,13 @@ nego chat ./models/qwen3-gguf "Hello"
 Start interactive chat:
 
 ```bash
-nego chat ./models/qwen3-gguf --interactive
+nego chat --backend llama.cpp ./models/qwen3-gguf --interactive
 ```
 
 Start interactive chat with a resumable session:
 
 ```bash
-nego chat ./models/qwen3-gguf --interactive --session chats/qwen.json
+nego chat --backend llama.cpp ./models/qwen3-gguf --interactive --session chats/qwen.json
 ```
 
 Save a one-shot chat session:
@@ -343,15 +363,21 @@ nego eval report reports/baseline.json
 
 ## 8. Train or Fine-Tune
 
-Current Nego training is an external process runner. It is useful for wrapping Python, shell scripts, or another training tool while keeping a consistent Nego workflow. Training uses the Hugging Face-style model from step 1 (`./models/qwen3`), not the GGUF runtime copy used for chat.
+Nego has two training paths today:
 
-Create a job JSON from the downloaded model and prepared data:
+1. External job orchestration for Hugging Face-style safetensors directories.
+2. Early pure-Go native adapter training for GGUF or Hugging Face safetensors directories.
+
+The native path writes a token-bias adapter from either a Hugging Face safetensors directory or a GGUF directory. It is useful for validating the end-to-end local workflow and adapter loading without Python. Full LoRA/backprop training is still planned.
+
+For Hugging Face-style training orchestration, create a job JSON from the downloaded model and prepared data:
 
 ```bash
 nego train init \
   --base-model ./models/qwen3 \
   --train-file examples/5.train/train.jsonl \
   --eval-file examples/5.train/test.jsonl \
+  --dataset-format completion \
   --output-dir ./outputs/qwen3-lora \
   --out examples/5.train/train-job.json
 ```
@@ -365,6 +391,7 @@ Minimal `job.json` shape:
   "base_model": "./models/qwen3",
   "train_file": "examples/5.train/train.jsonl",
   "eval_file": "examples/5.train/test.jsonl",
+  "dataset_format": "completion",
   "output_dir": "./outputs/qwen3-lora",
   "command": "python",
   "args": [
@@ -385,6 +412,13 @@ Minimal `job.json` shape:
 }
 ```
 
+Validate it before running the trainer:
+
+```bash
+nego train check examples/5.train/train-job.json
+nego train validate examples/5.train/train-job.json
+```
+
 Run it:
 
 ```bash
@@ -392,6 +426,43 @@ nego train examples/5.train/train-job.json
 ```
 
 The command prints stdout/stderr from the training process and exits non-zero if the process fails.
+
+For pure-Go adapter training, use the safetensors or GGUF copy from the download step:
+
+```bash
+nego train native ./models/qwen3 \
+  --train-file examples/5.train/train.jsonl \
+  --dataset-format completion \
+  --out ./outputs/qwen3-token-bias
+
+nego train native ./models/qwen3-gguf \
+  --train-file examples/5.train/train.jsonl \
+  --dataset-format completion \
+  --out ./outputs/qwen3-token-bias
+```
+
+The output directory contains:
+
+```text
+adapter.json
+```
+
+Load the adapter for native generation:
+
+```bash
+nego run --native ./models/qwen3-gguf "Hello" \
+  --adapter ./outputs/qwen3-token-bias/adapter.json
+```
+
+```go
+model, err := nego.LoadModel(ctx, nego.ModelOptions{
+    Backend: "native",
+    Path:    "./models/qwen3-gguf",
+    Options: map[string]string{
+        "adapter_path": "./outputs/qwen3-token-bias/adapter.json",
+    },
+})
+```
 
 ## 9. Inspect and Evaluate the Trained Output
 
@@ -453,7 +524,7 @@ http://localhost:8080/v1/chat/completions
 
 ## 12. Package or Share the Model
 
-Direct model packaging and hub upload commands are planned. For now, prepare the output directory manually:
+Direct large-file LFS/Xet upload is still planned. Today, you can prepare the output directory, write a local share manifest, create an archive, and upload regular files through an inline Hub commit:
 
 ```text
 outputs/qwen3-sft/
@@ -483,10 +554,36 @@ tags:
 # qwen3-sft
 ```
 
-Planned Nego commands:
+Create a manifest with file sizes and SHA-256 checksums:
 
 ```bash
-nego model package ./outputs/qwen3-sft --out qwen3-sft.tar
+nego share manifest ./outputs/qwen3-sft \
+  --out ./outputs/qwen3-sft/share-manifest.json \
+  --repo username/qwen3-sft \
+  --base-model Qwen/Qwen3-0.6B
+```
+
+Create a portable archive:
+
+```bash
+nego share package ./outputs/qwen3-sft \
+  --out ./outputs/qwen3-sft.tar.gz \
+  --repo username/qwen3-sft \
+  --base-model Qwen/Qwen3-0.6B
+```
+
+Upload a regular file or small output folder:
+
+```bash
+nego share upload username/qwen3-sft ./outputs/qwen3-sft/README.md README.md --token $HF_TOKEN
+nego share upload username/qwen3-sft ./outputs/qwen3-sft release --include "*.json" --include "*.md" --token $HF_TOKEN
+```
+
+Large `.safetensors`, `.gguf`, and adapter files may require Hugging Face LFS/Xet support, which is not implemented yet.
+
+Planned upload command:
+
+```bash
 nego hub upload ./outputs/qwen3-sft --repo username/qwen3-sft
 ```
 
@@ -503,4 +600,4 @@ nego hub upload ./outputs/qwen3-sft --repo username/qwen3-sft
 9. Inspect and evaluate the trained output: implemented.
 10. Convert or optimize the model: implemented through an external GGUF converter.
 11. Serve locally: implemented.
-12. Package or share the model: planned.
+12. Package or share the model: local share manifest, archive packaging, and inline Hub commit upload implemented; large LFS/Xet upload planned.

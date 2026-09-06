@@ -38,6 +38,17 @@ func TestSamplerTopP(t *testing.T) {
 	}
 }
 
+func TestSamplerRepeatPenalty(t *testing.T) {
+	sampler := NewSampler(SamplingOptions{Temperature: 0, RepeatPenalty: 2})
+	got, err := sampler.SampleWithHistory([]float32{10, 9}, []int{0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1 {
+		t.Fatalf("got %d, want 1", got)
+	}
+}
+
 func TestSamplerRejectsInvalidLogits(t *testing.T) {
 	sampler := NewSampler(SamplingOptions{Temperature: 1})
 	if _, err := sampler.Sample(nil); err == nil {
@@ -60,5 +71,8 @@ func TestSamplerRejectsInvalidOptions(t *testing.T) {
 	}
 	if _, err := NewSampler(SamplingOptions{Temperature: 1, TopP: float32(math.Inf(1))}).Sample([]float32{1}); err == nil {
 		t.Fatal("expected Inf top-p error")
+	}
+	if _, err := NewSampler(SamplingOptions{RepeatPenalty: 0.5}).SampleWithHistory([]float32{1}, []int{0}); err == nil {
+		t.Fatal("expected invalid repeat penalty error")
 	}
 }

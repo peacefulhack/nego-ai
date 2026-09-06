@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+
+	"github.com/gakon/nego-ai/share"
 )
 
 func main() {
@@ -18,4 +21,19 @@ func main() {
 	fmt.Println("- README.md model card")
 	fmt.Println()
 	fmt.Println(string(card))
+
+	manifest, err := share.BuildManifest(share.ManifestOptions{
+		Path:      "examples/8.share-trained-model",
+		RepoID:    "username/qwen3-sft",
+		BaseModel: "Qwen/Qwen3-0.6B",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Example share manifest:")
+	fmt.Println(string(data))
 }

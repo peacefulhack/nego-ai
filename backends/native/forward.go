@@ -1,6 +1,7 @@
 package native
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -33,6 +34,24 @@ func (m *Model) planGeneration(prompt string, options GenerationOptions) (Genera
 }
 
 func (m *Model) ForwardToken(tokenID int, position int) ([]float32, error) {
+	return m.forwardToken(tokenID, position, nil)
+}
+
+func (m *Model) ForwardTokenWithState(tokenID int, state *DecodeState) ([]float32, error) {
+	if state == nil {
+		return nil, fmt.Errorf("decode state is nil")
+	}
+	logits, err := m.forwardToken(tokenID, state.Position, state.Cache)
+	if err != nil {
+		return nil, err
+	}
+	if err := state.advance(); err != nil {
+		return nil, err
+	}
+	return logits, nil
+}
+
+func (m *Model) forwardToken(tokenID int, position int, cache *KVCache) ([]float32, error) {
 	if !m.manifest.Ready() {
 		return nil, fmt.Errorf("native tensor manifest is not ready: missing=%d shape_errors=%d", len(m.manifest.Missing), len(m.manifest.MissingShape))
 	}
@@ -49,7 +68,7 @@ func (m *Model) ForwardToken(tokenID int, position int) ([]float32, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load block %d: %w", i, err)
 		}
-		hidden, err = transformerBlockFloat32(hidden, weights, m.spec, position)
+		hidden, err = transformerBlockWithStateFloat32(hidden, weights, m.spec, i, position, cache)
 		if err != nil {
 			return nil, fmt.Errorf("block %d: %w", i, err)
 		}
@@ -69,7 +88,14 @@ func (m *Model) ForwardToken(tokenID int, position int) ([]float32, error) {
 	return logitsFromOutputWeightFloat32(hidden, outputValues, outputTensor)
 }
 
-func (m *Model) generateText(req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+	return m.generateTextWithEmitter(ctx, req, nil)
+}
+
+func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRequest, emit func(string) error) (*nego.GenerateOutput, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	options := generationOptions(req)
 	plan, err := m.planGeneration(req.Prompt, options)
 	if err != nil {
@@ -81,26 +107,69 @@ func (m *Model) generateText(req nego.GenerateRequest) (*nego.GenerateOutput, er
 	if !m.manifest.Ready() {
 		return nil, m.inferenceError()
 	}
-	current := plan.PromptTokenIDs[len(plan.PromptTokenIDs)-1]
-	sampler := NewSampler(plan.Options.Sampling)
-	var b strings.Builder
-	for step := 0; step < plan.Options.MaxTokens; step++ {
-		logits, err := m.ForwardToken(current, len(plan.PromptTokenIDs)+step-1)
+	state, err := NewDecodeState(m.spec)
+	if err != nil {
+		return nil, err
+	}
+	var logits []float32
+	for _, id := range plan.PromptTokenIDs {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		logits, err = m.ForwardTokenWithState(id, state)
 		if err != nil {
 			return nil, err
 		}
-		nextID, text, err := sampleTokenTextWithSampler(logits, m.vocab, sampler)
+	}
+	sampler := NewSampler(plan.Options.Sampling)
+	history := append([]int(nil), plan.PromptTokenIDs...)
+	var b strings.Builder
+	emittedLen := 0
+	for step := 0; step < plan.Options.MaxTokens; step++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		nextID, text, err := sampleTokenTextWithHistory(m.applyAdapter(logits), m.vocab, sampler, history)
 		if err != nil {
 			return nil, err
+		}
+		history = append(history, nextID)
+		if isEOSToken(m.vocab, nextID) {
+			return &nego.GenerateOutput{Text: b.String()}, nil
 		}
 		b.WriteString(text)
 		out := b.String()
 		if stopReached(out, plan.Options.Stop) {
-			return &nego.GenerateOutput{Text: trimAtStop(out, plan.Options.Stop)}, nil
+			trimmed := trimAtStop(out, plan.Options.Stop)
+			if err := emitDelta(emit, trimmed, &emittedLen); err != nil {
+				return nil, err
+			}
+			return &nego.GenerateOutput{Text: trimmed}, nil
 		}
-		current = nextID
+		if err := emitDelta(emit, out, &emittedLen); err != nil {
+			return nil, err
+		}
+		if step == plan.Options.MaxTokens-1 {
+			break
+		}
+		logits, err = m.ForwardTokenWithState(nextID, state)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &nego.GenerateOutput{Text: b.String()}, nil
+}
+
+func emitDelta(emit func(string) error, text string, emittedLen *int) error {
+	if emit == nil || emittedLen == nil || len(text) <= *emittedLen {
+		return nil
+	}
+	delta := text[*emittedLen:]
+	*emittedLen = len(text)
+	if delta == "" {
+		return nil
+	}
+	return emit(delta)
 }
 
 func stopReached(text string, stops []string) bool {

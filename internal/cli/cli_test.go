@@ -544,6 +544,26 @@ func TestInspectCommandShowsModelCard(t *testing.T) {
 	}
 }
 
+func TestInspectCommandShowsSafetensorsMetadata(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), cliSafetensorsFixture(t, `{
+		"weight":{"dtype":"F16","shape":[2,2],"data_offsets":[0,8]}
+	}`, 8), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"inspect", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Safetensors:", "Tensors:      1", "Parameters:   4", "DTypes:       F16=1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestCheckCommandReportsCompatibility(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	var stdout, stderr bytes.Buffer
@@ -552,7 +572,7 @@ func TestCheckCommandReportsCompatibility(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
+	for _, want := range []string{"Artifact:", "Format:       gguf", "Run:          native", "Train:        native-token-bias", "Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output:\n%s", want, out)
 		}
@@ -568,7 +588,11 @@ func TestCheckCommandJSON(t *testing.T) {
 	}
 	var body struct {
 		ChatTemplate bool `json:"chat_template"`
-		Backends     []struct {
+		Artifact     struct {
+			Format                string `json:"format"`
+			RecommendedRunBackend string `json:"recommended_run_backend"`
+		} `json:"artifact"`
+		Backends []struct {
 			Name       string `json:"name"`
 			Compatible bool   `json:"compatible"`
 		} `json:"backends"`
@@ -576,7 +600,7 @@ func TestCheckCommandJSON(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !body.ChatTemplate || len(body.Backends) == 0 {
+	if !body.ChatTemplate || body.Artifact.Format != "gguf" || body.Artifact.RecommendedRunBackend == "" || len(body.Backends) == 0 {
 		t.Fatalf("unexpected check json: %s", stdout.String())
 	}
 }
@@ -585,7 +609,7 @@ func TestRunCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"run", modelPath, "hello"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -602,12 +626,16 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 		"run",
 		modelPath,
 		"hello",
+		"--backend",
+		"llama.cpp",
 		"--max-tokens",
 		"8",
 		"--temperature",
 		"0.7",
 		"--top-p",
 		"0.9",
+		"--repeat-penalty",
+		"1.2",
 		"--seed",
 		"42",
 		"--stop",
@@ -631,10 +659,34 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
+	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--repeat-penalty 1.2", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected %q in output: %q", want, stdout.String())
 		}
+	}
+}
+
+func TestRunCommandNativeShortcutUsesNativeBackend(t *testing.T) {
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--native"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "inspect native GGUF model") {
+		t.Fatalf("expected native backend error, got %q", stderr.String())
+	}
+}
+
+func TestRunCommandRejectsNativeAndBackendTogether(t *testing.T) {
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--native", "--backend", "llama.cpp"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "either --native or --backend") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
 
@@ -651,12 +703,24 @@ func TestRunCommandRejectsInvalidGPUMode(t *testing.T) {
 	}
 }
 
+func TestRunCommandRejectsInvalidRepeatPenalty(t *testing.T) {
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--repeat-penalty", "0.5"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "repeat-penalty") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
 func TestRunCommandAppendsRunLog(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
 	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"run", modelPath, "hello", "--log", logPath, "--max-tokens", "4"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp", "--log", logPath, "--max-tokens", "4"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -677,7 +741,7 @@ func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"chat", modelPath, "hello"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--backend", "llama.cpp"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -686,12 +750,24 @@ func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	}
 }
 
+func TestChatCommandNativeShortcutUsesNativeBackend(t *testing.T) {
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--native"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "inspect native GGUF model") {
+		t.Fatalf("expected native backend error, got %q", stderr.String())
+	}
+}
+
 func TestChatCommandSavesSession(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
 	sessionPath := filepath.Join(t.TempDir(), "chat.json")
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--save", sessionPath}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--backend", "llama.cpp", "--save", sessionPath}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -709,7 +785,7 @@ func TestChatInteractiveStreamsTurns(t *testing.T) {
 	modelPath := fakeCLIGGUF(t)
 	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
 	var stdout, stderr bytes.Buffer
-	code := RunWithIO(context.Background(), []string{"chat", modelPath, "--interactive", "--log", logPath}, strings.NewReader("hello\n/exit\n"), &stdout, &stderr)
+	code := RunWithIO(context.Background(), []string{"chat", modelPath, "--backend", "llama.cpp", "--interactive", "--log", logPath}, strings.NewReader("hello\n/exit\n"), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -759,7 +835,7 @@ func TestRunsListAndShow(t *testing.T) {
 	modelPath := fakeCLIGGUF(t)
 	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--log", logPath}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--backend", "llama.cpp", "--log", logPath}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("chat code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -821,6 +897,16 @@ func TestBackendsCommands(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "GGUF") || !strings.Contains(stdout.String(), "ctx_size") {
 		t.Fatalf("unexpected info output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"backends", "info", "native"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("native info code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "generate_experimental") || !strings.Contains(stdout.String(), "legacy_quant_dequant") {
+		t.Fatalf("unexpected native info output: %q", stdout.String())
 	}
 
 	stdout.Reset()
@@ -947,6 +1033,7 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		tensorSplit:    "3,1",
 		splitMode:      "layer",
 		flashAttention: true,
+		adapterPath:    "adapter.json",
 	})
 	want := map[string]string{
 		"threads":      "4",
@@ -957,6 +1044,7 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		"tensor_split": "3,1",
 		"split_mode":   "layer",
 		"flash_attn":   "true",
+		"adapter_path": "adapter.json",
 		"custom":       "value",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -983,7 +1071,7 @@ func TestValidateRuntimeOptions(t *testing.T) {
 }
 
 func TestRuntimeLogEntrySanitizesEndpoint(t *testing.T) {
-	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, nil, 0, nil, nil)
+	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, 0, nil, 0, nil, nil)
 	if entry.Endpoint != "https://example.com/v1" {
 		t.Fatalf("Endpoint = %q", entry.Endpoint)
 	}
@@ -1000,7 +1088,7 @@ func TestRunCommandUsesConfigFile(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
 	configPath := filepath.Join(t.TempDir(), "nego.json")
-	body := `{"path":` + strconv.Quote(modelPath) + `,"prompt":"hello","max_tokens":4}`
+	body := `{"backend":"llama.cpp","path":` + strconv.Quote(modelPath) + `,"prompt":"hello","max_tokens":4}`
 	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1018,7 +1106,7 @@ func TestChatCommandUsesConfigFile(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
 	configPath := filepath.Join(t.TempDir(), "nego.json")
-	body := `{"path":` + strconv.Quote(modelPath) + `,"system":"Helpful","prompt":"hello"}`
+	body := `{"backend":"llama.cpp","path":` + strconv.Quote(modelPath) + `,"system":"Helpful","prompt":"hello"}`
 	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1157,6 +1245,146 @@ func TestTrainCommand(t *testing.T) {
 	}
 }
 
+func TestTrainValidateCommand(t *testing.T) {
+	jobPath := filepath.Join(t.TempDir(), "job.json")
+	body := `{"name":"test","command":` + strconv.Quote(fakeTrainingCommand(t)) + `,"args":["hello"]}`
+	if err := os.WriteFile(jobPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "validate", jobPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Training job is valid") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"train", "validate", jobPath, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"valid":true`) {
+		t.Fatalf("unexpected json: %q", stdout.String())
+	}
+}
+
+func TestTrainCheckCommand(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	jobPath := filepath.Join(dir, "job.json")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"name":"test","base_model":` + strconv.Quote(modelDir) + `,"train_file":` + strconv.Quote(trainFile) + `,"dataset_format":"completion","command":` + strconv.Quote(fakeTrainingCommand(t)) + `}`
+	if err := os.WriteFile(jobPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "check", jobPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Training job check passed") || !strings.Contains(stdout.String(), "Train file:") || !strings.Contains(stdout.String(), "(1 rows)") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"train", "check", jobPath, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"valid":true`) || !strings.Contains(stdout.String(), `"train_rows":1`) {
+		t.Fatalf("unexpected json: %q", stdout.String())
+	}
+}
+
+func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	dir := t.TempDir()
+	trainFile := filepath.Join(dir, "train.jsonl")
+	outputDir := filepath.Join(dir, "adapter")
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--dataset-format",
+		"completion",
+		"--out",
+		outputDir,
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Native training completed") || !strings.Contains(stdout.String(), "Adapter:") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTrainCheckCommandRedactsSensitiveArgs(t *testing.T) {
+	dir := t.TempDir()
+	jobPath := filepath.Join(dir, "job.json")
+	body := `{"name":"secret","command":` + strconv.Quote(fakeTrainingCommand(t)) + `,"args":["--token","super-secret","API_KEY=also-secret"]}`
+	if err := os.WriteFile(jobPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "check", jobPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "super-secret") || strings.Contains(stdout.String(), "also-secret") {
+		t.Fatalf("sensitive value leaked: %q", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "<redacted>") {
+		t.Fatalf("expected redaction: %q", stdout.String())
+	}
+}
+
+func TestTrainValidateCommandReportsInvalidJob(t *testing.T) {
+	jobPath := filepath.Join(t.TempDir(), "job.json")
+	if err := os.WriteFile(jobPath, []byte(`{"name":"bad"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "validate", jobPath}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "training command is required") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
 func TestTrainInitCommand(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models", "qwen3")
@@ -1206,8 +1434,92 @@ func TestTrainInitCommand(t *testing.T) {
 	if spec.BaseModel != modelDir || spec.TrainFile != trainFile || spec.OutputDir == "" {
 		t.Fatalf("unexpected spec: %#v", spec)
 	}
+	if spec.DatasetFormat != "auto" {
+		t.Fatalf("unexpected dataset format: %#v", spec)
+	}
 	if !strings.Contains(stdout.String(), "Training job:") {
 		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+}
+
+func TestShareManifestCommand(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "README.md"), []byte("model card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "adapter.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "share-manifest.json")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "manifest", modelDir, "--out", outPath, "--repo", "user/model", "--base-model", "Qwen/Qwen3-0.6B"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Share manifest:") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"repo_id": "user/model"`) || !strings.Contains(string(data), `"adapter.safetensors"`) {
+		t.Fatalf("unexpected manifest: %s", string(data))
+	}
+}
+
+func TestSharePackageCommand(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "README.md"), []byte("model card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "model.tar.gz")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "package", modelDir, "--out", outPath, "--repo", "user/model"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Share package:") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+	if info, err := os.Stat(outPath); err != nil || info.Size() == 0 {
+		t.Fatalf("archive was not written: info=%#v err=%v", info, err)
+	}
+}
+
+func TestShareUploadCommand(t *testing.T) {
+	var sawUpload bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/models/user/model/commit/main" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		sawUpload = true
+		_, _ = w.Write([]byte(`{"oid":"abc123","commitUrl":"https://huggingface.co/user/model/commit/abc123"}`))
+	}))
+	defer server.Close()
+
+	filePath := filepath.Join(t.TempDir(), "README.md")
+	if err := os.WriteFile(filePath, []byte("model card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "upload", "user/model", filePath, "README.md", "--endpoint", server.URL, "--token", "test-token"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !sawUpload || !strings.Contains(stdout.String(), "Uploaded:") || !strings.Contains(stdout.String(), "abc123") {
+		t.Fatalf("unexpected upload output: saw=%v stdout=%q", sawUpload, stdout.String())
 	}
 }
 
@@ -1267,6 +1579,15 @@ func fakeCLIGGUF(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func cliSafetensorsFixture(t *testing.T, header string, dataBytes int) []byte {
+	t.Helper()
+	header = strings.TrimSpace(header)
+	data := make([]byte, 8+len(header)+dataBytes)
+	binary.LittleEndian.PutUint64(data[:8], uint64(len(header)))
+	copy(data[8:], header)
+	return data
 }
 
 func fakeInspectGGUF(t *testing.T) string {

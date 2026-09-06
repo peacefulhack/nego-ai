@@ -8,20 +8,25 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/gakon/nego-ai/datasets"
+	"github.com/gakon/nego-ai/modelinfo"
 )
 
 type JobSpec struct {
-	Name      string            `json:"name"`
-	Method    string            `json:"method,omitempty"`
-	BaseModel string            `json:"base_model,omitempty"`
-	TrainFile string            `json:"train_file,omitempty"`
-	EvalFile  string            `json:"eval_file,omitempty"`
-	OutputDir string            `json:"output_dir,omitempty"`
-	Command   string            `json:"command"`
-	Args      []string          `json:"args,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	WorkDir   string            `json:"work_dir,omitempty"`
+	Name          string            `json:"name"`
+	Method        string            `json:"method,omitempty"`
+	BaseModel     string            `json:"base_model,omitempty"`
+	TrainFile     string            `json:"train_file,omitempty"`
+	EvalFile      string            `json:"eval_file,omitempty"`
+	DatasetFormat string            `json:"dataset_format,omitempty"`
+	OutputDir     string            `json:"output_dir,omitempty"`
+	Command       string            `json:"command"`
+	Args          []string          `json:"args,omitempty"`
+	Env           map[string]string `json:"env,omitempty"`
+	WorkDir       string            `json:"work_dir,omitempty"`
 }
 
 type Result struct {
@@ -32,17 +37,35 @@ type Result struct {
 	Duration time.Duration `json:"duration"`
 }
 
+type PreflightReport struct {
+	Name          string   `json:"name,omitempty"`
+	Method        string   `json:"method,omitempty"`
+	BaseModel     string   `json:"base_model,omitempty"`
+	ModelType     string   `json:"model_type,omitempty"`
+	Architectures []string `json:"architectures,omitempty"`
+	TrainFile     string   `json:"train_file,omitempty"`
+	TrainRows     int      `json:"train_rows,omitempty"`
+	EvalFile      string   `json:"eval_file,omitempty"`
+	EvalRows      int      `json:"eval_rows,omitempty"`
+	DatasetFormat string   `json:"dataset_format,omitempty"`
+	OutputDir     string   `json:"output_dir,omitempty"`
+	Command       string   `json:"command,omitempty"`
+	Args          []string `json:"args,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
+}
+
 type InitOptions struct {
-	Name      string
-	Method    string
-	BaseModel string
-	TrainFile string
-	EvalFile  string
-	OutputDir string
-	Command   string
-	Script    string
-	WorkDir   string
-	Env       map[string]string
+	Name          string
+	Method        string
+	BaseModel     string
+	TrainFile     string
+	EvalFile      string
+	DatasetFormat string
+	OutputDir     string
+	Command       string
+	Script        string
+	WorkDir       string
+	Env           map[string]string
 }
 
 func NewLoRAJob(opts InitOptions) (JobSpec, error) {
@@ -61,14 +84,18 @@ func NewLoRAJob(opts InitOptions) (JobSpec, error) {
 	if opts.OutputDir == "" {
 		opts.OutputDir = "./outputs/" + opts.Name
 	}
+	if opts.DatasetFormat == "" {
+		opts.DatasetFormat = "auto"
+	}
 	spec := JobSpec{
-		Name:      opts.Name,
-		Method:    opts.Method,
-		BaseModel: opts.BaseModel,
-		TrainFile: opts.TrainFile,
-		EvalFile:  opts.EvalFile,
-		OutputDir: opts.OutputDir,
-		Command:   opts.Command,
+		Name:          opts.Name,
+		Method:        opts.Method,
+		BaseModel:     opts.BaseModel,
+		TrainFile:     opts.TrainFile,
+		EvalFile:      opts.EvalFile,
+		DatasetFormat: opts.DatasetFormat,
+		OutputDir:     opts.OutputDir,
+		Command:       opts.Command,
 		Args: []string{
 			opts.Script,
 			"--model", opts.BaseModel,
@@ -91,6 +118,16 @@ func Validate(spec JobSpec) error {
 	if spec.Command == "" {
 		return fmt.Errorf("training command is required")
 	}
+	if spec.WorkDir != "" {
+		if err := requireDir("", spec.WorkDir, "work dir"); err != nil {
+			return err
+		}
+	}
+	for key := range spec.Env {
+		if key == "" || strings.Contains(key, "=") {
+			return fmt.Errorf("training env key %q is invalid", key)
+		}
+	}
 	if spec.BaseModel != "" {
 		if err := requirePath(spec.WorkDir, spec.BaseModel, "base model"); err != nil {
 			return err
@@ -106,7 +143,70 @@ func Validate(spec JobSpec) error {
 			return err
 		}
 	}
+	if spec.OutputDir != "" {
+		if err := validateOutputDir(spec.WorkDir, spec.OutputDir); err != nil {
+			return err
+		}
+	}
+	format := spec.DatasetFormat
+	if format == "" {
+		format = "auto"
+	}
+	if spec.TrainFile != "" {
+		if _, err := validateDatasetFile(spec.WorkDir, spec.TrainFile, "train file", format); err != nil {
+			return err
+		}
+	}
+	if spec.EvalFile != "" {
+		if _, err := validateDatasetFile(spec.WorkDir, spec.EvalFile, "eval file", format); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func Preflight(spec JobSpec) (PreflightReport, error) {
+	report := PreflightReport{
+		Name:          spec.Name,
+		Method:        spec.Method,
+		BaseModel:     spec.BaseModel,
+		TrainFile:     spec.TrainFile,
+		EvalFile:      spec.EvalFile,
+		DatasetFormat: spec.DatasetFormat,
+		OutputDir:     spec.OutputDir,
+		Command:       spec.Command,
+		Args:          append([]string(nil), spec.Args...),
+	}
+	if report.DatasetFormat == "" {
+		report.DatasetFormat = "auto"
+	}
+	if err := Validate(spec); err != nil {
+		return report, err
+	}
+	if spec.BaseModel != "" {
+		info, err := modelinfo.Inspect(resolvePath(spec.WorkDir, spec.BaseModel))
+		if err != nil {
+			return report, fmt.Errorf("inspect base model: %w", err)
+		}
+		report.ModelType = info.ModelType
+		report.Architectures = append([]string(nil), info.Architectures...)
+		report.Warnings = append(report.Warnings, trainingModelWarnings(info)...)
+	}
+	if spec.TrainFile != "" {
+		rows, err := validateDatasetFile(spec.WorkDir, spec.TrainFile, "train file", report.DatasetFormat)
+		if err != nil {
+			return report, err
+		}
+		report.TrainRows = rows
+	}
+	if spec.EvalFile != "" {
+		rows, err := validateDatasetFile(spec.WorkDir, spec.EvalFile, "eval file", report.DatasetFormat)
+		if err != nil {
+			return report, err
+		}
+		report.EvalRows = rows
+	}
+	return report, nil
 }
 
 func WriteJob(path string, spec JobSpec) error {
@@ -125,7 +225,7 @@ func WriteJob(path string, spec JobSpec) error {
 }
 
 func Run(ctx context.Context, spec JobSpec) (Result, error) {
-	if err := Validate(spec); err != nil {
+	if _, err := Preflight(spec); err != nil {
 		return Result{Name: spec.Name}, err
 	}
 	start := time.Now()
@@ -176,6 +276,80 @@ func requireFile(workDir, path, label string) error {
 		return fmt.Errorf("%s %q must be a file", label, path)
 	}
 	return nil
+}
+
+func requireDir(workDir, path, label string) error {
+	if err := requirePath(workDir, path, label); err != nil {
+		return err
+	}
+	resolved := resolvePath(workDir, path)
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s %q must be a directory", label, path)
+	}
+	return nil
+}
+
+func validateOutputDir(workDir, path string) error {
+	resolved := resolvePath(workDir, path)
+	info, err := os.Stat(resolved)
+	if err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("output dir %q must be a directory", path)
+		}
+		return nil
+	}
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return fmt.Errorf("output dir %q is not available: %w", path, err)
+}
+
+func validateDatasetFile(workDir, path, label, format string) (int, error) {
+	rows, err := datasets.ReadFile(resolvePath(workDir, path))
+	if err != nil {
+		return 0, fmt.Errorf("%s %q is invalid: %w", label, path, err)
+	}
+	if len(rows) == 0 {
+		return 0, fmt.Errorf("%s %q has no rows", label, path)
+	}
+	if err := datasets.ValidateFormat(rows, format); err != nil {
+		return 0, fmt.Errorf("%s %q does not match %s format: %w", label, path, format, err)
+	}
+	return len(rows), nil
+}
+
+func trainingModelWarnings(info *modelinfo.Info) []string {
+	if info == nil {
+		return nil
+	}
+	hasSafetensors := false
+	hasGGUF := false
+	hasTokenizer := false
+	for _, file := range info.Files {
+		switch file.Kind {
+		case "safetensors":
+			hasSafetensors = true
+		case "gguf":
+			hasGGUF = true
+		case "tokenizer", "tokenizer_config":
+			hasTokenizer = true
+		}
+	}
+	var warnings []string
+	if hasGGUF && !hasSafetensors {
+		warnings = append(warnings, "base model looks like a GGUF runtime artifact; most fine-tuning tools expect a Hugging Face model directory with safetensors")
+	}
+	if !hasSafetensors && info.GGUF == nil {
+		warnings = append(warnings, "base model has no safetensors or GGUF weights detected")
+	}
+	if !hasTokenizer {
+		warnings = append(warnings, "base model has no tokenizer.json or tokenizer_config.json detected")
+	}
+	return warnings
 }
 
 func resolvePath(workDir, path string) string {

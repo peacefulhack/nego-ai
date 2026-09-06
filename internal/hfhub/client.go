@@ -2,6 +2,7 @@ package hfhub
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -63,6 +64,49 @@ type FileMetadata struct {
 	Commit string
 	ETag   string
 	Size   int64
+}
+
+type CommitFile struct {
+	Path    string
+	Content []byte
+}
+
+type CommitRequest struct {
+	Files             []CommitFile
+	Message           string
+	Description       string
+	CreatePullRequest bool
+	ParentCommit      string
+}
+
+type CommitInfo struct {
+	OID            string `json:"oid"`
+	CommitOID      string `json:"commitOid"`
+	CommitURL      string `json:"commitUrl"`
+	CommitURLAlt   string `json:"commit_url"`
+	PullRequestURL string `json:"prUrl"`
+	PRURLAlt       string `json:"pr_url"`
+}
+
+func (i CommitInfo) CommitID() string {
+	if i.OID != "" {
+		return i.OID
+	}
+	return i.CommitOID
+}
+
+func (i CommitInfo) URL() string {
+	if i.CommitURL != "" {
+		return i.CommitURL
+	}
+	return i.CommitURLAlt
+}
+
+func (i CommitInfo) PRURL() string {
+	if i.PullRequestURL != "" {
+		return i.PullRequestURL
+	}
+	return i.PRURLAlt
 }
 
 func (c *Client) ResolveRevision(ctx context.Context, repoType, repoID, revision string) (string, error) {
@@ -176,6 +220,36 @@ func (c *Client) DownloadFile(ctx context.Context, repoType, repoID, revision, f
 	return meta, nil
 }
 
+func (c *Client) CreateCommit(ctx context.Context, repoType, repoID, revision string, commit CommitRequest) (*CommitInfo, error) {
+	body, err := commitNDJSON(commit)
+	if err != nil {
+		return nil, err
+	}
+	commitURL := c.commitURL(repoType, repoID, revision)
+	if commit.CreatePullRequest {
+		commitURL += "?create_pr=1"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, commitURL, strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	c.addHeaders(req)
+	req.Header.Set("Content-Type", "application/x-ndjson")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.httpError(resp)
+	}
+	var out CommitInfo
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (c *Client) apiRepoURL(repoType, repoID, revision string) string {
 	return fmt.Sprintf("%s/api/%s/%s/revision/%s", c.endpoint, apiKind(repoType), escapeRepoID(repoID), url.PathEscape(revision))
 }
@@ -185,6 +259,10 @@ func (c *Client) apiTreeURL(repoType, repoID, revision string) string {
 	values.Set("recursive", "true")
 	values.Set("expand", "false")
 	return fmt.Sprintf("%s/api/%s/%s/tree/%s?%s", c.endpoint, apiKind(repoType), escapeRepoID(repoID), url.PathEscape(revision), values.Encode())
+}
+
+func (c *Client) commitURL(repoType, repoID, revision string) string {
+	return fmt.Sprintf("%s/api/%s/%s/commit/%s", c.endpoint, apiKind(repoType), escapeRepoID(repoID), url.PathEscape(revision))
 }
 
 func (c *Client) resolveURL(repoType, repoID, revision, filename string) string {
@@ -269,6 +347,37 @@ func firstHeader(header http.Header, names ...string) string {
 		}
 	}
 	return ""
+}
+
+func commitNDJSON(commit CommitRequest) (string, error) {
+	header := map[string]any{
+		"summary":     commit.Message,
+		"description": commit.Description,
+	}
+	if commit.ParentCommit != "" {
+		header["parentCommit"] = commit.ParentCommit
+	}
+	lines := make([]string, 0, len(commit.Files)+1)
+	headerLine, err := json.Marshal(map[string]any{"key": "header", "value": header})
+	if err != nil {
+		return "", err
+	}
+	lines = append(lines, string(headerLine))
+	for _, file := range commit.Files {
+		line, err := json.Marshal(map[string]any{
+			"key": "file",
+			"value": map[string]any{
+				"path":     file.Path,
+				"content":  base64.StdEncoding.EncodeToString(file.Content),
+				"encoding": "base64",
+			},
+		})
+		if err != nil {
+			return "", err
+		}
+		lines = append(lines, string(line))
+	}
+	return strings.Join(lines, "\n") + "\n", nil
 }
 
 func nextLink(linkHeader string) string {

@@ -16,24 +16,25 @@ import (
 )
 
 type Entry struct {
-	ID          string            `json:"id"`
-	Command     string            `json:"command"`
-	Backend     string            `json:"backend,omitempty"`
-	Path        string            `json:"path,omitempty"`
-	Model       string            `json:"model,omitempty"`
-	Endpoint    string            `json:"endpoint,omitempty"`
-	Prompt      string            `json:"prompt,omitempty"`
-	Messages    []nego.Message    `json:"messages,omitempty"`
-	Output      string            `json:"output,omitempty"`
-	Error       string            `json:"error,omitempty"`
-	StartedAt   time.Time         `json:"started_at"`
-	DurationMS  int64             `json:"duration_ms"`
-	MaxTokens   int               `json:"max_tokens,omitempty"`
-	Temperature float64           `json:"temperature,omitempty"`
-	TopP        float64           `json:"top_p,omitempty"`
-	Stop        []string          `json:"stop,omitempty"`
-	Seed        int64             `json:"seed,omitempty"`
-	Options     map[string]string `json:"options,omitempty"`
+	ID            string            `json:"id"`
+	Command       string            `json:"command"`
+	Backend       string            `json:"backend,omitempty"`
+	Path          string            `json:"path,omitempty"`
+	Model         string            `json:"model,omitempty"`
+	Endpoint      string            `json:"endpoint,omitempty"`
+	Prompt        string            `json:"prompt,omitempty"`
+	Messages      []nego.Message    `json:"messages,omitempty"`
+	Output        string            `json:"output,omitempty"`
+	Error         string            `json:"error,omitempty"`
+	StartedAt     time.Time         `json:"started_at"`
+	DurationMS    int64             `json:"duration_ms"`
+	MaxTokens     int               `json:"max_tokens,omitempty"`
+	Temperature   float64           `json:"temperature,omitempty"`
+	TopP          float64           `json:"top_p,omitempty"`
+	RepeatPenalty float64           `json:"repeat_penalty,omitempty"`
+	Stop          []string          `json:"stop,omitempty"`
+	Seed          int64             `json:"seed,omitempty"`
+	Options       map[string]string `json:"options,omitempty"`
 }
 
 func NewID() string {

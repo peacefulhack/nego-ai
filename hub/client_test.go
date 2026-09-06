@@ -1,7 +1,10 @@
 package hub
 
 import (
+	"bufio"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -205,4 +208,147 @@ func TestDownloadSnapshotWithFilters(t *testing.T) {
 	if entries[0].FileCount != 2 || entries[0].TotalSize != 25 {
 		t.Fatalf("unexpected registry sizes: %#v", entries[0])
 	}
+}
+
+func TestUploadFileCreatesInlineCommit(t *testing.T) {
+	var lines []commitLine
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/models/acme/tiny/commit/main" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
+			t.Fatalf("Authorization = %q", got)
+		}
+		if got := r.Header.Get("Content-Type"); got != "application/x-ndjson" {
+			t.Fatalf("Content-Type = %q", got)
+		}
+		lines = readCommitLines(t, r)
+		_, _ = w.Write([]byte(`{"oid":"abc123","commitUrl":"https://huggingface.co/acme/tiny/commit/abc123"}`))
+	}))
+	defer server.Close()
+
+	filePath := filepath.Join(t.TempDir(), "README.md")
+	if err := os.WriteFile(filePath, []byte("hello model"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(WithEndpoint(server.URL), WithToken("test-token"))
+	result, err := client.UploadFile(context.Background(), UploadFileOptions{
+		RepoID:     "acme/tiny",
+		LocalPath:  filePath,
+		PathInRepo: "docs/README.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Commit != "abc123" || result.CommitURL == "" || len(result.Files) != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if len(lines) != 2 || lines[0].Key != "header" || lines[1].Key != "file" {
+		t.Fatalf("unexpected commit lines: %#v", lines)
+	}
+	if got := string(decodeCommitContent(t, lines[1])); got != "hello model" {
+		t.Fatalf("uploaded content = %q", got)
+	}
+	if lines[1].Value["path"] != "docs/README.md" {
+		t.Fatalf("uploaded path = %#v", lines[1].Value["path"])
+	}
+}
+
+func TestUploadFolderUsesFilters(t *testing.T) {
+	var files []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/models/acme/tiny/commit/dev" || r.URL.Query().Get("create_pr") != "1" {
+			t.Fatalf("unexpected request: %s", r.URL.String())
+		}
+		for _, line := range readCommitLines(t, r) {
+			if line.Key == "file" {
+				files = append(files, line.Value["path"].(string))
+			}
+		}
+		_, _ = w.Write([]byte(`{"commitOid":"def456","prUrl":"https://huggingface.co/acme/tiny/discussions/1"}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.bin"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient(WithEndpoint(server.URL), WithToken("test-token"))
+	result, err := client.UploadFolder(context.Background(), UploadFolderOptions{
+		RepoID:     "acme/tiny",
+		Revision:   "dev",
+		LocalDir:   dir,
+		PathInRepo: "release",
+		Include:    []string{"*.md", "*.bin"},
+		Exclude:    []string{"*.bin"},
+		CreatePR:   true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Commit != "def456" || result.PRURL == "" || result.TotalSize != 4 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if len(files) != 1 || files[0] != "release/README.md" {
+		t.Fatalf("unexpected uploaded files: %#v", files)
+	}
+}
+
+func TestUploadFileRejectsLargeInlineFile(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "large.bin")
+	if err := os.WriteFile(filePath, []byte("12345"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := NewClient(WithToken("test-token")).UploadFile(context.Background(), UploadFileOptions{
+		RepoID:        "acme/tiny",
+		LocalPath:     filePath,
+		MaxInlineSize: 4,
+	})
+	if err == nil || !strings.Contains(err.Error(), "LFS/Xet") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+type commitLine struct {
+	Key   string         `json:"key"`
+	Value map[string]any `json:"value"`
+}
+
+func readCommitLines(t *testing.T, r *http.Request) []commitLine {
+	t.Helper()
+	var out []commitLine
+	scanner := bufio.NewScanner(r.Body)
+	for scanner.Scan() {
+		var line commitLine
+		if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, line)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func decodeCommitContent(t *testing.T, line commitLine) []byte {
+	t.Helper()
+	raw, ok := line.Value["content"].(string)
+	if !ok {
+		t.Fatalf("missing content: %#v", line.Value)
+	}
+	data, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
 }

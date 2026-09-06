@@ -19,6 +19,8 @@ import (
 	"github.com/gakon/nego-ai/internal/registry"
 )
 
+const defaultMaxInlineUploadSize int64 = 10 * 1024 * 1024
+
 func (c *Client) DownloadFile(ctx context.Context, opts DownloadFileOptions) (string, error) {
 	if err := validateFileOptions(&opts); err != nil {
 		return "", err
@@ -333,6 +335,95 @@ func (c *Client) ResolveGGUFFile(ctx context.Context, opts ResolveGGUFFileOption
 	return nil, notFound("no GGUF repo found for %s", opts.RepoID)
 }
 
+func (c *Client) UploadFile(ctx context.Context, opts UploadFileOptions) (*UploadResult, error) {
+	if err := validateUploadFileOptions(&opts); err != nil {
+		return nil, err
+	}
+	cfg, err := c.config("", opts.Token, opts.Progress)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.token == "" {
+		return nil, invalidOptions("upload token is required; pass --token or set HF_TOKEN")
+	}
+	repoType := normalizeRepoType(opts.RepoType)
+	revision := normalizeRevision(opts.Revision)
+	pathInRepo, err := filePathInRepo(opts.LocalPath, opts.PathInRepo)
+	if err != nil {
+		return nil, err
+	}
+	maxSize := uploadMaxInlineSize(opts.MaxInlineSize)
+	data, size, err := readInlineUploadFile(opts.LocalPath, maxSize)
+	if err != nil {
+		return nil, err
+	}
+	c.report(cfg.progress, ProgressEvent{RepoID: opts.RepoID, Filename: pathInRepo, BytesTotal: size, FilesTotal: 1, State: "planned"})
+	api := c.api(cfg.token)
+	c.report(cfg.progress, ProgressEvent{RepoID: opts.RepoID, Filename: pathInRepo, BytesDone: size, BytesTotal: size, FilesDone: 1, FilesTotal: 1, State: "uploading"})
+	info, err := api.CreateCommit(ctx, string(repoType), opts.RepoID, revision, hfhub.CommitRequest{
+		Files: []hfhub.CommitFile{{
+			Path:    pathInRepo,
+			Content: data,
+		}},
+		Message:           firstNonEmpty(opts.CommitMessage, "Upload "+pathInRepo),
+		Description:       opts.CommitDescription,
+		CreatePullRequest: opts.CreatePR,
+		ParentCommit:      opts.ParentCommit,
+	})
+	if err != nil {
+		return nil, wrapHFError(err)
+	}
+	result := uploadResult(opts.RepoID, repoType, revision, info, []UploadedFile{{
+		LocalPath:  opts.LocalPath,
+		PathInRepo: pathInRepo,
+		Size:       size,
+	}})
+	c.report(cfg.progress, ProgressEvent{RepoID: opts.RepoID, Filename: pathInRepo, BytesDone: size, BytesTotal: size, FilesDone: 1, FilesTotal: 1, State: "complete", Destination: result.CommitURL})
+	return result, nil
+}
+
+func (c *Client) UploadFolder(ctx context.Context, opts UploadFolderOptions) (*UploadResult, error) {
+	if err := validateUploadFolderOptions(&opts); err != nil {
+		return nil, err
+	}
+	cfg, err := c.config("", opts.Token, opts.Progress)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.token == "" {
+		return nil, invalidOptions("upload token is required; pass --token or set HF_TOKEN")
+	}
+	repoType := normalizeRepoType(opts.RepoType)
+	revision := normalizeRevision(opts.Revision)
+	files, commitFiles, err := collectInlineUploadFiles(opts.LocalDir, opts.PathInRepo, opts.Include, opts.Exclude, uploadMaxInlineSize(opts.MaxInlineSize))
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range files {
+		c.report(cfg.progress, ProgressEvent{RepoID: opts.RepoID, Filename: file.PathInRepo, BytesTotal: file.Size, FilesTotal: len(files), State: "planned"})
+	}
+	api := c.api(cfg.token)
+	var total int64
+	for i, file := range files {
+		total += file.Size
+		c.report(cfg.progress, ProgressEvent{RepoID: opts.RepoID, Filename: file.PathInRepo, BytesDone: file.Size, BytesTotal: file.Size, FilesDone: i + 1, FilesTotal: len(files), State: "uploading"})
+	}
+	info, err := api.CreateCommit(ctx, string(repoType), opts.RepoID, revision, hfhub.CommitRequest{
+		Files:             commitFiles,
+		Message:           firstNonEmpty(opts.CommitMessage, "Upload folder"),
+		Description:       opts.CommitDescription,
+		CreatePullRequest: opts.CreatePR,
+		ParentCommit:      opts.ParentCommit,
+	})
+	if err != nil {
+		return nil, wrapHFError(err)
+	}
+	result := uploadResult(opts.RepoID, repoType, revision, info, files)
+	result.TotalSize = total
+	c.report(cfg.progress, ProgressEvent{RepoID: opts.RepoID, FilesDone: len(files), FilesTotal: len(files), State: "complete", Destination: result.CommitURL})
+	return result, nil
+}
+
 func ggufRepoCandidates(repoID, override string) []string {
 	if override != "" {
 		return []string{override}
@@ -584,6 +675,213 @@ func validateSnapshotOptions(opts *DownloadSnapshotOptions) error {
 		}
 	}
 	return nil
+}
+
+func validateUploadFileOptions(opts *UploadFileOptions) error {
+	if err := validateCommon(opts.RepoID, opts.RepoType); err != nil {
+		return err
+	}
+	if strings.TrimSpace(opts.LocalPath) == "" {
+		return invalidOptions("local path is required")
+	}
+	if opts.PathInRepo != "" {
+		path, err := normalizeRepoFilePath(opts.PathInRepo)
+		if err != nil {
+			return err
+		}
+		if path != "" && !strings.HasSuffix(opts.PathInRepo, "/") {
+			return cache.ValidateRepoPath(path)
+		}
+	}
+	return nil
+}
+
+func validateUploadFolderOptions(opts *UploadFolderOptions) error {
+	if err := validateCommon(opts.RepoID, opts.RepoType); err != nil {
+		return err
+	}
+	if strings.TrimSpace(opts.LocalDir) == "" {
+		return invalidOptions("local directory is required")
+	}
+	for _, pattern := range append(append([]string{}, opts.Include...), opts.Exclude...) {
+		if strings.TrimSpace(pattern) == "" {
+			return invalidOptions("include/exclude patterns cannot be empty")
+		}
+	}
+	if opts.PathInRepo != "" {
+		_, err := normalizeRepoDirPath(opts.PathInRepo)
+		return err
+	}
+	return nil
+}
+
+func uploadMaxInlineSize(value int64) int64 {
+	if value <= 0 {
+		return defaultMaxInlineUploadSize
+	}
+	return value
+}
+
+func filePathInRepo(localPath, pathInRepo string) (string, error) {
+	dest, err := normalizeRepoFilePath(pathInRepo)
+	if err != nil {
+		return "", err
+	}
+	if dest == "" || strings.HasSuffix(strings.TrimSpace(pathInRepo), "/") {
+		base := filepath.Base(localPath)
+		if base == "." || base == string(filepath.Separator) || base == "" {
+			return "", invalidOptions("cannot infer repository path for %q", localPath)
+		}
+		dest = joinRepoPath(dest, base)
+	}
+	if err := cache.ValidateRepoPath(dest); err != nil {
+		return "", err
+	}
+	return dest, nil
+}
+
+func collectInlineUploadFiles(root, pathInRepo string, include, exclude []string, maxSize int64) ([]UploadedFile, []hfhub.CommitFile, error) {
+	info, err := os.Lstat(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, nil, invalidOptions("refusing to upload symlink %q", root)
+	}
+	if !info.IsDir() {
+		return nil, nil, invalidOptions("local path %q is not a directory", root)
+	}
+	repoPrefix, err := normalizeRepoDirPath(pathInRepo)
+	if err != nil {
+		return nil, nil, err
+	}
+	var files []UploadedFile
+	var commitFiles []hfhub.CommitFile
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return invalidOptions("refusing to upload symlink %q", path)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if !patterns.Match(rel, include, exclude) {
+			return nil
+		}
+		repoPath := joinRepoPath(repoPrefix, rel)
+		if err := cache.ValidateRepoPath(repoPath); err != nil {
+			return err
+		}
+		data, size, err := readInlineUploadFile(path, maxSize)
+		if err != nil {
+			return err
+		}
+		files = append(files, UploadedFile{LocalPath: path, PathInRepo: repoPath, Size: size})
+		commitFiles = append(commitFiles, hfhub.CommitFile{Path: repoPath, Content: data})
+		return nil
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(files) == 0 {
+		return nil, nil, invalidOptions("no files matched upload filters")
+	}
+	return files, commitFiles, nil
+}
+
+func readInlineUploadFile(path string, maxSize int64) ([]byte, int64, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, 0, invalidOptions("refusing to upload symlink %q", path)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, 0, invalidOptions("local path %q is not a regular file", path)
+	}
+	if info.Size() > maxSize {
+		return nil, 0, invalidOptions("file %q is %d bytes; inline upload limit is %d bytes and LFS/Xet upload is not implemented yet", path, info.Size(), maxSize)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	return data, int64(len(data)), nil
+}
+
+func normalizeRepoFilePath(path string) (string, error) {
+	path = strings.TrimSpace(filepath.ToSlash(path))
+	if path == "" || path == "." || path == "/" {
+		return "", nil
+	}
+	path = strings.TrimPrefix(path, "/")
+	path = filepath.ToSlash(filepath.Clean(path))
+	if path == "." {
+		return "", nil
+	}
+	return path, nil
+}
+
+func normalizeRepoDirPath(path string) (string, error) {
+	path, err := normalizeRepoFilePath(path)
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", nil
+	}
+	if err := cache.ValidateRepoPath(path + "/.nego-placeholder"); err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(path, "/"), nil
+}
+
+func joinRepoPath(prefix, path string) string {
+	prefix = strings.Trim(strings.TrimSpace(filepath.ToSlash(prefix)), "/")
+	path = strings.Trim(strings.TrimSpace(filepath.ToSlash(path)), "/")
+	if prefix == "" {
+		return path
+	}
+	if path == "" {
+		return prefix
+	}
+	return prefix + "/" + path
+}
+
+func uploadResult(repoID string, repoType RepoType, revision string, info *hfhub.CommitInfo, files []UploadedFile) *UploadResult {
+	result := &UploadResult{
+		RepoID:   repoID,
+		RepoType: repoType,
+		Revision: revision,
+		Files:    append([]UploadedFile(nil), files...),
+	}
+	for _, file := range files {
+		result.TotalSize += file.Size
+	}
+	if info != nil {
+		result.Commit = info.CommitID()
+		result.CommitURL = info.URL()
+		result.PRURL = info.PRURL()
+	}
+	return result
 }
 
 func validateCommon(repoID string, repoType RepoType) error {

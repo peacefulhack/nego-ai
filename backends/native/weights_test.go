@@ -118,6 +118,34 @@ func TestChatRunsForwardLoop(t *testing.T) {
 	}
 }
 
+func TestStreamChatRunsForwardLoop(t *testing.T) {
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeBlockGGUF(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	stream, err := model.StreamChat(context.Background(), nego.ChatRequest{
+		Messages:  []nego.Message{{Role: nego.RoleUser, Content: "hello"}},
+		MaxTokens: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	for token := range stream.Tokens() {
+		out.WriteString(token.Text)
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() == "" {
+		t.Fatal("expected streamed text")
+	}
+}
+
 func fakeBlockGGUF(t *testing.T) string {
 	t.Helper()
 	var buf bytes.Buffer

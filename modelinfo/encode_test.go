@@ -29,6 +29,30 @@ func TestGGUFVocabEncodeByteFallback(t *testing.T) {
 	assertIDs(t, got, []int{1})
 }
 
+func TestGGUFVocabEncodeUsesBPEMerges(t *testing.T) {
+	vocab := &GGUFVocab{
+		Tokens: []string{"<unk>", "l", "o", "w", "e", "r", "lo", "low", "er", "lower"},
+		Merges: []string{"l o", "lo w", "e r"},
+	}
+	got, err := vocab.Encode("lower", EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertIDs(t, got, []int{7, 8})
+}
+
+func TestGGUFVocabEncodePrefersExactTokenWithMerges(t *testing.T) {
+	vocab := &GGUFVocab{
+		Tokens: []string{"<unk>", "hello"},
+		Merges: []string{"h e"},
+	}
+	got, err := vocab.Encode("hello", EncodeOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertIDs(t, got, []int{1})
+}
+
 func TestGGUFVocabEncodeUsesZeroUnknownToken(t *testing.T) {
 	vocab := &GGUFVocab{Tokens: []string{"<unk>"}}
 	got, err := vocab.Encode("?", EncodeOptions{})

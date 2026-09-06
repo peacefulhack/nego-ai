@@ -16,8 +16,28 @@ func tensorFloat32(tensor modelinfo.GGUFTensor, data []byte) ([]float32, error) 
 		return dequantizeF32(data, elements)
 	case 1:
 		return dequantizeF16(data, elements)
+	case 2:
+		return dequantizeQ4_0(data, elements)
+	case 3:
+		return dequantizeQ4_1(data, elements)
+	case 6:
+		return dequantizeQ5_0(data, elements)
+	case 7:
+		return dequantizeQ5_1(data, elements)
 	case 8:
 		return dequantizeQ8_0(data, elements)
+	case 9:
+		return dequantizeQ8_1(data, elements)
+	case 10:
+		return dequantizeQ2_K(data, elements)
+	case 11:
+		return dequantizeQ3_K(data, elements)
+	case 12:
+		return dequantizeQ4_K(data, elements)
+	case 13:
+		return dequantizeQ5_K(data, elements)
+	case 14:
+		return dequantizeQ6_K(data, elements)
 	case 30:
 		return dequantizeBF16(data, elements)
 	default:

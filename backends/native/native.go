@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	nego "github.com/gakon/nego-ai"
+	"github.com/gakon/nego-ai/adapters"
 	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/modelinfo"
 )
@@ -25,11 +26,13 @@ type Backend struct{}
 func (b Backend) Info() nego.BackendInfo {
 	return nego.BackendInfo{
 		Name:         BackendName,
-		Description:  "Experimental pure-Go GGUF runtime foundation.",
-		Capabilities: []string{"load_gguf", "inspect_tensors"},
+		Description:  "Experimental pure-Go GGUF runtime foundation for local model loading, tokenization, and early CPU inference.",
+		Capabilities: []string{"load_gguf", "inspect_tensors", "tokenize_gguf", "generate_experimental", "chat_experimental", "kv_cache", "float32_tensor_cache", "legacy_quant_dequant", "k_quant_dequant"},
 		Required:     []string{"path"},
 		Options: []nego.BackendOption{
 			{Name: "template_path", Description: "directory or file path for chat template sidecars"},
+			{Name: "adapter", Description: "token-bias adapter JSON produced by native training"},
+			{Name: "adapter_path", Description: "alias for adapter"},
 		},
 	}
 }
@@ -61,6 +64,11 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		return nil, fmt.Errorf("build native model spec: %w", err)
 	}
 	manifest := buildTensorManifest(info, spec, tensorNames)
+	adapter, err := loadAdapter(opts.Options)
+	if err != nil {
+		tensors.Close()
+		return nil, err
+	}
 	return &Model{
 		path:       modelPath,
 		info:       info,
@@ -70,6 +78,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		manifest:   manifest,
 		tensors:    tensors,
 		float32:    make(map[string]cachedFloat32Tensor),
+		adapter:    adapter,
 		promptPath: promptPath(opts.Path, modelPath, opts.Options),
 	}, nil
 }
@@ -89,25 +98,27 @@ type Model struct {
 	tensors    *tensorStore
 	float32    map[string]cachedFloat32Tensor
 	tensorMu   sync.Mutex
+	adapter    *adapters.TokenBiasAdapter
 	promptPath string
 }
 
-func (m *Model) Generate(_ context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
-	return m.generateText(req)
+func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+	return m.generateText(ctx, req)
 }
 
-func (m *Model) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
+func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
 	prompt, err := m.renderChatPrompt(req.Messages)
 	if err != nil {
 		return nil, err
 	}
-	out, err := m.generateText(nego.GenerateRequest{
-		Prompt:      prompt,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		TopP:        req.TopP,
-		Stop:        req.Stop,
-		Seed:        req.Seed,
+	out, err := m.generateText(ctx, nego.GenerateRequest{
+		Prompt:        prompt,
+		MaxTokens:     req.MaxTokens,
+		Temperature:   req.Temperature,
+		TopP:          req.TopP,
+		RepeatPenalty: req.RepeatPenalty,
+		Stop:          req.Stop,
+		Seed:          req.Seed,
 	})
 	if err != nil {
 		return nil, err
@@ -115,8 +126,29 @@ func (m *Model) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatRespons
 	return &nego.ChatResponse{Message: nego.Message{Role: nego.RoleAssistant, Content: out.Text}}, nil
 }
 
-func (m *Model) StreamChat(context.Context, nego.ChatRequest) (nego.Stream, error) {
-	return nil, m.inferenceError()
+func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stream, error) {
+	prompt, err := m.renderChatPrompt(req.Messages)
+	if err != nil {
+		return nil, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stream := newNativeStream(cancel)
+	go stream.run(ctx, func(emit func(string) error) error {
+		_, err := m.generateTextWithEmitter(ctx, nego.GenerateRequest{
+			Prompt:        prompt,
+			MaxTokens:     req.MaxTokens,
+			Temperature:   req.Temperature,
+			TopP:          req.TopP,
+			RepeatPenalty: req.RepeatPenalty,
+			Stop:          req.Stop,
+			Seed:          req.Seed,
+		}, emit)
+		return err
+	})
+	return stream, nil
 }
 
 func (m *Model) Close() error {
@@ -149,6 +181,10 @@ func (m *Model) TensorNames() TensorNames {
 
 func (m *Model) TensorManifest() TensorManifestReport {
 	return m.manifest
+}
+
+func (m *Model) Adapter() *adapters.TokenBiasAdapter {
+	return m.adapter
 }
 
 func (m *Model) ReadTensor(name string) ([]byte, modelinfo.GGUFTensor, error) {
@@ -220,6 +256,31 @@ func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {
 
 func (m *Model) inferenceError() error {
 	return fmt.Errorf("native GGUF inference is not implemented yet for architecture %q with %d tensors; loaded %s without llama-cli, but transformer forward pass and sampling are still in progress", m.info.Architecture, len(m.info.Tensors), m.path)
+}
+
+func (m *Model) applyAdapter(logits []float32) []float32 {
+	if m.adapter == nil {
+		return logits
+	}
+	return m.adapter.Apply(logits)
+}
+
+func loadAdapter(options map[string]string) (*adapters.TokenBiasAdapter, error) {
+	if len(options) == 0 {
+		return nil, nil
+	}
+	path := options["adapter"]
+	if path == "" {
+		path = options["adapter_path"]
+	}
+	if path == "" {
+		return nil, nil
+	}
+	adapter, err := adapters.Load(path)
+	if err != nil {
+		return nil, fmt.Errorf("load native adapter: %w", err)
+	}
+	return adapter, nil
 }
 
 func promptPath(inputPath, modelPath string, options map[string]string) string {

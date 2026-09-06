@@ -13,6 +13,7 @@ type GGUFVocab struct {
 	Tokens       []string  `json:"tokens,omitempty"`
 	Scores       []float32 `json:"scores,omitempty"`
 	TokenTypes   []uint32  `json:"token_types,omitempty"`
+	Merges       []string  `json:"merges,omitempty"`
 	BOSTokenID   uint32    `json:"bos_token_id,omitempty"`
 	EOSTokenID   uint32    `json:"eos_token_id,omitempty"`
 	UNKTokenID   uint32    `json:"unk_token_id,omitempty"`
@@ -90,6 +91,12 @@ func readGGUFVocabValue(r io.Reader, key string, typ uint32, vocab *GGUFVocab) e
 			return err
 		}
 		vocab.TokenTypes = types
+	case "tokenizer.ggml.merges":
+		merges, err := readGGUFStringArrayValue(r, typ, key)
+		if err != nil {
+			return err
+		}
+		vocab.Merges = merges
 	case "tokenizer.ggml.bos_token_id":
 		value, err := readGGUFUint32Value(r, typ, key)
 		if err != nil {

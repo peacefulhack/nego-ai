@@ -4,6 +4,7 @@
   "base_model": "./models/qwen3",
   "train_file": "examples/5.train/train.jsonl",
   "eval_file": "examples/5.train/test.jsonl",
+  "dataset_format": "completion",
   "output_dir": "./outputs/qwen3-lora",
   "command": "python",
   "args": [
