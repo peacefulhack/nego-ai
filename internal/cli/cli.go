@@ -1720,7 +1720,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var logPath string
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.StringVar(&backend, "backend", "auto", "runtime backend: auto, native, llama.cpp, or openai-compatible")
 	fs.BoolVar(&native, "native", false, "use the experimental pure-Go native backend")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
 	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
@@ -1743,7 +1743,8 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
-	if native && flagWasSet(fs, "backend") {
+	backendSetByFlag := flagWasSet(fs, "backend")
+	if native && backendSetByFlag {
 		fmt.Fprintln(stderr, "nego: use either --native or --backend, not both")
 		return 2
 	}
@@ -1758,6 +1759,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	if native {
 		backend = "native"
 	}
+	backend = normalizeBackendFlag(backend)
 	if cfg.MaxTokens > 0 && maxTokens == 0 {
 		maxTokens = cfg.MaxTokens
 	}
@@ -1811,6 +1813,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	started := time.Now().UTC()
+	backend = resolveRuntimeBackend(backend, path, cfg.Endpoint, cfg.Model)
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -1862,7 +1865,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var adapterPath string
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.StringVar(&backend, "backend", "auto", "runtime backend: auto, native, llama.cpp, or openai-compatible")
 	fs.BoolVar(&native, "native", false, "use the experimental pure-Go native backend")
 	fs.StringVar(&system, "system", "", "system message")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
@@ -1902,6 +1905,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if cfg.Backend != "" {
 		backend = cfg.Backend
 	}
+	backend = normalizeBackendFlag(backend)
 	if cfg.System != "" && system == "" {
 		system = cfg.System
 	}
@@ -1966,6 +1970,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if native {
 		backend = "native"
 	}
+	backend = normalizeBackendFlag(backend)
 	messages := append([]nego.Message(nil), cfg.Messages...)
 	if loadedSession {
 		messages = append([]nego.Message(nil), session.Messages...)
@@ -1999,6 +2004,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
 	}
+	backend = resolveRuntimeBackend(backend, path, cfg.Endpoint, cfg.Model)
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2341,6 +2347,29 @@ type runtimeFlagOptions struct {
 	splitMode      string
 	flashAttention bool
 	adapterPath    string
+}
+
+func normalizeBackendFlag(backend string) string {
+	if strings.EqualFold(strings.TrimSpace(backend), "auto") {
+		return ""
+	}
+	return backend
+}
+
+func resolveRuntimeBackend(backend, path, endpoint, modelID string) string {
+	backend = normalizeBackendFlag(backend)
+	if backend != "" {
+		return backend
+	}
+	resolved, err := nego.ResolveBackend(nego.ModelOptions{
+		Path:     path,
+		Endpoint: endpoint,
+		Model:    modelID,
+	})
+	if err != nil {
+		return ""
+	}
+	return resolved
 }
 
 func runtimeOptions(base map[string]string, flags runtimeFlagOptions) map[string]string {

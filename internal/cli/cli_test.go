@@ -609,7 +609,7 @@ func TestRunCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"run", modelPath, "hello"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -626,6 +626,8 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 		"run",
 		modelPath,
 		"hello",
+		"--backend",
+		"llama.cpp",
 		"--max-tokens",
 		"8",
 		"--temperature",
@@ -718,7 +720,7 @@ func TestRunCommandAppendsRunLog(t *testing.T) {
 	modelPath := fakeCLIGGUF(t)
 	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"run", modelPath, "hello", "--log", logPath, "--max-tokens", "4"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp", "--log", logPath, "--max-tokens", "4"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -739,7 +741,7 @@ func TestChatCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"chat", modelPath, "hello"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--backend", "llama.cpp"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -765,7 +767,7 @@ func TestChatCommandSavesSession(t *testing.T) {
 	modelPath := fakeCLIGGUF(t)
 	sessionPath := filepath.Join(t.TempDir(), "chat.json")
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--save", sessionPath}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--backend", "llama.cpp", "--save", sessionPath}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -783,7 +785,7 @@ func TestChatInteractiveStreamsTurns(t *testing.T) {
 	modelPath := fakeCLIGGUF(t)
 	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
 	var stdout, stderr bytes.Buffer
-	code := RunWithIO(context.Background(), []string{"chat", modelPath, "--interactive", "--log", logPath}, strings.NewReader("hello\n/exit\n"), &stdout, &stderr)
+	code := RunWithIO(context.Background(), []string{"chat", modelPath, "--backend", "llama.cpp", "--interactive", "--log", logPath}, strings.NewReader("hello\n/exit\n"), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -833,7 +835,7 @@ func TestRunsListAndShow(t *testing.T) {
 	modelPath := fakeCLIGGUF(t)
 	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--log", logPath}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--backend", "llama.cpp", "--log", logPath}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("chat code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
@@ -1086,7 +1088,7 @@ func TestRunCommandUsesConfigFile(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
 	configPath := filepath.Join(t.TempDir(), "nego.json")
-	body := `{"path":` + strconv.Quote(modelPath) + `,"prompt":"hello","max_tokens":4}`
+	body := `{"backend":"llama.cpp","path":` + strconv.Quote(modelPath) + `,"prompt":"hello","max_tokens":4}`
 	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1104,7 +1106,7 @@ func TestChatCommandUsesConfigFile(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
 	configPath := filepath.Join(t.TempDir(), "nego.json")
-	body := `{"path":` + strconv.Quote(modelPath) + `,"system":"Helpful","prompt":"hello"}`
+	body := `{"backend":"llama.cpp","path":` + strconv.Quote(modelPath) + `,"system":"Helpful","prompt":"hello"}`
 	if err := os.WriteFile(configPath, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}

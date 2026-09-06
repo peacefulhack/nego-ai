@@ -146,8 +146,9 @@ import _ "github.com/gakon/nego-ai/backends/llama"
 nego backends list
 nego backends info llama.cpp
 nego backends info native
-nego run --native ./models/qwen3-gguf "Hello"
-nego chat --native ./models/qwen3-gguf "Hello"
+nego run ./models/qwen3-gguf "Hello"
+nego chat ./models/qwen3-gguf "Hello"
+nego run --backend llama.cpp ./models/qwen3-gguf "Hello"
 ```
 
 ## Pure-Go native runtime
@@ -198,14 +199,14 @@ The native backend is the foundation for pure-Go chat/train/share. The next phas
 ## Local llama.cpp runtime
 
 ```bash
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/qwen3-gguf "Hello"
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/qwen3-gguf "Hello" --threads 8 --ctx-size 4096 --gpu-layers 32
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/qwen3-gguf "Hello" --gpu full --flash-attn
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/qwen3-gguf "Hello" --gpu full --main-gpu 0 --tensor-split 3,1 --split-mode layer
-NEGO_LLAMA_CLI=/path/to/llama-cli nego run ./models/qwen3-gguf "Hello" --log runs.jsonl
-NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/qwen3-gguf "Hello"
-NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/qwen3-gguf --interactive
-NEGO_LLAMA_CLI=/path/to/llama-cli nego chat ./models/qwen3-gguf --interactive --session chats/qwen.json
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run --backend llama.cpp ./models/qwen3-gguf "Hello"
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run --backend llama.cpp ./models/qwen3-gguf "Hello" --threads 8 --ctx-size 4096 --gpu-layers 32
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run --backend llama.cpp ./models/qwen3-gguf "Hello" --gpu full --flash-attn
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run --backend llama.cpp ./models/qwen3-gguf "Hello" --gpu full --main-gpu 0 --tensor-split 3,1 --split-mode layer
+NEGO_LLAMA_CLI=/path/to/llama-cli nego run --backend llama.cpp ./models/qwen3-gguf "Hello" --log runs.jsonl
+NEGO_LLAMA_CLI=/path/to/llama-cli nego chat --backend llama.cpp ./models/qwen3-gguf "Hello"
+NEGO_LLAMA_CLI=/path/to/llama-cli nego chat --backend llama.cpp ./models/qwen3-gguf --interactive
+NEGO_LLAMA_CLI=/path/to/llama-cli nego chat --backend llama.cpp ./models/qwen3-gguf --interactive --session chats/qwen.json
 NEGO_LLAMA_CLI=/path/to/llama-cli nego serve ./models/qwen3-gguf --addr :8080
 ```
 

@@ -236,19 +236,19 @@ nego run ./models/qwen3-gguf "Explain Go in one paragraph."
 Run with GPU acceleration when your `llama-cli` build supports CUDA, Metal, Vulkan, ROCm, or another llama.cpp GPU backend:
 
 ```bash
-nego run ./models/qwen3-gguf "Explain Go in one paragraph." --gpu full --flash-attn
+nego run --backend llama.cpp ./models/qwen3-gguf "Explain Go in one paragraph." --gpu full --flash-attn
 ```
 
 Force CPU-only:
 
 ```bash
-nego run ./models/qwen3-gguf "Explain Go in one paragraph." --gpu off
+nego run --backend llama.cpp ./models/qwen3-gguf "Explain Go in one paragraph." --gpu off
 ```
 
 Use explicit multi-GPU placement:
 
 ```bash
-nego run ./models/qwen3-gguf "Explain Go in one paragraph." \
+nego run --backend llama.cpp ./models/qwen3-gguf "Explain Go in one paragraph." \
   --gpu full \
   --main-gpu 0 \
   --tensor-split 3,1 \
@@ -264,13 +264,13 @@ nego chat ./models/qwen3-gguf "Hello"
 Start interactive chat:
 
 ```bash
-nego chat ./models/qwen3-gguf --interactive
+nego chat --backend llama.cpp ./models/qwen3-gguf --interactive
 ```
 
 Start interactive chat with a resumable session:
 
 ```bash
-nego chat ./models/qwen3-gguf --interactive --session chats/qwen.json
+nego chat --backend llama.cpp ./models/qwen3-gguf --interactive --session chats/qwen.json
 ```
 
 Save a one-shot chat session:

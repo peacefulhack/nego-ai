@@ -28,7 +28,7 @@ Examples that call real local runtime backends need `llama-cli` on PATH or `NEGO
 For local GGUF models, GPU acceleration is controlled by runtime flags such as:
 
 ```bash
-nego run ./models/qwen3-gguf "Hello" --gpu full --flash-attn
-nego chat ./models/qwen3-gguf "Hello" --gpu off
+nego run --backend llama.cpp ./models/qwen3-gguf "Hello" --gpu full --flash-attn
+nego chat --backend llama.cpp ./models/qwen3-gguf "Hello" --gpu off
 nego serve ./models/qwen3-gguf --gpu full --main-gpu 0 --tensor-split 3,1
 ```
