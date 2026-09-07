@@ -113,6 +113,27 @@ func (m *Model) Adapter() *adapters.TokenBiasAdapter {
 	return m.adapter
 }
 
+func (m *Model) TensorReader(name string) (*modelinfo.SafetensorsTensorReader, modelinfo.SafetensorsTensor, error) {
+	if m.store == nil {
+		return nil, modelinfo.SafetensorsTensor{}, fmt.Errorf("native-hf safetensors store is not loaded")
+	}
+	return m.store.TensorReader(name)
+}
+
+func (m *Model) ReadTensor(name string) ([]byte, modelinfo.SafetensorsTensor, error) {
+	if m.store == nil {
+		return nil, modelinfo.SafetensorsTensor{}, fmt.Errorf("native-hf safetensors store is not loaded")
+	}
+	return m.store.ReadTensor(name)
+}
+
+func (m *Model) LoadTensorFloat32(name string) ([]float32, modelinfo.SafetensorsTensor, error) {
+	if m.store == nil {
+		return nil, modelinfo.SafetensorsTensor{}, fmt.Errorf("native-hf safetensors store is not loaded")
+	}
+	return m.store.LoadTensorFloat32(name)
+}
+
 func (m *Model) inferenceError() error {
 	ready := false
 	missing := 0

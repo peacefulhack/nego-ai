@@ -211,7 +211,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 })
 ```
 
-Current status: it loads safetensors metadata, tensor readers, HF Qwen/Llama weight manifests, tokenizer.json, and native adapters. Forward-pass generation is still in progress.
+Current status: it loads safetensors metadata, tensor readers, selected F32/F16/BF16 tensors as float32, HF Qwen/Llama weight manifests, tokenizer.json, and native adapters. Forward-pass generation is still in progress.
 
 ## Local llama.cpp runtime
 
