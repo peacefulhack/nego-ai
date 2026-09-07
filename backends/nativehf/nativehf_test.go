@@ -48,7 +48,7 @@ func TestNativeHFBackendLoadsSafetensorsModel(t *testing.T) {
 		t.Fatalf("unexpected block weights: %#v", block)
 	}
 	_, err = model.Generate(context.Background(), nego.GenerateRequest{Prompt: "hello"})
-	if err == nil || !strings.Contains(err.Error(), "native-hf inference is not implemented yet") {
+	if err == nil || !strings.Contains(err.Error(), "native-hf generation is not implemented yet") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

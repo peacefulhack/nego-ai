@@ -141,7 +141,7 @@ func (m *Model) inferenceError() error {
 		ready = m.info.HFWeights.Ready
 		missing = len(m.info.HFWeights.Missing)
 	}
-	return fmt.Errorf("native-hf inference is not implemented yet for %q; loaded safetensors, tokenizer, and manifest (ready=%v missing_tensors=%d), but transformer forward pass is still in progress", m.path, ready, missing)
+	return fmt.Errorf("native-hf generation is not implemented yet for %q; loaded safetensors, tokenizer, and manifest (ready=%v missing_tensors=%d), and single-token forward support is available for small compatible decoder fixtures", m.path, ready, missing)
 }
 
 func loadAdapter(options map[string]string) (*adapters.TokenBiasAdapter, error) {

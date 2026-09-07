@@ -13,15 +13,16 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 7. Load selected Hugging Face safetensors weights into float32 buffers for native runtime and training development.
 8. Validate Hugging Face safetensors tensor shapes against local model config.
 9. Run native HF float32 math primitives for embedding lookup, projections, normalization, MLP, and logits.
-10. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
-11. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
-12. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
-13. Use remote OpenAI-compatible chat and embedding APIs.
-14. Prepare, validate, convert, filter, split, and sample datasets.
-15. Run eval suites and compare reports.
-16. Create, validate, and run external training job JSON files.
-17. Create local share manifests and archive packages for trained model output directories.
-18. Upload regular files or small folders to Hub repos through inline commit uploads.
+10. Run a native HF single-token forward pass for small compatible decoder fixtures.
+11. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
+12. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
+13. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
+14. Use remote OpenAI-compatible chat and embedding APIs.
+15. Prepare, validate, convert, filter, split, and sample datasets.
+16. Run eval suites and compare reports.
+17. Create, validate, and run external training job JSON files.
+18. Create local share manifests and archive packages for trained model output directories.
+19. Upload regular files or small folders to Hub repos through inline commit uploads.
 
 ## Pure-Go Native Runtime Status
 
@@ -46,7 +47,7 @@ Not production-ready yet:
 2. Compatibility validation for mixed K-quant variants such as Q4_K_M and Q5_K_M in real model files.
 3. Optimized CPU execution, batching, and memory planning.
 4. GPU execution.
-5. Native safetensors forward-pass generation.
+5. Native safetensors autoregressive generation for production Qwen/Llama models.
 6. Full GGUF LoRA/backprop training and optimizer support.
 
 ## Next Critical Phases
