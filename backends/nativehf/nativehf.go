@@ -7,6 +7,7 @@ import (
 
 	nego "github.com/gakon/nego-ai"
 	"github.com/gakon/nego-ai/adapters"
+	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/modelinfo"
 	"github.com/gakon/nego-ai/tokenizer"
 )
@@ -28,6 +29,7 @@ func (b Backend) Info() nego.BackendInfo {
 		Options: []nego.BackendOption{
 			{Name: "adapter", Description: "token-bias adapter JSON produced by native training"},
 			{Name: "adapter_path", Description: "alias for adapter"},
+			{Name: "experimental_generation", Description: "enable guarded native-hf greedy generation for small compatible fixtures"},
 		},
 	}
 }
@@ -65,6 +67,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		store:     store,
 		tokenizer: tok,
 		adapter:   adapter,
+		generate:  optionBool(opts.Options, "experimental_generation"),
 	}, nil
 }
 
@@ -75,18 +78,42 @@ type Model struct {
 	store     *modelinfo.SafetensorsStore
 	tokenizer *tokenizer.Tokenizer
 	adapter   *adapters.TokenBiasAdapter
+	generate  bool
 }
 
-func (m *Model) Generate(_ context.Context, _ nego.GenerateRequest) (*nego.GenerateOutput, error) {
-	return nil, m.inferenceError()
+func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+	if !m.generate {
+		return nil, m.inferenceError()
+	}
+	return m.generateText(ctx, req)
 }
 
-func (m *Model) Chat(_ context.Context, _ nego.ChatRequest) (*nego.ChatResponse, error) {
-	return nil, m.inferenceError()
+func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
+	prompt, err := m.renderChatPrompt(req.Messages)
+	if err != nil {
+		return nil, err
+	}
+	out, err := m.Generate(ctx, nego.GenerateRequest{
+		Prompt:        prompt,
+		MaxTokens:     req.MaxTokens,
+		Temperature:   req.Temperature,
+		TopP:          req.TopP,
+		RepeatPenalty: req.RepeatPenalty,
+		Stop:          req.Stop,
+		Seed:          req.Seed,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &nego.ChatResponse{Message: nego.Message{Role: nego.RoleAssistant, Content: out.Text}}, nil
 }
 
-func (m *Model) StreamChat(_ context.Context, _ nego.ChatRequest) (nego.Stream, error) {
-	return nil, m.inferenceError()
+func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stream, error) {
+	resp, err := m.Chat(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return newStaticStream(resp.Message.Content), nil
 }
 
 func (m *Model) Close() error {
@@ -141,7 +168,7 @@ func (m *Model) inferenceError() error {
 		ready = m.info.HFWeights.Ready
 		missing = len(m.info.HFWeights.Missing)
 	}
-	return fmt.Errorf("native-hf generation is not implemented yet for %q; loaded safetensors, tokenizer, and manifest (ready=%v missing_tensors=%d), and single-token forward support is available for small compatible decoder fixtures", m.path, ready, missing)
+	return fmt.Errorf("native-hf production generation is not enabled for %q; loaded safetensors, tokenizer, and manifest (ready=%v missing_tensors=%d), and guarded greedy generation is available only for small compatible decoder fixtures with experimental_generation=true", m.path, ready, missing)
 }
 
 func loadAdapter(options map[string]string) (*adapters.TokenBiasAdapter, error) {
@@ -160,4 +187,41 @@ func loadAdapter(options map[string]string) (*adapters.TokenBiasAdapter, error) 
 		return nil, fmt.Errorf("load native-hf adapter: %w", err)
 	}
 	return adapter, nil
+}
+
+func optionBool(options map[string]string, key string) bool {
+	switch strings.ToLower(strings.TrimSpace(options[key])) {
+	case "1", "t", "true", "yes", "y", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {
+	if m.path != "" && hasChatTemplateFile(m.info) {
+		prompt, err := chattemplate.Render(m.path, messages, chattemplate.Options{AddGenerationPrompt: true})
+		if err != nil {
+			return "", err
+		}
+		return prompt, nil
+	}
+	var b strings.Builder
+	for _, message := range messages {
+		fmt.Fprintf(&b, "%s: %s\n", strings.ToUpper(string(message.Role)), message.Content)
+	}
+	b.WriteString("ASSISTANT: ")
+	return b.String(), nil
+}
+
+func hasChatTemplateFile(info *modelinfo.Info) bool {
+	if info == nil {
+		return false
+	}
+	for _, file := range info.Files {
+		if file.Kind == "chat_template" || file.Kind == "tokenizer_config" {
+			return true
+		}
+	}
+	return false
 }

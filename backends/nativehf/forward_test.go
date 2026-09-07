@@ -14,16 +14,7 @@ import (
 )
 
 func TestForwardTokenTinyHFModel(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":2,"max_position_embeddings":8,"hidden_size":2,"num_hidden_layers":1,"intermediate_size":2,"num_attention_heads":1,"num_key_value_heads":1,"head_dim":2,"rms_norm_eps":0}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"a":0,"b":1},"unk_token":"a"}}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), tinyForwardSafetensorsFixture(t), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	dir := writeTinyForwardModel(t)
 	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: dir})
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +31,40 @@ func TestForwardTokenTinyHFModel(t *testing.T) {
 	if !(logits[0] > logits[1]) {
 		t.Fatalf("expected token 0 to win, logits=%v", logits)
 	}
+}
+
+func TestGenerateTinyHFModelWhenExplicitlyEnabled(t *testing.T) {
+	dir := writeTinyForwardModel(t)
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{
+		Path:    dir,
+		Options: map[string]string{"experimental_generation": "true"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: "a", MaxTokens: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Text != "a" {
+		t.Fatalf("generated text = %q", out.Text)
+	}
+}
+
+func writeTinyForwardModel(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":2,"max_position_embeddings":8,"hidden_size":2,"num_hidden_layers":1,"intermediate_size":2,"num_attention_heads":1,"num_key_value_heads":1,"head_dim":2,"rms_norm_eps":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"a":0,"b":1},"unk_token":"a"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), tinyForwardSafetensorsFixture(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 type f32TensorFixture struct {

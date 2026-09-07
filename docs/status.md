@@ -13,7 +13,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 7. Load selected Hugging Face safetensors weights into float32 buffers for native runtime and training development.
 8. Validate Hugging Face safetensors tensor shapes against local model config.
 9. Run native HF float32 math primitives for embedding lookup, projections, normalization, MLP, and logits.
-10. Run a native HF single-token forward pass for small compatible decoder fixtures.
+10. Run guarded native HF greedy generation for small compatible decoder fixtures.
 11. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
 12. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
 13. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
