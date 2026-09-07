@@ -59,6 +59,9 @@ func TestResolveHFSafetensorsArtifact(t *testing.T) {
 	if artifact.ParameterCount != 4 || artifact.TensorBytes != 8 {
 		t.Fatalf("unexpected tensor summary: %#v", artifact)
 	}
+	if !capabilityStatus(artifact.RunBackends, "native-hf", CapabilityPlanned) {
+		t.Fatalf("unexpected run backends: %#v", artifact.RunBackends)
+	}
 	if !capabilityStatus(artifact.TrainBackends, "native-token-bias", CapabilityExperimental) {
 		t.Fatalf("unexpected train backends: %#v", artifact.TrainBackends)
 	}
