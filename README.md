@@ -293,6 +293,7 @@ Nego does not natively convert Hugging Face safetensors to GGUF yet. Use `nego d
 Use the Hugging Face-style model directory (`./models/qwen3`) for fine-tuning jobs. Use the GGUF directory (`./models/qwen3-gguf`) for local chat/runtime.
 
 ```bash
+nego train capabilities ./models/qwen3
 nego train init --base-model ./models/qwen3 --train-file examples/5.train/train.jsonl --eval-file examples/5.train/test.jsonl --dataset-format completion --output-dir ./outputs/qwen3-lora --out examples/5.train/train-job.json
 nego train check examples/5.train/train-job.json
 nego train validate examples/5.train/train-job.json
@@ -302,6 +303,7 @@ nego train job.json
 Native token-bias adapter training is available as an early pure-Go path for GGUF or Hugging Face safetensors downloads:
 
 ```bash
+nego train capabilities ./models/qwen3
 nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --out ./outputs/qwen3-token-bias
 nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --out ./outputs/qwen3-token-bias
 nego run --native ./models/qwen3-gguf "Hello" --adapter ./outputs/qwen3-token-bias/adapter.json --max-tokens 16

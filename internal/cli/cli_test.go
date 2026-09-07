@@ -1319,6 +1319,34 @@ func TestTrainCheckCommand(t *testing.T) {
 	}
 }
 
+func TestTrainCapabilitiesCommand(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"num_hidden_layers":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), cliSafetensorsFixture(t, `{
+		"model.embed_tokens.weight":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}
+	}`, 4), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "capabilities", modelDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Training capabilities") || !strings.Contains(out, "token-bias") || !strings.Contains(out, "native-lora") {
+		t.Fatalf("unexpected output: %q", out)
+	}
+}
+
 func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	dir := t.TempDir()

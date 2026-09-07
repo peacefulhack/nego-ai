@@ -260,6 +260,33 @@ func TestRunNativeSupportsHFSafetensorsDirectory(t *testing.T) {
 	}
 }
 
+func TestAssessReportsTrainingCapabilities(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"num_hidden_layers":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), minimalSafetensors(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Assess(modelDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !methodAvailable(report.Methods, "token-bias") {
+		t.Fatalf("expected token-bias support: %#v", report.Methods)
+	}
+	if !methodStatus(report.Methods, "native-lora", MethodPlanned) {
+		t.Fatalf("expected planned native-lora support: %#v", report.Methods)
+	}
+}
+
 func TestValidateRejectsInvalidDatasetFormat(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "model")
@@ -298,6 +325,24 @@ func TestWriteJob(t *testing.T) {
 	if got.Name != "job" || got.Command != "python" {
 		t.Fatalf("unexpected job: %#v", got)
 	}
+}
+
+func methodAvailable(methods []MethodSupport, name string) bool {
+	for _, method := range methods {
+		if method.Method == name {
+			return method.Available
+		}
+	}
+	return false
+}
+
+func methodStatus(methods []MethodSupport, name string, status MethodStatus) bool {
+	for _, method := range methods {
+		if method.Method == name {
+			return method.Status == status
+		}
+	}
+	return false
 }
 
 func fakeTrainingCommand(t *testing.T) string {

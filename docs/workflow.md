@@ -416,6 +416,7 @@ Minimal `job.json` shape:
 Validate it before running the trainer:
 
 ```bash
+nego train capabilities ./models/qwen3
 nego train check examples/5.train/train-job.json
 nego train validate examples/5.train/train-job.json
 ```
@@ -431,6 +432,8 @@ The command prints stdout/stderr from the training process and exits non-zero if
 For pure-Go adapter training, use the safetensors or GGUF copy from the download step:
 
 ```bash
+nego train capabilities ./models/qwen3
+
 nego train native ./models/qwen3 \
   --train-file examples/5.train/train.jsonl \
   --dataset-format completion \

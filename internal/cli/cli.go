@@ -424,6 +424,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train capabilities <model-path> [flags]")
 	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
@@ -652,6 +653,8 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 			return runTrainValidate(args[1:], stdout, stderr)
 		case "check":
 			return runTrainCheck(args[1:], stdout, stderr)
+		case "capabilities":
+			return runTrainCapabilities(args[1:], stdout, stderr)
 		case "native":
 			return runTrainNative(args[1:], stdout, stderr)
 		case "help", "-h", "--help":
@@ -856,6 +859,40 @@ func runTrainValidate(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runTrainCapabilities(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("train capabilities", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON report")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego train capabilities <model-path> [flags]")
+		return 2
+	}
+	report, err := training.Assess(positionals[0])
+	if jsonOutput {
+		body := map[string]any{
+			"success": err == nil,
+			"report":  report,
+		}
+		if err != nil {
+			body["error"] = err.Error()
+		}
+		_ = json.NewEncoder(stdout).Encode(body)
+	} else if err == nil {
+		printTrainingAssessment(stdout, report)
+	} else {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
+}
+
 func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	var trainFile string
 	var evalFile string
@@ -927,6 +964,32 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
 	fmt.Fprintf(w, "Adapter:        %s\n", result.AdapterPath)
 	for _, warning := range result.Warnings {
+		fmt.Fprintf(w, "Warning:        %s\n", warning)
+	}
+}
+
+func printTrainingAssessment(w io.Writer, report training.Assessment) {
+	fmt.Fprintln(w, "Training capabilities")
+	fmt.Fprintf(w, "Base model:     %s\n", report.BaseModel)
+	if report.Artifact != nil {
+		fmt.Fprintf(w, "Format:         %s\n", report.Artifact.Format)
+		if report.Artifact.ModelType != "" {
+			fmt.Fprintf(w, "Model type:     %s\n", report.Artifact.ModelType)
+		}
+	}
+	fmt.Fprintln(w, "Methods:")
+	for _, method := range report.Methods {
+		status := string(method.Status)
+		if method.Available && method.Status == "" {
+			status = "ready"
+		}
+		fmt.Fprintf(w, "  - %-16s %s", method.Method, status)
+		if method.Reason != "" {
+			fmt.Fprintf(w, " (%s)", method.Reason)
+		}
+		fmt.Fprintln(w)
+	}
+	for _, warning := range report.Warnings {
 		fmt.Fprintf(w, "Warning:        %s\n", warning)
 	}
 }
@@ -1009,6 +1072,7 @@ func trainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train capabilities <model-path> [flags]")
 	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
