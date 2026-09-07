@@ -19,10 +19,12 @@ type CoreWeights struct {
 }
 
 type AttentionWeights struct {
-	Q   TensorValues
-	K   TensorValues
-	V   TensorValues
-	Out TensorValues
+	Q     TensorValues
+	QNorm *TensorValues
+	K     TensorValues
+	KNorm *TensorValues
+	V     TensorValues
+	Out   TensorValues
 }
 
 type MLPWeights struct {
@@ -103,7 +105,15 @@ func (m *Model) loadAttentionWeights(names modelinfo.HFBlockTensorNames) (Attent
 	if err != nil {
 		return AttentionWeights{}, err
 	}
+	qNorm, err := m.loadOptionalTensorValues(names.AttentionQNorm)
+	if err != nil {
+		return AttentionWeights{}, err
+	}
 	k, err := m.loadTensorValues(names.AttentionK)
+	if err != nil {
+		return AttentionWeights{}, err
+	}
+	kNorm, err := m.loadOptionalTensorValues(names.AttentionKNorm)
 	if err != nil {
 		return AttentionWeights{}, err
 	}
@@ -115,7 +125,7 @@ func (m *Model) loadAttentionWeights(names modelinfo.HFBlockTensorNames) (Attent
 	if err != nil {
 		return AttentionWeights{}, err
 	}
-	return AttentionWeights{Q: q, K: k, V: v, Out: out}, nil
+	return AttentionWeights{Q: q, QNorm: qNorm, K: k, KNorm: kNorm, V: v, Out: out}, nil
 }
 
 func (m *Model) loadMLPWeights(names modelinfo.HFBlockTensorNames) (MLPWeights, error) {
@@ -143,4 +153,15 @@ func (m *Model) loadTensorValues(name string) (TensorValues, error) {
 		return TensorValues{}, fmt.Errorf("load %s: %w", name, err)
 	}
 	return TensorValues{Values: values, Tensor: tensor}, nil
+}
+
+func (m *Model) loadOptionalTensorValues(name string) (*TensorValues, error) {
+	if name == "" {
+		return nil, nil
+	}
+	values, err := m.loadTensorValues(name)
+	if err != nil {
+		return nil, err
+	}
+	return &values, nil
 }

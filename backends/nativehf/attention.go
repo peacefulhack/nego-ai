@@ -104,11 +104,24 @@ func multiHeadAttentionFloat32(input []float32, weights AttentionWeights, spec m
 	concat := make([]float32, 0, len(q))
 	for i, qHead := range qHeads {
 		kvHead := i / headsPerKV
+		if weights.QNorm != nil {
+			qHead, err = rmsNormFloat32(qHead, weights.QNorm.Values, spec.RMSNormEpsilon)
+			if err != nil {
+				return nil, fmt.Errorf("q norm head %d: %w", i, err)
+			}
+		}
+		kHead := kHeads[kvHead]
+		if weights.KNorm != nil {
+			kHead, err = rmsNormFloat32(kHead, weights.KNorm.Values, spec.RMSNormEpsilon)
+			if err != nil {
+				return nil, fmt.Errorf("k norm head %d: %w", kvHead, err)
+			}
+		}
 		rotatedQ, err := applyRoPEFloat32(qHead, position, spec.RopeTheta)
 		if err != nil {
 			return nil, fmt.Errorf("q rope head %d: %w", i, err)
 		}
-		rotatedK, err := applyRoPEFloat32(kHeads[kvHead], position, spec.RopeTheta)
+		rotatedK, err := applyRoPEFloat32(kHead, position, spec.RopeTheta)
 		if err != nil {
 			return nil, fmt.Errorf("k rope head %d: %w", kvHead, err)
 		}

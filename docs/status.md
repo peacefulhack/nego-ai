@@ -11,7 +11,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 5. Map Hugging Face Qwen/Llama safetensors tensor names into native weight manifests.
 6. Load Hugging Face safetensors directories through the experimental `native-hf` backend.
 7. Load selected Hugging Face safetensors weights into float32 buffers for native runtime and training development.
-8. Validate Hugging Face safetensors tensor shapes against local model config.
+8. Validate Hugging Face safetensors tensor shapes against local model config, including Qwen-style q/k attention norms.
 9. Run native HF float32 math primitives for embedding lookup, projections, normalization, MLP, and logits.
 10. Run guarded native HF greedy generation for small compatible decoder fixtures.
 11. Resolve local model artifacts into format, run backend, and training backend compatibility reports.

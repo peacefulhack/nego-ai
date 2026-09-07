@@ -62,7 +62,9 @@ func HFShapeReportFromInfo(info *Info) (*HFShapeReport, error) {
 	for _, block := range names.Blocks {
 		expect(block.InputNorm, spec.EmbeddingLength)
 		expect(block.AttentionQ, qLength, spec.EmbeddingLength)
+		expect(block.AttentionQNorm, spec.HeadDim)
 		expect(block.AttentionK, kvLength, spec.EmbeddingLength)
+		expect(block.AttentionKNorm, spec.HeadDim)
 		expect(block.AttentionV, kvLength, spec.EmbeddingLength)
 		expect(block.AttentionOut, spec.EmbeddingLength, qLength)
 		expect(block.PostNorm, spec.EmbeddingLength)
