@@ -61,6 +61,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	return &Model{
 		path:      opts.Path,
 		info:      info,
+		spec:      info.HFSpec,
 		store:     store,
 		tokenizer: tok,
 		adapter:   adapter,
@@ -70,6 +71,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 type Model struct {
 	path      string
 	info      *modelinfo.Info
+	spec      *modelinfo.HFModelSpec
 	store     *modelinfo.SafetensorsStore
 	tokenizer *tokenizer.Tokenizer
 	adapter   *adapters.TokenBiasAdapter
@@ -93,6 +95,10 @@ func (m *Model) Close() error {
 
 func (m *Model) Info() *modelinfo.Info {
 	return m.info
+}
+
+func (m *Model) Spec() *modelinfo.HFModelSpec {
+	return m.spec
 }
 
 func (m *Model) Store() *modelinfo.SafetensorsStore {

@@ -13,7 +13,7 @@ import (
 
 func TestNativeHFBackendLoadsSafetensorsModel(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"num_hidden_layers":0}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":1,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0},"unk_token":"hello"}}`), 0o644); err != nil {
@@ -29,7 +29,7 @@ func TestNativeHFBackendLoadsSafetensorsModel(t *testing.T) {
 	}
 	defer model.Close()
 	nativeModel := model.(*Model)
-	if nativeModel.Info().Safetensors == nil || nativeModel.Tokenizer() == nil || nativeModel.Store() == nil {
+	if nativeModel.Info().Safetensors == nil || nativeModel.Spec() == nil || nativeModel.Tokenizer() == nil || nativeModel.Store() == nil {
 		t.Fatalf("model did not load native HF components: %#v", nativeModel)
 	}
 	_, err = model.Generate(context.Background(), nego.GenerateRequest{Prompt: "hello"})

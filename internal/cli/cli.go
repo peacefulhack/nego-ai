@@ -1517,6 +1517,46 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 	if len(info.Architectures) > 0 {
 		fmt.Fprintf(w, "Architecture:%s\n", " "+strings.Join(info.Architectures, ", "))
 	}
+	if info.HFSpec != nil {
+		fmt.Fprintln(w, "HF spec:")
+		fmt.Fprintf(w, "  Ready:        %v\n", info.HFSpec.Ready)
+		if info.HFSpec.VocabSize > 0 {
+			fmt.Fprintf(w, "  Vocab:        %d\n", info.HFSpec.VocabSize)
+		}
+		if info.HFSpec.ContextLength > 0 {
+			fmt.Fprintf(w, "  Context:      %d\n", info.HFSpec.ContextLength)
+		}
+		if info.HFSpec.EmbeddingLength > 0 {
+			fmt.Fprintf(w, "  Embedding:    %d\n", info.HFSpec.EmbeddingLength)
+		}
+		if info.HFSpec.BlockCount > 0 {
+			fmt.Fprintf(w, "  Blocks:       %d\n", info.HFSpec.BlockCount)
+		}
+		if info.HFSpec.FeedForwardLength > 0 {
+			fmt.Fprintf(w, "  FFN:          %d\n", info.HFSpec.FeedForwardLength)
+		}
+		if info.HFSpec.AttentionHeadCount > 0 {
+			fmt.Fprintf(w, "  Heads:        %d\n", info.HFSpec.AttentionHeadCount)
+		}
+		if info.HFSpec.KVHeadCount > 0 {
+			fmt.Fprintf(w, "  KV heads:     %d\n", info.HFSpec.KVHeadCount)
+		}
+		if info.HFSpec.HeadDim > 0 {
+			fmt.Fprintf(w, "  Head dim:     %d\n", info.HFSpec.HeadDim)
+		}
+		if info.HFSpec.RopeTheta > 0 {
+			fmt.Fprintf(w, "  RoPE theta:   %.0f\n", info.HFSpec.RopeTheta)
+		}
+		if info.HFSpec.RMSNormEpsilon > 0 {
+			fmt.Fprintf(w, "  RMS eps:      %g\n", info.HFSpec.RMSNormEpsilon)
+		}
+		if len(info.HFSpec.Missing) > 0 {
+			fmt.Fprintf(w, "  Missing:      %s\n", strings.Join(info.HFSpec.Missing, ", "))
+		}
+		if info.HFSpec.ValidationError != "" {
+			fmt.Fprintf(w, "  Error:        %s\n", info.HFSpec.ValidationError)
+		}
+	}
 	if info.GGUF != nil {
 		fmt.Fprintln(w, "GGUF:")
 		fmt.Fprintf(w, "  Version:       %d\n", info.GGUF.Version)
