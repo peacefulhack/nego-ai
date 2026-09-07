@@ -1613,6 +1613,17 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 			fmt.Fprintf(w, "  Missing:      %d\n", len(info.HFWeights.Missing))
 		}
 	}
+	if info.HFShapes != nil {
+		fmt.Fprintln(w, "HF shapes:")
+		fmt.Fprintf(w, "  Ready:        %v\n", info.HFShapes.Ready)
+		fmt.Fprintf(w, "  Checked:      %d\n", len(info.HFShapes.Checked))
+		if len(info.HFShapes.MissingShape) > 0 {
+			fmt.Fprintf(w, "  Mismatches:   %d\n", len(info.HFShapes.MissingShape))
+			for _, mismatch := range info.HFShapes.MissingShape {
+				fmt.Fprintf(w, "    - %s\n", mismatch)
+			}
+		}
+	}
 	if info.Card != nil {
 		fmt.Fprintln(w, "Model card:")
 		if info.Card.Title != "" {

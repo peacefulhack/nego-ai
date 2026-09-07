@@ -11,15 +11,16 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 5. Map Hugging Face Qwen/Llama safetensors tensor names into native weight manifests.
 6. Load Hugging Face safetensors directories through the experimental `native-hf` backend.
 7. Load selected Hugging Face safetensors weights into float32 buffers for native runtime and training development.
-8. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
-9. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
-10. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
-11. Use remote OpenAI-compatible chat and embedding APIs.
-12. Prepare, validate, convert, filter, split, and sample datasets.
-13. Run eval suites and compare reports.
-14. Create, validate, and run external training job JSON files.
-15. Create local share manifests and archive packages for trained model output directories.
-16. Upload regular files or small folders to Hub repos through inline commit uploads.
+8. Validate Hugging Face safetensors tensor shapes against local model config.
+9. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
+10. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
+11. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
+12. Use remote OpenAI-compatible chat and embedding APIs.
+13. Prepare, validate, convert, filter, split, and sample datasets.
+14. Run eval suites and compare reports.
+15. Create, validate, and run external training job JSON files.
+16. Create local share manifests and archive packages for trained model output directories.
+17. Upload regular files or small folders to Hub repos through inline commit uploads.
 
 ## Pure-Go Native Runtime Status
 

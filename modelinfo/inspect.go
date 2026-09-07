@@ -22,6 +22,7 @@ type Info struct {
 	Safetensors      *SafetensorsInfo  `json:"safetensors,omitempty"`
 	HFSpec           *HFModelSpec      `json:"hf_spec,omitempty"`
 	HFWeights        *HFWeightManifest `json:"hf_weights,omitempty"`
+	HFShapes         *HFShapeReport    `json:"hf_shapes,omitempty"`
 	Files            []File            `json:"files,omitempty"`
 }
 
@@ -120,6 +121,7 @@ func Inspect(path string) (*Info, error) {
 	if safetensors, err := InspectSafetensors(root); err == nil {
 		info.Safetensors = safetensors
 		info.HFWeights, _ = HFWeightManifestFromInfo(info)
+		info.HFShapes, _ = HFShapeReportFromInfo(info)
 	}
 	return info, nil
 }
