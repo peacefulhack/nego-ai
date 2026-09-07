@@ -885,7 +885,7 @@ func TestBackendsCommands(t *testing.T) {
 		t.Fatalf("list code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "llama.cpp") || !strings.Contains(out, "openai-compatible") {
+	if !strings.Contains(out, "llama.cpp") || !strings.Contains(out, "native-hf") || !strings.Contains(out, "openai-compatible") {
 		t.Fatalf("unexpected list output: %q", out)
 	}
 

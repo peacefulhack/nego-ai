@@ -111,6 +111,7 @@ List available runtime backends:
 nego backends list
 nego backends info llama.cpp
 nego backends info native
+nego backends info native-hf
 nego backends info openai-compatible
 ```
 

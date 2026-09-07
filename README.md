@@ -147,6 +147,7 @@ import _ "github.com/gakon/nego-ai/backends/llama"
 nego backends list
 nego backends info llama.cpp
 nego backends info native
+nego backends info native-hf
 nego run ./models/qwen3-gguf "Hello"
 nego chat ./models/qwen3-gguf "Hello"
 nego run --backend llama.cpp ./models/qwen3-gguf "Hello"
@@ -196,6 +197,21 @@ Current status:
 - Does not run production GGUF inference for large Qwen/Llama models yet.
 
 The native backend is the foundation for pure-Go chat/train/share. The next phases are real Qwen/Llama compatibility, performance work, and broader quantized kernels.
+
+## Pure-Go Hugging Face Runtime
+
+Nego also includes an experimental `native-hf` backend for Hugging Face safetensors directories:
+
+```go
+import _ "github.com/gakon/nego-ai/backends/nativehf"
+
+model, err := nego.LoadModel(ctx, nego.ModelOptions{
+    Backend: "native-hf",
+    Path:    "./models/qwen3",
+})
+```
+
+Current status: it loads safetensors metadata, tensor readers, HF Qwen/Llama weight manifests, tokenizer.json, and native adapters. Forward-pass generation is still in progress.
 
 ## Local llama.cpp runtime
 

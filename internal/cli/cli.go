@@ -24,6 +24,7 @@ import (
 	nego "github.com/gakon/nego-ai"
 	_ "github.com/gakon/nego-ai/backends/llama"
 	_ "github.com/gakon/nego-ai/backends/native"
+	_ "github.com/gakon/nego-ai/backends/nativehf"
 	_ "github.com/gakon/nego-ai/backends/openai"
 	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/convert"
