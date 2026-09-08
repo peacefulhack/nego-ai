@@ -34,6 +34,32 @@ func TestForwardTokenTinyHFModel(t *testing.T) {
 	}
 }
 
+func TestForwardTokenWithStateCachesPromptHistory(t *testing.T) {
+	dir := writeTinyForwardModel(t)
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	nativeModel := model.(*Model)
+	state, err := NewDecodeState(*nativeModel.Spec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nativeModel.ForwardTokenWithState(0, state); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nativeModel.ForwardTokenWithState(1, state); err != nil {
+		t.Fatal(err)
+	}
+	if state.Position != 2 {
+		t.Fatalf("position = %d, want 2", state.Position)
+	}
+	if got := state.CachedTokens(0, 0); got != 2 {
+		t.Fatalf("cached tokens = %d, want 2", got)
+	}
+}
+
 func TestGenerateTinyHFModelWhenExplicitlyEnabled(t *testing.T) {
 	dir := writeTinyForwardModel(t)
 	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{

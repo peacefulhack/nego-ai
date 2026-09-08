@@ -29,17 +29,22 @@ func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*ne
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("native-hf generation prompt encoded to no tokens")
 	}
+	if m.spec == nil {
+		return nil, fmt.Errorf("native-hf model spec is not loaded")
+	}
+	state, err := NewDecodeState(*m.spec)
+	if err != nil {
+		return nil, err
+	}
 	var logits []float32
-	position := 0
 	for _, id := range ids {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		logits, err = m.ForwardToken(id, position)
+		logits, err = m.ForwardTokenWithState(id, state)
 		if err != nil {
 			return nil, err
 		}
-		position++
 	}
 	var b strings.Builder
 	for i := 0; i < maxTokens; i++ {
@@ -62,11 +67,10 @@ func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*ne
 		if i == maxTokens-1 {
 			break
 		}
-		logits, err = m.ForwardToken(nextID, position)
+		logits, err = m.ForwardTokenWithState(nextID, state)
 		if err != nil {
 			return nil, err
 		}
-		position++
 	}
 	return &nego.GenerateOutput{Text: b.String()}, nil
 }

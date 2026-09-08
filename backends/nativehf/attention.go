@@ -8,6 +8,24 @@ import (
 )
 
 func (m *Model) ForwardToken(tokenID int, position int) ([]float32, error) {
+	return m.forwardToken(tokenID, position, nil)
+}
+
+func (m *Model) ForwardTokenWithState(tokenID int, state *DecodeState) ([]float32, error) {
+	if state == nil {
+		return nil, fmt.Errorf("native-hf decode state is nil")
+	}
+	logits, err := m.forwardToken(tokenID, state.Position, state)
+	if err != nil {
+		return nil, err
+	}
+	if err := state.advance(); err != nil {
+		return nil, err
+	}
+	return logits, nil
+}
+
+func (m *Model) forwardToken(tokenID int, position int, state *DecodeState) ([]float32, error) {
 	if m.info == nil || m.info.HFWeights == nil {
 		return nil, fmt.Errorf("native-hf weight manifest is not loaded")
 	}
@@ -26,7 +44,7 @@ func (m *Model) ForwardToken(tokenID int, position int) ([]float32, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load block %d: %w", i, err)
 		}
-		hidden, err = transformerBlockFloat32(hidden, weights, *m.spec, position)
+		hidden, err = transformerBlockFloat32(hidden, weights, *m.spec, i, position, state)
 		if err != nil {
 			return nil, fmt.Errorf("block %d: %w", i, err)
 		}
@@ -34,12 +52,12 @@ func (m *Model) ForwardToken(tokenID int, position int) ([]float32, error) {
 	return m.OutputLogits(hidden)
 }
 
-func transformerBlockFloat32(input []float32, weights BlockWeights, spec modelinfo.HFModelSpec, position int) ([]float32, error) {
+func transformerBlockFloat32(input []float32, weights BlockWeights, spec modelinfo.HFModelSpec, layer, position int, state *DecodeState) ([]float32, error) {
 	attnInput, err := rmsNormFloat32(input, weights.InputNorm.Values, spec.RMSNormEpsilon)
 	if err != nil {
 		return nil, fmt.Errorf("attention rmsnorm: %w", err)
 	}
-	attnOut, err := multiHeadAttentionFloat32(attnInput, weights.Attention, spec, position)
+	attnOut, err := multiHeadAttentionFloat32(attnInput, weights.Attention, spec, layer, position, state)
 	if err != nil {
 		return nil, fmt.Errorf("attention: %w", err)
 	}
@@ -62,7 +80,7 @@ func transformerBlockFloat32(input []float32, weights BlockWeights, spec modelin
 	return out, nil
 }
 
-func multiHeadAttentionFloat32(input []float32, weights AttentionWeights, spec modelinfo.HFModelSpec, position int) ([]float32, error) {
+func multiHeadAttentionFloat32(input []float32, weights AttentionWeights, spec modelinfo.HFModelSpec, layer, position int, state *DecodeState) ([]float32, error) {
 	if spec.EmbeddingLength > uint64(int(^uint(0)>>1)) {
 		return nil, fmt.Errorf("embedding length %d overflows this runtime", spec.EmbeddingLength)
 	}
@@ -101,6 +119,36 @@ func multiHeadAttentionFloat32(input []float32, weights AttentionWeights, spec m
 		return nil, err
 	}
 	headsPerKV := int(spec.AttentionHeadCount / spec.KVHeadCount)
+	keysByHead := make([][][]float32, len(kHeads))
+	valuesByHead := make([][][]float32, len(vHeads))
+	for kvHead := range kHeads {
+		kHead := kHeads[kvHead]
+		if weights.KNorm != nil {
+			kHead, err = rmsNormFloat32(kHead, weights.KNorm.Values, spec.RMSNormEpsilon)
+			if err != nil {
+				return nil, fmt.Errorf("k norm head %d: %w", kvHead, err)
+			}
+		}
+		rotatedK, err := applyRoPEFloat32(kHead, position, spec.RopeTheta)
+		if err != nil {
+			return nil, fmt.Errorf("k rope head %d: %w", kvHead, err)
+		}
+		valueHead := append([]float32(nil), vHeads[kvHead]...)
+		if state != nil {
+			if err := state.Append(layer, kvHead, rotatedK, valueHead); err != nil {
+				return nil, err
+			}
+			keys, values, err := state.Layer(layer, kvHead)
+			if err != nil {
+				return nil, err
+			}
+			keysByHead[kvHead] = keys
+			valuesByHead[kvHead] = values
+			continue
+		}
+		keysByHead[kvHead] = [][]float32{rotatedK}
+		valuesByHead[kvHead] = [][]float32{valueHead}
+	}
 	concat := make([]float32, 0, len(q))
 	for i, qHead := range qHeads {
 		kvHead := i / headsPerKV
@@ -110,22 +158,11 @@ func multiHeadAttentionFloat32(input []float32, weights AttentionWeights, spec m
 				return nil, fmt.Errorf("q norm head %d: %w", i, err)
 			}
 		}
-		kHead := kHeads[kvHead]
-		if weights.KNorm != nil {
-			kHead, err = rmsNormFloat32(kHead, weights.KNorm.Values, spec.RMSNormEpsilon)
-			if err != nil {
-				return nil, fmt.Errorf("k norm head %d: %w", kvHead, err)
-			}
-		}
 		rotatedQ, err := applyRoPEFloat32(qHead, position, spec.RopeTheta)
 		if err != nil {
 			return nil, fmt.Errorf("q rope head %d: %w", i, err)
 		}
-		rotatedK, err := applyRoPEFloat32(kHead, position, spec.RopeTheta)
-		if err != nil {
-			return nil, fmt.Errorf("k rope head %d: %w", kvHead, err)
-		}
-		headOut, err := attentionFloat32(rotatedQ, [][]float32{rotatedK}, [][]float32{vHeads[kvHead]})
+		headOut, err := attentionFloat32(rotatedQ, keysByHead[kvHead], valuesByHead[kvHead])
 		if err != nil {
 			return nil, fmt.Errorf("attention head %d: %w", i, err)
 		}
