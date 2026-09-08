@@ -213,7 +213,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 })
 ```
 
-Current status: it loads safetensors metadata, tensor readers, selected F32/F16/BF16 tensors as float32, HF Qwen/Llama weight manifests, tokenizer.json, native adapters, early float32 math primitives, prompt decode state, KV cache history, repeat-penalty/top-p/temperature sampling, and experimental generation. Full production-quality autoregressive generation for Qwen/Llama models is still in progress.
+Current status: it loads safetensors metadata, tensor readers, selected F32/F16/BF16 tensors as float32, HF Qwen/Llama weight manifests, tokenizer.json, native adapters, early float32 math primitives, prompt decode state, KV cache history, repeat-penalty/top-p/temperature sampling, experimental generation, and streaming chat. Full production-quality autoregressive generation for Qwen/Llama models is still in progress.
 
 ## Local llama.cpp runtime
 

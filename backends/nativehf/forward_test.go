@@ -107,6 +107,32 @@ func TestGenerateTinyHFModelAppliesAdapter(t *testing.T) {
 	}
 }
 
+func TestStreamChatEmitsTokens(t *testing.T) {
+	dir := writeTinyForwardModel(t)
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	stream, err := model.StreamChat(context.Background(), nego.ChatRequest{
+		Messages:  []nego.Message{{Role: nego.RoleUser, Content: "a"}},
+		MaxTokens: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	for token := range stream.Tokens() {
+		out.WriteString(token.Text)
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() == "" {
+		t.Fatal("expected streamed token text")
+	}
+}
+
 func writeTinyForwardModel(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

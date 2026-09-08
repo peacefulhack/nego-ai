@@ -9,6 +9,10 @@ import (
 )
 
 func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+	return m.generateTextWithEmitter(ctx, req, nil)
+}
+
+func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRequest, emit func(string) error) (*nego.GenerateOutput, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -54,6 +58,7 @@ func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*ne
 		}
 	}
 	var b strings.Builder
+	emittedLen := 0
 	for i := 0; i < maxTokens; i++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -70,7 +75,14 @@ func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*ne
 		b.WriteString(text)
 		out := b.String()
 		if stopReached(out, req.Stop) {
-			return &nego.GenerateOutput{Text: trimAtStop(out, req.Stop)}, nil
+			trimmed := trimAtStop(out, req.Stop)
+			if err := emitDelta(emit, trimmed, &emittedLen); err != nil {
+				return nil, err
+			}
+			return &nego.GenerateOutput{Text: trimmed}, nil
+		}
+		if err := emitDelta(emit, out, &emittedLen); err != nil {
+			return nil, err
 		}
 		if i == maxTokens-1 {
 			break
@@ -81,6 +93,18 @@ func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*ne
 		}
 	}
 	return &nego.GenerateOutput{Text: b.String()}, nil
+}
+
+func emitDelta(emit func(string) error, text string, emittedLen *int) error {
+	if emit == nil || emittedLen == nil || len(text) <= *emittedLen {
+		return nil
+	}
+	delta := text[*emittedLen:]
+	*emittedLen = len(text)
+	if delta == "" {
+		return nil
+	}
+	return emit(delta)
 }
 
 func (m *Model) applyAdapter(logits []float32) []float32 {

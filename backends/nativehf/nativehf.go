@@ -109,11 +109,28 @@ func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatRespo
 }
 
 func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stream, error) {
-	resp, err := m.Chat(ctx, req)
+	prompt, err := m.renderChatPrompt(req.Messages)
 	if err != nil {
 		return nil, err
 	}
-	return newStaticStream(resp.Message.Content), nil
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stream := newNativeHFStream(cancel)
+	go stream.run(ctx, func(emit func(string) error) error {
+		_, err := m.generateTextWithEmitter(ctx, nego.GenerateRequest{
+			Prompt:        prompt,
+			MaxTokens:     req.MaxTokens,
+			Temperature:   req.Temperature,
+			TopP:          req.TopP,
+			RepeatPenalty: req.RepeatPenalty,
+			Stop:          req.Stop,
+			Seed:          req.Seed,
+		}, emit)
+		return err
+	})
+	return stream, nil
 }
 
 func (m *Model) Close() error {
