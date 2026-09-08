@@ -284,6 +284,18 @@ func (t *Tokenizer) bpeInitialPieces(segment string) []string {
 		return nil
 	}
 	var pieces []string
+	for strings.HasPrefix(segment, "\n") || strings.HasPrefix(segment, "\t") {
+		r, size := utf8.DecodeRuneInString(segment)
+		token := string(r)
+		if mapped, ok := t.byteLevelWhitespaceToken(r); ok {
+			token = mapped
+		}
+		pieces = append(pieces, token)
+		segment = segment[size:]
+	}
+	if segment == "" {
+		return pieces
+	}
 	if strings.HasPrefix(segment, " ") {
 		spaces := len(segment) - len(strings.TrimLeft(segment, " "))
 		for i := 0; i < spaces-1; i++ {
@@ -310,9 +322,31 @@ func (t *Tokenizer) bpeInitialPieces(segment string) []string {
 		segment = rest[size:]
 	}
 	for _, r := range segment {
-		pieces = append(pieces, string(r))
+		token := string(r)
+		if mapped, ok := t.byteLevelWhitespaceToken(r); ok {
+			token = mapped
+		}
+		pieces = append(pieces, token)
 	}
 	return pieces
+}
+
+func (t *Tokenizer) byteLevelWhitespaceToken(r rune) (string, bool) {
+	switch r {
+	case '\n':
+		if t.hasToken("Ċ") {
+			return "Ċ", true
+		}
+	case '\t':
+		if t.hasToken("ĉ") {
+			return "ĉ", true
+		}
+	case ' ':
+		if t.hasToken("Ġ") {
+			return "Ġ", true
+		}
+	}
+	return "", false
 }
 
 func (t *Tokenizer) hasToken(token string) bool {
@@ -381,6 +415,10 @@ func isSpace(r rune) bool {
 
 func decodeToken(token string) string {
 	switch {
+	case token == "Ċ":
+		return "\n"
+	case token == "ĉ":
+		return "\t"
 	case strings.HasPrefix(token, "Ġ"):
 		return " " + strings.TrimPrefix(token, "Ġ")
 	case strings.HasPrefix(token, "▁"):
