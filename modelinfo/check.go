@@ -79,6 +79,7 @@ func backendCompatibility(report *CheckReport, info *Info) []BackendCompatibilit
 			break
 		}
 	}
+	nativeHFCompatible, nativeHFReason := nativeHFCompatibility(info, hasSafetensors)
 	nativeUnsupported := nativeUnsupportedTensorTypes(info)
 	nativeWarnings := nativeCompatibilityWarnings(report, nativeUnsupported)
 	nativeHasTensors := info.GGUF != nil && len(info.GGUF.Tensors) > 0
@@ -101,9 +102,9 @@ func backendCompatibility(report *CheckReport, info *Info) []BackendCompatibilit
 		Reason:     compatibilityReason(hasONNX, "ONNX runtime file found", "requires an ONNX file"),
 	})
 	out = append(out, BackendCompatibility{
-		Name:       "hf-safetensors",
-		Compatible: hasSafetensors,
-		Reason:     compatibilityReason(hasSafetensors, "safetensors weights found", "requires safetensors weights"),
+		Name:       "native-hf",
+		Compatible: nativeHFCompatible,
+		Reason:     nativeHFReason,
 	})
 	return out
 }
@@ -126,6 +127,28 @@ func nativeCompatibilityReason(hasGGUF, hasTensors bool, unsupported []string) s
 		return "unsupported tensor types: " + strings.Join(unsupported, ", ")
 	}
 	return "GGUF tensor types can be loaded by the experimental pure-Go backend"
+}
+
+func nativeHFCompatibility(info *Info, hasSafetensors bool) (bool, string) {
+	if !hasSafetensors {
+		return false, "requires safetensors weights"
+	}
+	if info.HFSpec == nil {
+		return false, "requires Hugging Face config.json model spec"
+	}
+	if !info.HFSpec.Ready {
+		return false, firstNonEmpty(info.HFSpec.ValidationError, "Hugging Face model spec is incomplete")
+	}
+	if info.HFWeights == nil {
+		return false, "requires a Hugging Face weight manifest"
+	}
+	if !info.HFWeights.Ready {
+		return false, "Hugging Face weight manifest is missing tensors"
+	}
+	if info.HFShapes != nil && !info.HFShapes.Ready {
+		return false, "Hugging Face tensor shapes do not match config"
+	}
+	return true, "native-hf can run this safetensors model through the experimental pure-Go path"
 }
 
 func nativeUnsupportedTensorTypes(info *Info) []string {

@@ -24,6 +24,7 @@ import (
 	nego "github.com/gakon/nego-ai"
 	_ "github.com/gakon/nego-ai/backends/llama"
 	_ "github.com/gakon/nego-ai/backends/native"
+	_ "github.com/gakon/nego-ai/backends/nativehf"
 	_ "github.com/gakon/nego-ai/backends/openai"
 	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/convert"
@@ -75,6 +76,8 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runInspect(args[1:], stdout, stderr)
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
+	case "memory":
+		return runMemory(args[1:], stdout, stderr)
 	case "run":
 		return runModel(args[1:], stdout, stderr)
 	case "chat":
@@ -411,6 +414,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
 	fmt.Fprintln(w, "  nego inspect <model-path> [flags]")
 	fmt.Fprintln(w, "  nego check <model-path> [flags]")
+	fmt.Fprintln(w, "  nego memory <model-path> [flags]")
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
 	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
@@ -423,6 +427,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train capabilities <model-path> [flags]")
 	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
@@ -651,6 +656,8 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 			return runTrainValidate(args[1:], stdout, stderr)
 		case "check":
 			return runTrainCheck(args[1:], stdout, stderr)
+		case "capabilities":
+			return runTrainCapabilities(args[1:], stdout, stderr)
 		case "native":
 			return runTrainNative(args[1:], stdout, stderr)
 		case "help", "-h", "--help":
@@ -855,6 +862,40 @@ func runTrainValidate(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runTrainCapabilities(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("train capabilities", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON report")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego train capabilities <model-path> [flags]")
+		return 2
+	}
+	report, err := training.Assess(positionals[0])
+	if jsonOutput {
+		body := map[string]any{
+			"success": err == nil,
+			"report":  report,
+		}
+		if err != nil {
+			body["error"] = err.Error()
+		}
+		_ = json.NewEncoder(stdout).Encode(body)
+	} else if err == nil {
+		printTrainingAssessment(stdout, report)
+	} else {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
+}
+
 func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	var trainFile string
 	var evalFile string
@@ -925,7 +966,92 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	fmt.Fprintf(w, "Train tokens:   %d\n", result.TrainTokens)
 	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
 	fmt.Fprintf(w, "Adapter:        %s\n", result.AdapterPath)
+	if runCommand := nativeTrainingRunCommand(result); runCommand != "" {
+		fmt.Fprintf(w, "Run:            %s\n", runCommand)
+	}
+	if chatCommand := nativeTrainingChatCommand(result); chatCommand != "" {
+		fmt.Fprintf(w, "Chat:           %s\n", chatCommand)
+	}
 	for _, warning := range result.Warnings {
+		fmt.Fprintf(w, "Warning:        %s\n", warning)
+	}
+}
+
+func nativeTrainingRunCommand(result training.NativeResult) string {
+	args := nativeTrainingRuntimeArgs("run", result)
+	if len(args) == 0 {
+		return ""
+	}
+	args = append(args, "Hello")
+	return formatCommand(args)
+}
+
+func nativeTrainingChatCommand(result training.NativeResult) string {
+	args := nativeTrainingRuntimeArgs("chat", result)
+	if len(args) == 0 {
+		return ""
+	}
+	args = append(args, "Hello")
+	return formatCommand(args)
+}
+
+func nativeTrainingRuntimeArgs(command string, result training.NativeResult) []string {
+	if result.BaseModel == "" || result.AdapterPath == "" {
+		return nil
+	}
+	args := []string{"nego", command}
+	switch {
+	case result.Artifact != nil && result.Artifact.Format == modelinfo.ArtifactFormatHFSafetensors:
+		args = append(args, result.BaseModel, "--adapter", result.AdapterPath)
+	default:
+		args = append(args, "--native", result.BaseModel, "--adapter", result.AdapterPath)
+	}
+	return args
+}
+
+func formatCommand(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = quoteCommandArg(arg)
+	}
+	return strings.Join(quoted, " ")
+}
+
+func quoteCommandArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	if strings.ContainsAny(arg, " \t\r\n\"") {
+		return strconv.Quote(arg)
+	}
+	return arg
+}
+
+func printTrainingAssessment(w io.Writer, report training.Assessment) {
+	fmt.Fprintln(w, "Training capabilities")
+	fmt.Fprintf(w, "Base model:     %s\n", report.BaseModel)
+	if report.Artifact != nil {
+		fmt.Fprintf(w, "Format:         %s\n", report.Artifact.Format)
+		if report.Artifact.ModelType != "" {
+			fmt.Fprintf(w, "Model type:     %s\n", report.Artifact.ModelType)
+		}
+	}
+	fmt.Fprintln(w, "Methods:")
+	for _, method := range report.Methods {
+		status := string(method.Status)
+		if method.Available && method.Status == "" {
+			status = "ready"
+		}
+		fmt.Fprintf(w, "  - %-16s %s", method.Method, status)
+		if method.Reason != "" {
+			fmt.Fprintf(w, " (%s)", method.Reason)
+		}
+		fmt.Fprintln(w)
+	}
+	for _, warning := range report.Warnings {
 		fmt.Fprintf(w, "Warning:        %s\n", warning)
 	}
 }
@@ -1008,6 +1134,7 @@ func trainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
+	fmt.Fprintln(w, "  nego train capabilities <model-path> [flags]")
 	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
@@ -1508,6 +1635,39 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runMemory(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	var contextLength uint64
+	var kvBytes uint64
+	fs := flag.NewFlagSet("memory", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON estimate")
+	fs.Uint64Var(&contextLength, "context", 0, "context length for KV cache estimate")
+	fs.Uint64Var(&kvBytes, "kv-bytes", 4, "bytes per KV cache value")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego memory <model-path> [flags]")
+		return 2
+	}
+	estimate, err := modelinfo.EstimateMemory(positionals[0], modelinfo.MemoryOptions{
+		ContextLength: contextLength,
+		KVBytes:       kvBytes,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(estimate)
+		return 0
+	}
+	printMemoryEstimate(stdout, estimate)
+	return 0
+}
+
 func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 	fmt.Fprintf(w, "Path:        %s\n", info.Path)
 	if info.ModelType != "" {
@@ -1515,6 +1675,46 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 	}
 	if len(info.Architectures) > 0 {
 		fmt.Fprintf(w, "Architecture:%s\n", " "+strings.Join(info.Architectures, ", "))
+	}
+	if info.HFSpec != nil {
+		fmt.Fprintln(w, "HF spec:")
+		fmt.Fprintf(w, "  Ready:        %v\n", info.HFSpec.Ready)
+		if info.HFSpec.VocabSize > 0 {
+			fmt.Fprintf(w, "  Vocab:        %d\n", info.HFSpec.VocabSize)
+		}
+		if info.HFSpec.ContextLength > 0 {
+			fmt.Fprintf(w, "  Context:      %d\n", info.HFSpec.ContextLength)
+		}
+		if info.HFSpec.EmbeddingLength > 0 {
+			fmt.Fprintf(w, "  Embedding:    %d\n", info.HFSpec.EmbeddingLength)
+		}
+		if info.HFSpec.BlockCount > 0 {
+			fmt.Fprintf(w, "  Blocks:       %d\n", info.HFSpec.BlockCount)
+		}
+		if info.HFSpec.FeedForwardLength > 0 {
+			fmt.Fprintf(w, "  FFN:          %d\n", info.HFSpec.FeedForwardLength)
+		}
+		if info.HFSpec.AttentionHeadCount > 0 {
+			fmt.Fprintf(w, "  Heads:        %d\n", info.HFSpec.AttentionHeadCount)
+		}
+		if info.HFSpec.KVHeadCount > 0 {
+			fmt.Fprintf(w, "  KV heads:     %d\n", info.HFSpec.KVHeadCount)
+		}
+		if info.HFSpec.HeadDim > 0 {
+			fmt.Fprintf(w, "  Head dim:     %d\n", info.HFSpec.HeadDim)
+		}
+		if info.HFSpec.RopeTheta > 0 {
+			fmt.Fprintf(w, "  RoPE theta:   %.0f\n", info.HFSpec.RopeTheta)
+		}
+		if info.HFSpec.RMSNormEpsilon > 0 {
+			fmt.Fprintf(w, "  RMS eps:      %g\n", info.HFSpec.RMSNormEpsilon)
+		}
+		if len(info.HFSpec.Missing) > 0 {
+			fmt.Fprintf(w, "  Missing:      %s\n", strings.Join(info.HFSpec.Missing, ", "))
+		}
+		if info.HFSpec.ValidationError != "" {
+			fmt.Fprintf(w, "  Error:        %s\n", info.HFSpec.ValidationError)
+		}
 	}
 	if info.GGUF != nil {
 		fmt.Fprintln(w, "GGUF:")
@@ -1548,7 +1748,7 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 			fmt.Fprintf(w, "  Parameters:   %d\n", info.Safetensors.ParamCount)
 		}
 		if info.Safetensors.TotalSize > 0 {
-			fmt.Fprintf(w, "  Tensor bytes: %s\n", humanBytes(int64(info.Safetensors.TotalSize)))
+			fmt.Fprintf(w, "  Tensor bytes: %s\n", humanBytesUint(info.Safetensors.TotalSize))
 		}
 		if len(info.Safetensors.DTypeCounts) > 0 {
 			fmt.Fprintf(w, "  DTypes:       %s\n", formatDTypeCounts(info.Safetensors.DTypeCounts))
@@ -1570,6 +1770,17 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 		}
 		if len(info.HFWeights.Missing) > 0 {
 			fmt.Fprintf(w, "  Missing:      %d\n", len(info.HFWeights.Missing))
+		}
+	}
+	if info.HFShapes != nil {
+		fmt.Fprintln(w, "HF shapes:")
+		fmt.Fprintf(w, "  Ready:        %v\n", info.HFShapes.Ready)
+		fmt.Fprintf(w, "  Checked:      %d\n", len(info.HFShapes.Checked))
+		if len(info.HFShapes.MissingShape) > 0 {
+			fmt.Fprintf(w, "  Mismatches:   %d\n", len(info.HFShapes.MissingShape))
+			for _, mismatch := range info.HFShapes.MissingShape {
+				fmt.Fprintf(w, "    - %s\n", mismatch)
+			}
 		}
 	}
 	if info.Card != nil {
@@ -1615,6 +1826,45 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 			}
 			fmt.Fprintln(w)
 		}
+	}
+}
+
+func printMemoryEstimate(w io.Writer, estimate *modelinfo.MemoryEstimate) {
+	fmt.Fprintln(w, "Memory estimate")
+	fmt.Fprintf(w, "Path:          %s\n", estimate.Path)
+	fmt.Fprintf(w, "Format:        %s\n", estimate.Format)
+	if estimate.ContextLength > 0 {
+		fmt.Fprintf(w, "Context:       %d\n", estimate.ContextLength)
+	}
+	if estimate.BlockCount > 0 {
+		fmt.Fprintf(w, "Blocks:        %d\n", estimate.BlockCount)
+	}
+	if estimate.EmbeddingLength > 0 {
+		fmt.Fprintf(w, "Embedding:     %d\n", estimate.EmbeddingLength)
+	}
+	if estimate.AttentionHeadCount > 0 {
+		fmt.Fprintf(w, "Heads:         %d\n", estimate.AttentionHeadCount)
+	}
+	if estimate.KVHeadCount > 0 {
+		fmt.Fprintf(w, "KV heads:      %d\n", estimate.KVHeadCount)
+	}
+	if estimate.HeadDim > 0 {
+		fmt.Fprintf(w, "Head dim:      %d\n", estimate.HeadDim)
+	}
+	if estimate.WeightBytes > 0 {
+		fmt.Fprintf(w, "Weights:       %s\n", humanBytesUint(estimate.WeightBytes))
+	}
+	if estimate.KVCacheBytes > 0 {
+		fmt.Fprintf(w, "KV cache:      %s\n", humanBytesUint(estimate.KVCacheBytes))
+	}
+	if estimate.RuntimeBytes > 0 {
+		fmt.Fprintf(w, "Runtime:       %s\n", humanBytesUint(estimate.RuntimeBytes))
+	}
+	if estimate.TotalBytes > 0 {
+		fmt.Fprintf(w, "Total:         %s\n", humanBytesUint(estimate.TotalBytes))
+	}
+	for _, note := range estimate.Notes {
+		fmt.Fprintf(w, "Note:          %s\n", note)
 	}
 }
 
@@ -1736,6 +1986,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var adapterPath string
 	var configFile string
 	var logPath string
+	var extraOptions repeatedFlag
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "auto", "runtime backend: auto, native, llama.cpp, or openai-compatible")
@@ -1757,6 +2008,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.StringVar(&configFile, "f", "", "run config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
+	fs.Var(&extraOptions, "option", "backend option key=value, repeatable")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -1815,7 +2067,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
 		return 2
 	}
-	options := runtimeOptions(cfg.Options, runtimeFlagOptions{
+	options, err := runtimeOptions(cfg.Options, runtimeFlagOptions{
 		threads:        threads,
 		ctxSize:        ctxSize,
 		gpuLayers:      gpuLayers,
@@ -1825,7 +2077,12 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
 		adapterPath:    adapterPath,
+		extraOptions:   extraOptions,
 	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	if err := validateRuntimeOptions(options); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
@@ -1881,6 +2138,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var interactive bool
 	var native bool
 	var adapterPath string
+	var extraOptions repeatedFlag
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "auto", "runtime backend: auto, native, llama.cpp, or openai-compatible")
@@ -1906,6 +2164,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&sessionPath, "session", "", "load and save chat history JSON")
 	fs.StringVar(&savePath, "save", "", "save chat history JSON without loading it")
 	fs.BoolVar(&interactive, "interactive", false, "start an interactive chat session")
+	fs.Var(&extraOptions, "option", "backend option key=value, repeatable")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -2007,7 +2266,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	options := runtimeOptions(cfg.Options, runtimeFlagOptions{
+	options, err := runtimeOptions(cfg.Options, runtimeFlagOptions{
 		threads:        threads,
 		ctxSize:        ctxSize,
 		gpuLayers:      gpuLayers,
@@ -2017,7 +2276,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
 		adapterPath:    adapterPath,
+		extraOptions:   extraOptions,
 	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	if err := validateRuntimeOptions(options); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
@@ -2322,7 +2586,7 @@ func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, m
 		RepeatPenalty: repeatPenalty,
 		Stop:          append([]string(nil), stop...),
 		Seed:          seed,
-		Options:       copyStringMap(options),
+		Options:       redactRuntimeOptions(options),
 	}
 	if runErr != nil {
 		entry.Error = runErr.Error()
@@ -2355,6 +2619,33 @@ func copyStringMap(values map[string]string) map[string]string {
 	return out
 }
 
+func redactRuntimeOptions(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		if sensitiveRuntimeOption(key) {
+			out[key] = "<redacted>"
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func sensitiveRuntimeOption(key string) bool {
+	key = strings.TrimSpace(strings.TrimLeft(strings.ToLower(key), "-"))
+	return strings.Contains(key, "token") ||
+		strings.Contains(key, "api-key") ||
+		strings.Contains(key, "api_key") ||
+		strings.Contains(key, "apikey") ||
+		strings.Contains(key, "access-key") ||
+		strings.Contains(key, "access_key") ||
+		strings.Contains(key, "secret") ||
+		strings.Contains(key, "password")
+}
+
 type runtimeFlagOptions struct {
 	threads        int
 	ctxSize        int
@@ -2365,6 +2656,7 @@ type runtimeFlagOptions struct {
 	splitMode      string
 	flashAttention bool
 	adapterPath    string
+	extraOptions   []string
 }
 
 func normalizeBackendFlag(backend string) string {
@@ -2390,12 +2682,19 @@ func resolveRuntimeBackend(backend, path, endpoint, modelID string) string {
 	return resolved
 }
 
-func runtimeOptions(base map[string]string, flags runtimeFlagOptions) map[string]string {
-	options := make(map[string]string, len(base)+9)
+func runtimeOptions(base map[string]string, flags runtimeFlagOptions) (map[string]string, error) {
+	options := make(map[string]string, len(base)+len(flags.extraOptions)+9)
 	for key, value := range base {
 		if value != "" {
 			options[key] = value
 		}
+	}
+	for _, raw := range flags.extraOptions {
+		key, value, err := parseRuntimeOption(raw)
+		if err != nil {
+			return nil, err
+		}
+		options[key] = value
 	}
 	if flags.threads > 0 {
 		options["threads"] = strconv.Itoa(flags.threads)
@@ -2425,9 +2724,22 @@ func runtimeOptions(base map[string]string, flags runtimeFlagOptions) map[string
 		options["adapter_path"] = flags.adapterPath
 	}
 	if len(options) == 0 {
-		return nil
+		return nil, nil
 	}
-	return options
+	return options, nil
+}
+
+func parseRuntimeOption(raw string) (string, string, error) {
+	key, value, ok := strings.Cut(raw, "=")
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if !ok || key == "" {
+		return "", "", fmt.Errorf("option must be key=value")
+	}
+	if strings.ContainsAny(key, " \t\r\n") {
+		return "", "", fmt.Errorf("option key %q must not contain whitespace", key)
+	}
+	return key, value, nil
 }
 
 func validateRepeatPenalty(value float64) error {
@@ -2489,6 +2801,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	var splitMode string
 	var flashAttention bool
 	var native bool
+	var extraOptions repeatedFlag
 
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -2504,6 +2817,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
+	fs.Var(&extraOptions, "option", "backend option key=value, repeatable")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -2519,7 +2833,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
 		return 2
 	}
-	options := runtimeOptions(nil, runtimeFlagOptions{
+	options, err := runtimeOptions(nil, runtimeFlagOptions{
 		threads:        threads,
 		ctxSize:        ctxSize,
 		gpuLayers:      gpuLayers,
@@ -2528,7 +2842,12 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		tensorSplit:    tensorSplit,
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
+		extraOptions:   extraOptions,
 	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	if err := validateRuntimeOptions(options); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
@@ -3795,6 +4114,14 @@ func humanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+func humanBytesUint(n uint64) string {
+	const maxInt64 = uint64(1<<63 - 1)
+	if n <= maxInt64 {
+		return humanBytes(int64(n))
+	}
+	return fmt.Sprintf("%d B", n)
 }
 
 func renderProgressLines(title string, order []string, entries map[string]*progressEntry, spinner string) []string {

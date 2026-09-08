@@ -20,7 +20,9 @@ type Info struct {
 	Card             *Card             `json:"card,omitempty"`
 	GGUF             *GGUFInfo         `json:"gguf,omitempty"`
 	Safetensors      *SafetensorsInfo  `json:"safetensors,omitempty"`
+	HFSpec           *HFModelSpec      `json:"hf_spec,omitempty"`
 	HFWeights        *HFWeightManifest `json:"hf_weights,omitempty"`
+	HFShapes         *HFShapeReport    `json:"hf_shapes,omitempty"`
 	Files            []File            `json:"files,omitempty"`
 }
 
@@ -89,6 +91,7 @@ func Inspect(path string) (*Info, error) {
 	info.Config = config
 	info.ModelType = stringValue(config["model_type"])
 	info.Architectures = stringSlice(config["architectures"])
+	info.HFSpec, _ = HFModelSpecFromInfo(info)
 
 	generationConfig, err := readJSON(filepath.Join(root, "generation_config.json"))
 	if err != nil {
@@ -118,6 +121,7 @@ func Inspect(path string) (*Info, error) {
 	if safetensors, err := InspectSafetensors(root); err == nil {
 		info.Safetensors = safetensors
 		info.HFWeights, _ = HFWeightManifestFromInfo(info)
+		info.HFShapes, _ = HFShapeReportFromInfo(info)
 	}
 	return info, nil
 }

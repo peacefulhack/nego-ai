@@ -6,18 +6,23 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 
 1. Download Hugging Face-style model files and GGUF runtime files.
 2. Cache downloads and list, inspect, or remove local model registry entries.
-3. Inspect model directories, model cards, config files, tokenizer files, safetensors metadata, and GGUF metadata.
+3. Inspect model directories, model cards, config files, tokenizer files, safetensors metadata, GGUF metadata, and rough memory needs.
 4. Load safetensors F32/F16/BF16 tensors into float32 buffers for native runtime development.
 5. Map Hugging Face Qwen/Llama safetensors tensor names into native weight manifests.
-6. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
-7. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
-8. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
-9. Use remote OpenAI-compatible chat and embedding APIs.
-10. Prepare, validate, convert, filter, split, and sample datasets.
-11. Run eval suites and compare reports.
-12. Create, validate, and run external training job JSON files.
-13. Create local share manifests and archive packages for trained model output directories.
-14. Upload regular files or small folders to Hub repos through inline commit uploads.
+6. Load Hugging Face safetensors directories through the experimental `native-hf` backend.
+7. Load selected Hugging Face safetensors weights into float32 buffers for native runtime and training development.
+8. Validate Hugging Face safetensors tensor shapes against local model config, including Qwen-style q/k attention norms.
+9. Run native HF float32 math primitives for embedding lookup, projections, normalization, MLP, and logits.
+10. Run experimental native HF generation and streaming chat with prompt decode state, KV cache history, adapter bias, and sampler controls.
+11. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
+12. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
+13. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
+14. Use remote OpenAI-compatible chat and embedding APIs.
+15. Prepare, validate, convert, filter, split, and sample datasets.
+16. Run eval suites and compare reports.
+17. Create, validate, and run external training job JSON files.
+18. Create local share manifests and archive packages for trained model output directories.
+19. Upload regular files or small folders to Hub repos through inline commit uploads.
 
 ## Pure-Go Native Runtime Status
 
@@ -42,7 +47,7 @@ Not production-ready yet:
 2. Compatibility validation for mixed K-quant variants such as Q4_K_M and Q5_K_M in real model files.
 3. Optimized CPU execution, batching, and memory planning.
 4. GPU execution.
-5. Native safetensors forward-pass loading and fine-tuning/training.
+5. Production-quality native safetensors autoregressive generation for Qwen/Llama models.
 6. Full GGUF LoRA/backprop training and optimizer support.
 
 ## Next Critical Phases

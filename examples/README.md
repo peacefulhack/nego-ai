@@ -3,7 +3,7 @@
 Examples are numbered to show the usual AI model development flow.
 
 1. [Download](1.download): download the Hugging Face base model to `./models/qwen3` and a GGUF runtime model to `./models/qwen3-gguf`.
-2. [Chat](2.chat): chat with the GGUF model downloaded in step 1.
+2. [Chat](2.chat): chat with the Hugging Face safetensors model downloaded in step 1 through the pure-Go native-HF backend.
 3. [Prepare Dataset](3.prepare-dataset): load CSV data and emit JSONL rows.
 4. [Eval](4.eval): define an eval suite for the GGUF model downloaded in step 1; the Go example runs the same cases against a tiny in-memory model.
 5. [Train](5.train): create a LoRA training job for the Hugging Face model and a native token-bias adapter from a downloaded model.
@@ -23,7 +23,7 @@ go run ./examples/5.train/native_adapter
 go run ./examples/8.share-trained-model
 ```
 
-Examples that call real local runtime backends need `llama-cli` on PATH or `NEGO_LLAMA_CLI` set.
+The default chat example uses Nego's experimental pure-Go local backend. Examples that explicitly use `llama.cpp` need `llama-cli` on PATH or `NEGO_LLAMA_CLI` set.
 
 For local GGUF models, GPU acceleration is controlled by runtime flags such as:
 

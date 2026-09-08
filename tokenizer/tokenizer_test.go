@@ -107,6 +107,41 @@ func TestBPEUsesMergeRules(t *testing.T) {
 	}
 }
 
+func TestBPEEncodesByteLevelNewline(t *testing.T) {
+	dir := t.TempDir()
+	writeTokenizer(t, dir, `{
+		"model": {
+			"type": "BPE",
+			"vocab": {
+				"Ċ": 0,
+				"H": 1,
+				"i": 2,
+				"Hi": 3
+			},
+			"merges": ["H i"]
+		}
+	}`)
+
+	tok, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids, err := tok.Encode("\nHi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(ids, []int{0, 3}) {
+		t.Fatalf("ids = %#v", ids)
+	}
+	text, err := tok.Decode(ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text != "\nHi" {
+		t.Fatalf("text = %q", text)
+	}
+}
+
 func TestLoadUnigramArrayVocab(t *testing.T) {
 	dir := t.TempDir()
 	writeTokenizer(t, dir, `{

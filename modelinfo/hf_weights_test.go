@@ -17,7 +17,9 @@ func TestHFWeightManifestFromSafetensors(t *testing.T) {
 		"lm_head.weight",
 		"model.layers.0.input_layernorm.weight",
 		"model.layers.0.self_attn.q_proj.weight",
+		"model.layers.0.self_attn.q_norm.weight",
 		"model.layers.0.self_attn.k_proj.weight",
+		"model.layers.0.self_attn.k_norm.weight",
 		"model.layers.0.self_attn.v_proj.weight",
 		"model.layers.0.self_attn.o_proj.weight",
 		"model.layers.0.post_attention_layernorm.weight",
@@ -37,6 +39,9 @@ func TestHFWeightManifestFromSafetensors(t *testing.T) {
 	}
 	if info.HFWeights.Blocks[0].AttentionQ != "model.layers.0.self_attn.q_proj.weight" {
 		t.Fatalf("unexpected block mapping: %#v", info.HFWeights.Blocks[0])
+	}
+	if info.HFWeights.Blocks[0].AttentionQNorm == "" || info.HFWeights.Blocks[0].AttentionKNorm == "" {
+		t.Fatalf("missing optional q/k norm mapping: %#v", info.HFWeights.Blocks[0])
 	}
 }
 

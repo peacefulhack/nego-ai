@@ -19,6 +19,7 @@ import (
 	nego "github.com/gakon/nego-ai"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/registry"
+	"github.com/gakon/nego-ai/modelinfo"
 	"github.com/gakon/nego-ai/training"
 )
 
@@ -564,6 +565,59 @@ func TestInspectCommandShowsSafetensorsMetadata(t *testing.T) {
 	}
 }
 
+func TestMemoryCommandShowsHFEstimate(t *testing.T) {
+	dir := t.TempDir()
+	config := `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":4,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), cliSafetensorsFixture(t, `{
+		"weight":{"dtype":"F16","shape":[2,2],"data_offsets":[0,8]}
+	}`, 8), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"memory", dir, "--context", "4"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Memory estimate", "Format:        hf-safetensors", "Context:       4", "KV cache:      64 B", "Total:"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestMemoryCommandJSON(t *testing.T) {
+	dir := t.TempDir()
+	config := `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":4,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), cliSafetensorsFixture(t, `{
+		"weight":{"dtype":"F16","shape":[2,2],"data_offsets":[0,8]}
+	}`, 8), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"memory", dir, "--context", "4", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var body struct {
+		Format       string `json:"format"`
+		KVCacheBytes uint64 `json:"kv_cache_bytes"`
+		TotalBytes   uint64 `json:"total_bytes"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Format != "hf-safetensors" || body.KVCacheBytes != 64 || body.TotalBytes == 0 {
+		t.Fatalf("unexpected memory json: %s", stdout.String())
+	}
+}
+
 func TestCheckCommandReportsCompatibility(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	var stdout, stderr bytes.Buffer
@@ -885,7 +939,7 @@ func TestBackendsCommands(t *testing.T) {
 		t.Fatalf("list code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "llama.cpp") || !strings.Contains(out, "openai-compatible") {
+	if !strings.Contains(out, "llama.cpp") || !strings.Contains(out, "native-hf") || !strings.Contains(out, "openai-compatible") {
 		t.Fatalf("unexpected list output: %q", out)
 	}
 
@@ -1019,7 +1073,7 @@ func TestDatasetCommands(t *testing.T) {
 }
 
 func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
-	got := runtimeOptions(map[string]string{
+	got, err := runtimeOptions(map[string]string{
 		"threads":    "2",
 		"ctx_size":   "1024",
 		"gpu_layers": "8",
@@ -1034,21 +1088,35 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		splitMode:      "layer",
 		flashAttention: true,
 		adapterPath:    "adapter.json",
+		extraOptions:   []string{"experimental_generation=true", "custom=override"},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := map[string]string{
-		"threads":      "4",
-		"ctx_size":     "2048",
-		"gpu_layers":   "8",
-		"gpu":          "full",
-		"main_gpu":     "1",
-		"tensor_split": "3,1",
-		"split_mode":   "layer",
-		"flash_attn":   "true",
-		"adapter_path": "adapter.json",
-		"custom":       "value",
+		"threads":                 "4",
+		"ctx_size":                "2048",
+		"gpu_layers":              "8",
+		"gpu":                     "full",
+		"main_gpu":                "1",
+		"tensor_split":            "3,1",
+		"split_mode":              "layer",
+		"flash_attn":              "true",
+		"adapter_path":            "adapter.json",
+		"custom":                  "override",
+		"experimental_generation": "true",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("runtimeOptions = %#v, want %#v", got, want)
+	}
+}
+
+func TestRuntimeOptionsRejectsInvalidExtraOption(t *testing.T) {
+	if _, err := runtimeOptions(nil, runtimeFlagOptions{extraOptions: []string{"broken"}}); err == nil {
+		t.Fatal("expected invalid option error")
+	}
+	if _, err := runtimeOptions(nil, runtimeFlagOptions{extraOptions: []string{"bad key=value"}}); err == nil {
+		t.Fatal("expected invalid option key error")
 	}
 }
 
@@ -1074,6 +1142,20 @@ func TestRuntimeLogEntrySanitizesEndpoint(t *testing.T) {
 	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, 0, nil, 0, nil, nil)
 	if entry.Endpoint != "https://example.com/v1" {
 		t.Fatalf("Endpoint = %q", entry.Endpoint)
+	}
+}
+
+func TestRuntimeLogEntryRedactsSensitiveOptions(t *testing.T) {
+	entry := runtimeLogEntry("run", "native", "model.gguf", "", "", "hello", nil, "world", time.Now(), 0, 0, 0, 0, nil, 0, map[string]string{
+		"api_key":                 "secret",
+		"hf_token":                "token",
+		"experimental_generation": "true",
+	}, nil)
+	if entry.Options["api_key"] != "<redacted>" || entry.Options["hf_token"] != "<redacted>" {
+		t.Fatalf("sensitive options were not redacted: %#v", entry.Options)
+	}
+	if entry.Options["experimental_generation"] != "true" {
+		t.Fatalf("non-sensitive option was redacted: %#v", entry.Options)
 	}
 }
 
@@ -1319,6 +1401,34 @@ func TestTrainCheckCommand(t *testing.T) {
 	}
 }
 
+func TestTrainCapabilitiesCommand(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"num_hidden_layers":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), cliSafetensorsFixture(t, `{
+		"model.embed_tokens.weight":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}
+	}`, 4), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "capabilities", modelDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "Training capabilities") || !strings.Contains(out, "token-bias") || !strings.Contains(out, "native-lora") {
+		t.Fatalf("unexpected output: %q", out)
+	}
+}
+
 func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	dir := t.TempDir()
@@ -1342,11 +1452,31 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Native training completed") || !strings.Contains(stdout.String(), "Adapter:") {
+	if !strings.Contains(stdout.String(), "Native training completed") ||
+		!strings.Contains(stdout.String(), "Adapter:") ||
+		!strings.Contains(stdout.String(), "Run:            nego run --native") ||
+		!strings.Contains(stdout.String(), "Chat:           nego chat --native") {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNativeTrainingCommandsUseAutoBackendForSafetensors(t *testing.T) {
+	result := training.NativeResult{
+		BaseModel:   "./models/qwen3",
+		AdapterPath: "./outputs/qwen3-token-bias/adapter.json",
+		Artifact:    &modelinfo.Artifact{Format: modelinfo.ArtifactFormatHFSafetensors},
+	}
+	runCommand := nativeTrainingRunCommand(result)
+	chatCommand := nativeTrainingChatCommand(result)
+	for _, command := range []string{runCommand, chatCommand} {
+		if strings.Contains(command, "--backend native-hf") ||
+			strings.Contains(command, "experimental_generation=true") ||
+			!strings.Contains(command, "./models/qwen3 --adapter ./outputs/qwen3-token-bias/adapter.json") {
+			t.Fatalf("unexpected command: %q", command)
+		}
 	}
 }
 

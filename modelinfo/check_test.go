@@ -72,6 +72,25 @@ func TestCheckReportsNativeKQuantCompatibility(t *testing.T) {
 	}
 }
 
+func TestCheckReportsNativeHFCompatibility(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "config.json", `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":4,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`)
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), safetensorsShapeFixture(t, hfShapeFixtureTensors(nil)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nativeHF, ok := backendByName(report.Backends, "native-hf")
+	if !ok {
+		t.Fatalf("native-hf backend missing: %#v", report.Backends)
+	}
+	if !nativeHF.Compatible {
+		t.Fatalf("expected native-hf compatibility: %#v", nativeHF)
+	}
+}
+
 func testGGUF(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer

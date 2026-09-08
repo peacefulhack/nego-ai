@@ -97,6 +97,7 @@ artifact, err := modelinfo.Resolve("./models/qwen3")
 nego inspect ./models/qwen3
 nego inspect ./models/qwen3-gguf --json
 nego check ./models/qwen3-gguf
+nego memory ./models/qwen3 --context 4096
 ```
 
 ## Tokenizer
@@ -137,7 +138,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 })
 ```
 
-Nego resolves GGUF artifacts to the experimental pure-Go `native` backend when possible. Hugging Face safetensors downloads are detected for native tensor loading and token-bias adapter training, while native safetensors chat and full LoRA/backprop training are still being built.
+Nego resolves GGUF artifacts to the experimental pure-Go `native` backend when possible. Hugging Face safetensors downloads resolve to the experimental pure-Go `native-hf` backend and can be used for native token-bias adapter training. Full LoRA/backprop training and production-quality local generation are still being built.
 
 ```go
 import _ "github.com/gakon/nego-ai/backends/llama"
@@ -147,9 +148,11 @@ import _ "github.com/gakon/nego-ai/backends/llama"
 nego backends list
 nego backends info llama.cpp
 nego backends info native
+nego backends info native-hf
 nego run ./models/qwen3-gguf "Hello"
 nego chat ./models/qwen3-gguf "Hello"
 nego run --backend llama.cpp ./models/qwen3-gguf "Hello"
+nego run ./models/qwen3 "Hello"
 ```
 
 ## Pure-Go native runtime
@@ -196,6 +199,21 @@ Current status:
 - Does not run production GGUF inference for large Qwen/Llama models yet.
 
 The native backend is the foundation for pure-Go chat/train/share. The next phases are real Qwen/Llama compatibility, performance work, and broader quantized kernels.
+
+## Pure-Go Hugging Face Runtime
+
+Nego also includes an experimental `native-hf` backend for Hugging Face safetensors directories:
+
+```go
+import _ "github.com/gakon/nego-ai/backends/nativehf"
+
+model, err := nego.LoadModel(ctx, nego.ModelOptions{
+    Backend: "native-hf",
+    Path:    "./models/qwen3",
+})
+```
+
+Current status: it loads safetensors metadata, tensor readers, selected F32/F16/BF16 tensors as float32, HF Qwen/Llama weight manifests, tokenizer.json, native adapters, early float32 math primitives, prompt decode state, KV cache history, repeat-penalty/top-p/temperature sampling, experimental generation, and streaming chat. Full production-quality autoregressive generation for Qwen/Llama models is still in progress.
 
 ## Local llama.cpp runtime
 
@@ -277,6 +295,7 @@ Nego does not natively convert Hugging Face safetensors to GGUF yet. Use `nego d
 Use the Hugging Face-style model directory (`./models/qwen3`) for fine-tuning jobs. Use the GGUF directory (`./models/qwen3-gguf`) for local chat/runtime.
 
 ```bash
+nego train capabilities ./models/qwen3
 nego train init --base-model ./models/qwen3 --train-file examples/5.train/train.jsonl --eval-file examples/5.train/test.jsonl --dataset-format completion --output-dir ./outputs/qwen3-lora --out examples/5.train/train-job.json
 nego train check examples/5.train/train-job.json
 nego train validate examples/5.train/train-job.json
@@ -286,6 +305,7 @@ nego train job.json
 Native token-bias adapter training is available as an early pure-Go path for GGUF or Hugging Face safetensors downloads:
 
 ```bash
+nego train capabilities ./models/qwen3
 nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --out ./outputs/qwen3-token-bias
 nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --out ./outputs/qwen3-token-bias
 nego run --native ./models/qwen3-gguf "Hello" --adapter ./outputs/qwen3-token-bias/adapter.json --max-tokens 16

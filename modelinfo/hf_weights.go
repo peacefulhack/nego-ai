@@ -15,15 +15,17 @@ type HFWeightManifest struct {
 }
 
 type HFBlockTensorNames struct {
-	InputNorm    string `json:"input_norm,omitempty"`
-	AttentionQ   string `json:"attention_q,omitempty"`
-	AttentionK   string `json:"attention_k,omitempty"`
-	AttentionV   string `json:"attention_v,omitempty"`
-	AttentionOut string `json:"attention_out,omitempty"`
-	PostNorm     string `json:"post_norm,omitempty"`
-	FFNGate      string `json:"ffn_gate,omitempty"`
-	FFNUp        string `json:"ffn_up,omitempty"`
-	FFNDown      string `json:"ffn_down,omitempty"`
+	InputNorm      string `json:"input_norm,omitempty"`
+	AttentionQ     string `json:"attention_q,omitempty"`
+	AttentionQNorm string `json:"attention_q_norm,omitempty"`
+	AttentionK     string `json:"attention_k,omitempty"`
+	AttentionKNorm string `json:"attention_k_norm,omitempty"`
+	AttentionV     string `json:"attention_v,omitempty"`
+	AttentionOut   string `json:"attention_out,omitempty"`
+	PostNorm       string `json:"post_norm,omitempty"`
+	FFNGate        string `json:"ffn_gate,omitempty"`
+	FFNUp          string `json:"ffn_up,omitempty"`
+	FFNDown        string `json:"ffn_down,omitempty"`
 }
 
 func BuildHFWeightManifest(path string) (*HFWeightManifest, error) {
@@ -59,15 +61,17 @@ func HFWeightManifestFromInfo(info *Info) (*HFWeightManifest, error) {
 		prefix := fmt.Sprintf("model.layers.%d.", i)
 		altPrefix := fmt.Sprintf("transformer.h.%d.", i)
 		manifest.Blocks[i] = HFBlockTensorNames{
-			InputNorm:    requireHFTensor(tensors, &manifest.Missing, prefix+"input_layernorm.weight", altPrefix+"ln_1.weight"),
-			AttentionQ:   requireHFTensor(tensors, &manifest.Missing, prefix+"self_attn.q_proj.weight", altPrefix+"attn.q_proj.weight"),
-			AttentionK:   requireHFTensor(tensors, &manifest.Missing, prefix+"self_attn.k_proj.weight", altPrefix+"attn.k_proj.weight"),
-			AttentionV:   requireHFTensor(tensors, &manifest.Missing, prefix+"self_attn.v_proj.weight", altPrefix+"attn.v_proj.weight"),
-			AttentionOut: requireHFTensor(tensors, &manifest.Missing, prefix+"self_attn.o_proj.weight", altPrefix+"attn.o_proj.weight"),
-			PostNorm:     requireHFTensor(tensors, &manifest.Missing, prefix+"post_attention_layernorm.weight", altPrefix+"ln_2.weight"),
-			FFNGate:      requireHFTensor(tensors, &manifest.Missing, prefix+"mlp.gate_proj.weight", altPrefix+"mlp.gate_proj.weight"),
-			FFNUp:        requireHFTensor(tensors, &manifest.Missing, prefix+"mlp.up_proj.weight", altPrefix+"mlp.up_proj.weight"),
-			FFNDown:      requireHFTensor(tensors, &manifest.Missing, prefix+"mlp.down_proj.weight", altPrefix+"mlp.down_proj.weight"),
+			InputNorm:      requireHFTensor(tensors, &manifest.Missing, prefix+"input_layernorm.weight", altPrefix+"ln_1.weight"),
+			AttentionQ:     requireHFTensor(tensors, &manifest.Missing, prefix+"self_attn.q_proj.weight", altPrefix+"attn.q_proj.weight"),
+			AttentionQNorm: optionalHFTensor(tensors, prefix+"self_attn.q_norm.weight", altPrefix+"attn.q_norm.weight"),
+			AttentionK:     requireHFTensor(tensors, &manifest.Missing, prefix+"self_attn.k_proj.weight", altPrefix+"attn.k_proj.weight"),
+			AttentionKNorm: optionalHFTensor(tensors, prefix+"self_attn.k_norm.weight", altPrefix+"attn.k_norm.weight"),
+			AttentionV:     requireHFTensor(tensors, &manifest.Missing, prefix+"self_attn.v_proj.weight", altPrefix+"attn.v_proj.weight"),
+			AttentionOut:   requireHFTensor(tensors, &manifest.Missing, prefix+"self_attn.o_proj.weight", altPrefix+"attn.o_proj.weight"),
+			PostNorm:       requireHFTensor(tensors, &manifest.Missing, prefix+"post_attention_layernorm.weight", altPrefix+"ln_2.weight"),
+			FFNGate:        requireHFTensor(tensors, &manifest.Missing, prefix+"mlp.gate_proj.weight", altPrefix+"mlp.gate_proj.weight"),
+			FFNUp:          requireHFTensor(tensors, &manifest.Missing, prefix+"mlp.up_proj.weight", altPrefix+"mlp.up_proj.weight"),
+			FFNDown:        requireHFTensor(tensors, &manifest.Missing, prefix+"mlp.down_proj.weight", altPrefix+"mlp.down_proj.weight"),
 		}
 	}
 	manifest.Ready = blockCount > 0 && len(manifest.Missing) == 0
