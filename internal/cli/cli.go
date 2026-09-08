@@ -1927,6 +1927,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var adapterPath string
 	var configFile string
 	var logPath string
+	var extraOptions repeatedFlag
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "auto", "runtime backend: auto, native, llama.cpp, or openai-compatible")
@@ -1948,6 +1949,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.StringVar(&configFile, "f", "", "run config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
+	fs.Var(&extraOptions, "option", "backend option key=value, repeatable")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -2006,7 +2008,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
 		return 2
 	}
-	options := runtimeOptions(cfg.Options, runtimeFlagOptions{
+	options, err := runtimeOptions(cfg.Options, runtimeFlagOptions{
 		threads:        threads,
 		ctxSize:        ctxSize,
 		gpuLayers:      gpuLayers,
@@ -2016,7 +2018,12 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
 		adapterPath:    adapterPath,
+		extraOptions:   extraOptions,
 	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	if err := validateRuntimeOptions(options); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
@@ -2072,6 +2079,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var interactive bool
 	var native bool
 	var adapterPath string
+	var extraOptions repeatedFlag
 	fs := flag.NewFlagSet("chat", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&backend, "backend", "auto", "runtime backend: auto, native, llama.cpp, or openai-compatible")
@@ -2097,6 +2105,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&sessionPath, "session", "", "load and save chat history JSON")
 	fs.StringVar(&savePath, "save", "", "save chat history JSON without loading it")
 	fs.BoolVar(&interactive, "interactive", false, "start an interactive chat session")
+	fs.Var(&extraOptions, "option", "backend option key=value, repeatable")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -2198,7 +2207,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	options := runtimeOptions(cfg.Options, runtimeFlagOptions{
+	options, err := runtimeOptions(cfg.Options, runtimeFlagOptions{
 		threads:        threads,
 		ctxSize:        ctxSize,
 		gpuLayers:      gpuLayers,
@@ -2208,7 +2217,12 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
 		adapterPath:    adapterPath,
+		extraOptions:   extraOptions,
 	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	if err := validateRuntimeOptions(options); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
@@ -2513,7 +2527,7 @@ func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, m
 		RepeatPenalty: repeatPenalty,
 		Stop:          append([]string(nil), stop...),
 		Seed:          seed,
-		Options:       copyStringMap(options),
+		Options:       redactRuntimeOptions(options),
 	}
 	if runErr != nil {
 		entry.Error = runErr.Error()
@@ -2546,6 +2560,33 @@ func copyStringMap(values map[string]string) map[string]string {
 	return out
 }
 
+func redactRuntimeOptions(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		if sensitiveRuntimeOption(key) {
+			out[key] = "<redacted>"
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func sensitiveRuntimeOption(key string) bool {
+	key = strings.TrimSpace(strings.TrimLeft(strings.ToLower(key), "-"))
+	return strings.Contains(key, "token") ||
+		strings.Contains(key, "api-key") ||
+		strings.Contains(key, "api_key") ||
+		strings.Contains(key, "apikey") ||
+		strings.Contains(key, "access-key") ||
+		strings.Contains(key, "access_key") ||
+		strings.Contains(key, "secret") ||
+		strings.Contains(key, "password")
+}
+
 type runtimeFlagOptions struct {
 	threads        int
 	ctxSize        int
@@ -2556,6 +2597,7 @@ type runtimeFlagOptions struct {
 	splitMode      string
 	flashAttention bool
 	adapterPath    string
+	extraOptions   []string
 }
 
 func normalizeBackendFlag(backend string) string {
@@ -2581,12 +2623,19 @@ func resolveRuntimeBackend(backend, path, endpoint, modelID string) string {
 	return resolved
 }
 
-func runtimeOptions(base map[string]string, flags runtimeFlagOptions) map[string]string {
-	options := make(map[string]string, len(base)+9)
+func runtimeOptions(base map[string]string, flags runtimeFlagOptions) (map[string]string, error) {
+	options := make(map[string]string, len(base)+len(flags.extraOptions)+9)
 	for key, value := range base {
 		if value != "" {
 			options[key] = value
 		}
+	}
+	for _, raw := range flags.extraOptions {
+		key, value, err := parseRuntimeOption(raw)
+		if err != nil {
+			return nil, err
+		}
+		options[key] = value
 	}
 	if flags.threads > 0 {
 		options["threads"] = strconv.Itoa(flags.threads)
@@ -2616,9 +2665,22 @@ func runtimeOptions(base map[string]string, flags runtimeFlagOptions) map[string
 		options["adapter_path"] = flags.adapterPath
 	}
 	if len(options) == 0 {
-		return nil
+		return nil, nil
 	}
-	return options
+	return options, nil
+}
+
+func parseRuntimeOption(raw string) (string, string, error) {
+	key, value, ok := strings.Cut(raw, "=")
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if !ok || key == "" {
+		return "", "", fmt.Errorf("option must be key=value")
+	}
+	if strings.ContainsAny(key, " \t\r\n") {
+		return "", "", fmt.Errorf("option key %q must not contain whitespace", key)
+	}
+	return key, value, nil
 }
 
 func validateRepeatPenalty(value float64) error {
@@ -2680,6 +2742,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	var splitMode string
 	var flashAttention bool
 	var native bool
+	var extraOptions repeatedFlag
 
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -2695,6 +2758,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
+	fs.Var(&extraOptions, "option", "backend option key=value, repeatable")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -2710,7 +2774,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
 		return 2
 	}
-	options := runtimeOptions(nil, runtimeFlagOptions{
+	options, err := runtimeOptions(nil, runtimeFlagOptions{
 		threads:        threads,
 		ctxSize:        ctxSize,
 		gpuLayers:      gpuLayers,
@@ -2719,7 +2783,12 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		tensorSplit:    tensorSplit,
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
+		extraOptions:   extraOptions,
 	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	if err := validateRuntimeOptions(options); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2

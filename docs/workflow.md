@@ -123,6 +123,12 @@ nego backends info openai-compatible
 
 `native` is the pure-Go runtime track. It can load GGUF metadata, build model specs and tensor-name maps, report missing runtime tensors, load per-block weights from GGUF tensor storage, read tokenizer vocabulary and BPE merge metadata, encode/decode text through a GGUF vocab path, plan prompt tokens for generation, read tensor directories and raw tensor bytes, load and cache selected tensors as float32 buffers, dequantize early F32/F16/BF16/Q4_0/Q4_1/Q5_0/Q5_1/Q8_0/Q8_1/Q2_K/Q3_K/Q4_K/Q5_K/Q6_K tensors, run early CPU tensor math, activation, vector, RoPE, attention, KV cache, decode-state, single-step multi-head attention, embedding, MLP, logits, transformer-block, and single-token forward primitives, sample deterministically with repeat penalty and EOS stopping, and run early multi-token generate/chat/streaming loops for supported tiny GGUF fixtures today. Production inference for real Qwen/Llama GGUF models is still under development.
 
+Pass backend-specific options without a config file:
+
+```bash
+nego run --backend native-hf ./models/qwen3 "Hello" --option experimental_generation=true
+```
+
 ## 3. Prepare a Dataset
 
 Start with a CSV file:

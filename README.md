@@ -152,6 +152,7 @@ nego backends info native-hf
 nego run ./models/qwen3-gguf "Hello"
 nego chat ./models/qwen3-gguf "Hello"
 nego run --backend llama.cpp ./models/qwen3-gguf "Hello"
+nego run --backend native-hf ./models/qwen3 "Hello" --option experimental_generation=true
 ```
 
 ## Pure-Go native runtime

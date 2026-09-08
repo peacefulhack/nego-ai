@@ -1072,7 +1072,7 @@ func TestDatasetCommands(t *testing.T) {
 }
 
 func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
-	got := runtimeOptions(map[string]string{
+	got, err := runtimeOptions(map[string]string{
 		"threads":    "2",
 		"ctx_size":   "1024",
 		"gpu_layers": "8",
@@ -1087,21 +1087,35 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		splitMode:      "layer",
 		flashAttention: true,
 		adapterPath:    "adapter.json",
+		extraOptions:   []string{"experimental_generation=true", "custom=override"},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := map[string]string{
-		"threads":      "4",
-		"ctx_size":     "2048",
-		"gpu_layers":   "8",
-		"gpu":          "full",
-		"main_gpu":     "1",
-		"tensor_split": "3,1",
-		"split_mode":   "layer",
-		"flash_attn":   "true",
-		"adapter_path": "adapter.json",
-		"custom":       "value",
+		"threads":                 "4",
+		"ctx_size":                "2048",
+		"gpu_layers":              "8",
+		"gpu":                     "full",
+		"main_gpu":                "1",
+		"tensor_split":            "3,1",
+		"split_mode":              "layer",
+		"flash_attn":              "true",
+		"adapter_path":            "adapter.json",
+		"custom":                  "override",
+		"experimental_generation": "true",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("runtimeOptions = %#v, want %#v", got, want)
+	}
+}
+
+func TestRuntimeOptionsRejectsInvalidExtraOption(t *testing.T) {
+	if _, err := runtimeOptions(nil, runtimeFlagOptions{extraOptions: []string{"broken"}}); err == nil {
+		t.Fatal("expected invalid option error")
+	}
+	if _, err := runtimeOptions(nil, runtimeFlagOptions{extraOptions: []string{"bad key=value"}}); err == nil {
+		t.Fatal("expected invalid option key error")
 	}
 }
 
@@ -1127,6 +1141,20 @@ func TestRuntimeLogEntrySanitizesEndpoint(t *testing.T) {
 	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, 0, nil, 0, nil, nil)
 	if entry.Endpoint != "https://example.com/v1" {
 		t.Fatalf("Endpoint = %q", entry.Endpoint)
+	}
+}
+
+func TestRuntimeLogEntryRedactsSensitiveOptions(t *testing.T) {
+	entry := runtimeLogEntry("run", "native", "model.gguf", "", "", "hello", nil, "world", time.Now(), 0, 0, 0, 0, nil, 0, map[string]string{
+		"api_key":                 "secret",
+		"hf_token":                "token",
+		"experimental_generation": "true",
+	}, nil)
+	if entry.Options["api_key"] != "<redacted>" || entry.Options["hf_token"] != "<redacted>" {
+		t.Fatalf("sensitive options were not redacted: %#v", entry.Options)
+	}
+	if entry.Options["experimental_generation"] != "true" {
+		t.Fatalf("non-sensitive option was redacted: %#v", entry.Options)
 	}
 }
 
