@@ -966,9 +966,68 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	fmt.Fprintf(w, "Train tokens:   %d\n", result.TrainTokens)
 	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
 	fmt.Fprintf(w, "Adapter:        %s\n", result.AdapterPath)
+	if runCommand := nativeTrainingRunCommand(result); runCommand != "" {
+		fmt.Fprintf(w, "Run:            %s\n", runCommand)
+	}
+	if chatCommand := nativeTrainingChatCommand(result); chatCommand != "" {
+		fmt.Fprintf(w, "Chat:           %s\n", chatCommand)
+	}
 	for _, warning := range result.Warnings {
 		fmt.Fprintf(w, "Warning:        %s\n", warning)
 	}
+}
+
+func nativeTrainingRunCommand(result training.NativeResult) string {
+	args := nativeTrainingRuntimeArgs("run", result)
+	if len(args) == 0 {
+		return ""
+	}
+	args = append(args, "Hello")
+	return formatCommand(args)
+}
+
+func nativeTrainingChatCommand(result training.NativeResult) string {
+	args := nativeTrainingRuntimeArgs("chat", result)
+	if len(args) == 0 {
+		return ""
+	}
+	args = append(args, "Hello")
+	return formatCommand(args)
+}
+
+func nativeTrainingRuntimeArgs(command string, result training.NativeResult) []string {
+	if result.BaseModel == "" || result.AdapterPath == "" {
+		return nil
+	}
+	args := []string{"nego", command}
+	switch {
+	case result.Artifact != nil && result.Artifact.Format == modelinfo.ArtifactFormatHFSafetensors:
+		args = append(args, "--backend", "native-hf", result.BaseModel, "--adapter", result.AdapterPath, "--option", "experimental_generation=true")
+	default:
+		args = append(args, "--native", result.BaseModel, "--adapter", result.AdapterPath)
+	}
+	return args
+}
+
+func formatCommand(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = quoteCommandArg(arg)
+	}
+	return strings.Join(quoted, " ")
+}
+
+func quoteCommandArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	if strings.ContainsAny(arg, " \t\r\n\"") {
+		return strconv.Quote(arg)
+	}
+	return arg
 }
 
 func printTrainingAssessment(w io.Writer, report training.Assessment) {

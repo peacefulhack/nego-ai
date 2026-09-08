@@ -19,6 +19,7 @@ import (
 	nego "github.com/gakon/nego-ai"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/registry"
+	"github.com/gakon/nego-ai/modelinfo"
 	"github.com/gakon/nego-ai/training"
 )
 
@@ -1451,11 +1452,31 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Native training completed") || !strings.Contains(stdout.String(), "Adapter:") {
+	if !strings.Contains(stdout.String(), "Native training completed") ||
+		!strings.Contains(stdout.String(), "Adapter:") ||
+		!strings.Contains(stdout.String(), "Run:            nego run --native") ||
+		!strings.Contains(stdout.String(), "Chat:           nego chat --native") {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNativeTrainingCommandsUseNativeHFForSafetensors(t *testing.T) {
+	result := training.NativeResult{
+		BaseModel:   "./models/qwen3",
+		AdapterPath: "./outputs/qwen3-token-bias/adapter.json",
+		Artifact:    &modelinfo.Artifact{Format: modelinfo.ArtifactFormatHFSafetensors},
+	}
+	runCommand := nativeTrainingRunCommand(result)
+	chatCommand := nativeTrainingChatCommand(result)
+	for _, command := range []string{runCommand, chatCommand} {
+		if !strings.Contains(command, "--backend native-hf") ||
+			!strings.Contains(command, "--adapter ./outputs/qwen3-token-bias/adapter.json") ||
+			!strings.Contains(command, "--option experimental_generation=true") {
+			t.Fatalf("unexpected command: %q", command)
+		}
 	}
 }
 
