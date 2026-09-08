@@ -62,10 +62,7 @@ func TestForwardTokenWithStateCachesPromptHistory(t *testing.T) {
 
 func TestGenerateTinyHFModelWhenExplicitlyEnabled(t *testing.T) {
 	dir := writeTinyForwardModel(t)
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{
-		Path:    dir,
-		Options: map[string]string{"experimental_generation": "true"},
-	})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: dir})
 	if err != nil {
 		t.Fatal(err)
 	}

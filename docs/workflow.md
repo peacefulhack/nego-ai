@@ -96,11 +96,11 @@ The check output includes an artifact summary:
 ```text
 Artifact:
   Format:       hf-safetensors
-  Run:          not ready
-  Train:        process
+  Run:          native-hf
+  Train:        native-token-bias
 ```
 
-Use that summary as the current source of truth for what Nego can do with a downloaded path. `hf-safetensors` models are valid for tokenizer work, inspection, and external training orchestration today. Native Go chat/training for safetensors is planned. GGUF artifacts resolve to the experimental pure-Go `native` backend when the tensor types are supported.
+Use that summary as the current source of truth for what Nego can do with a downloaded path. `hf-safetensors` models are valid for tokenizer work, inspection, external training orchestration, native token-bias training, and experimental native-HF generation today. GGUF artifacts resolve to the experimental pure-Go `native` backend when the tensor types are supported.
 
 The safetensors path also exposes a native Go tensor store for runtime development:
 
@@ -123,10 +123,16 @@ nego backends info openai-compatible
 
 `native` is the pure-Go runtime track. It can load GGUF metadata, build model specs and tensor-name maps, report missing runtime tensors, load per-block weights from GGUF tensor storage, read tokenizer vocabulary and BPE merge metadata, encode/decode text through a GGUF vocab path, plan prompt tokens for generation, read tensor directories and raw tensor bytes, load and cache selected tensors as float32 buffers, dequantize early F32/F16/BF16/Q4_0/Q4_1/Q5_0/Q5_1/Q8_0/Q8_1/Q2_K/Q3_K/Q4_K/Q5_K/Q6_K tensors, run early CPU tensor math, activation, vector, RoPE, attention, KV cache, decode-state, single-step multi-head attention, embedding, MLP, logits, transformer-block, and single-token forward primitives, sample deterministically with repeat penalty and EOS stopping, and run early multi-token generate/chat/streaming loops for supported tiny GGUF fixtures today. Production inference for real Qwen/Llama GGUF models is still under development.
 
-Pass backend-specific options without a config file:
+Hugging Face safetensors directories can run through the experimental pure-Go native-HF path:
 
 ```bash
-nego run --backend native-hf ./models/qwen3 "Hello" --option experimental_generation=true
+nego run ./models/qwen3 "Hello"
+```
+
+Pass backend-specific options without a config file when experimenting:
+
+```bash
+nego run --backend native-hf ./models/qwen3 "Hello" --option experimental_generation=false
 ```
 
 ## 3. Prepare a Dataset

@@ -148,7 +148,7 @@ func nativeHFCompatibility(info *Info, hasSafetensors bool) (bool, string) {
 	if info.HFShapes != nil && !info.HFShapes.Ready {
 		return false, "Hugging Face tensor shapes do not match config"
 	}
-	return true, "native-hf can inspect and load this safetensors model; production generation is still guarded"
+	return true, "native-hf can run this safetensors model through the experimental pure-Go path"
 }
 
 func nativeUnsupportedTensorTypes(info *Info) []string {

@@ -24,7 +24,10 @@ func TestNativeHFBackendLoadsSafetensorsModel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: dir})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{
+		Path:    dir,
+		Options: map[string]string{"experimental_generation": "false"},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +51,7 @@ func TestNativeHFBackendLoadsSafetensorsModel(t *testing.T) {
 		t.Fatalf("unexpected block weights: %#v", block)
 	}
 	_, err = model.Generate(context.Background(), nego.GenerateRequest{Prompt: "hello"})
-	if err == nil || !strings.Contains(err.Error(), "native-hf production generation is not enabled") {
+	if err == nil || !strings.Contains(err.Error(), "native-hf experimental generation is disabled") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

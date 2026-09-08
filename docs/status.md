@@ -13,7 +13,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 7. Load selected Hugging Face safetensors weights into float32 buffers for native runtime and training development.
 8. Validate Hugging Face safetensors tensor shapes against local model config, including Qwen-style q/k attention norms.
 9. Run native HF float32 math primitives for embedding lookup, projections, normalization, MLP, and logits.
-10. Run guarded native HF generation with prompt decode state, KV cache history, adapter bias, and sampler controls for small compatible decoder fixtures.
+10. Run experimental native HF generation with prompt decode state, KV cache history, adapter bias, and sampler controls.
 11. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
 12. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
 13. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
@@ -47,7 +47,7 @@ Not production-ready yet:
 2. Compatibility validation for mixed K-quant variants such as Q4_K_M and Q5_K_M in real model files.
 3. Optimized CPU execution, batching, and memory planning.
 4. GPU execution.
-5. Native safetensors autoregressive generation for production Qwen/Llama models.
+5. Production-quality native safetensors autoregressive generation for Qwen/Llama models.
 6. Full GGUF LoRA/backprop training and optimizer support.
 
 ## Next Critical Phases

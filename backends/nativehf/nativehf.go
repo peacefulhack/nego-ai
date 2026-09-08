@@ -29,7 +29,7 @@ func (b Backend) Info() nego.BackendInfo {
 		Options: []nego.BackendOption{
 			{Name: "adapter", Description: "token-bias adapter JSON produced by native training"},
 			{Name: "adapter_path", Description: "alias for adapter"},
-			{Name: "experimental_generation", Description: "enable guarded native-hf greedy generation for small compatible fixtures"},
+			{Name: "experimental_generation", Description: "enable or disable the experimental native-hf generation path"},
 		},
 	}
 }
@@ -67,7 +67,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		store:     store,
 		tokenizer: tok,
 		adapter:   adapter,
-		generate:  optionBool(opts.Options, "experimental_generation"),
+		generate:  optionBoolDefault(opts.Options, "experimental_generation", true),
 	}, nil
 }
 
@@ -168,7 +168,7 @@ func (m *Model) inferenceError() error {
 		ready = m.info.HFWeights.Ready
 		missing = len(m.info.HFWeights.Missing)
 	}
-	return fmt.Errorf("native-hf production generation is not enabled for %q; loaded safetensors, tokenizer, and manifest (ready=%v missing_tensors=%d), and guarded greedy generation is available only for small compatible decoder fixtures with experimental_generation=true", m.path, ready, missing)
+	return fmt.Errorf("native-hf experimental generation is disabled for %q; loaded safetensors, tokenizer, and manifest (ready=%v missing_tensors=%d). Omit experimental_generation=false to run the experimental native-hf path", m.path, ready, missing)
 }
 
 func loadAdapter(options map[string]string) (*adapters.TokenBiasAdapter, error) {
@@ -195,6 +195,23 @@ func optionBool(options map[string]string, key string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func optionBoolDefault(options map[string]string, key string, fallback bool) bool {
+	if len(options) == 0 {
+		return fallback
+	}
+	if _, ok := options[key]; !ok {
+		return fallback
+	}
+	switch strings.ToLower(strings.TrimSpace(options[key])) {
+	case "1", "t", "true", "yes", "y", "on":
+		return true
+	case "0", "f", "false", "no", "n", "off":
+		return false
+	default:
+		return fallback
 	}
 }
 

@@ -138,8 +138,8 @@ func runCapabilities(artifact *Artifact, report *CheckReport) []ArtifactCapabili
 	case ArtifactFormatHFSafetensors:
 		out = append(out, ArtifactCapability{
 			Name:   "native-hf",
-			Status: CapabilityPlanned,
-			Reason: "native-hf can inspect and load safetensors models, but production autoregressive generation is still guarded",
+			Status: CapabilityExperimental,
+			Reason: "native-hf can run safetensors models through the experimental pure-Go path; production-quality generation is still in progress",
 		})
 	case ArtifactFormatONNX:
 		out = append(out, ArtifactCapability{
@@ -240,7 +240,7 @@ func artifactWarnings(artifact *Artifact, report *CheckReport) []string {
 		add("no training backend is ready for this artifact yet")
 	}
 	if artifact.Format == ArtifactFormatHFSafetensors {
-		add("downloaded Hugging Face safetensors can be inspected, loaded, and used for native token-bias training, but production native chat is still planned")
+		add("downloaded Hugging Face safetensors can run through the experimental native-hf backend; production-quality native chat is still in progress")
 	}
 	return warnings
 }
