@@ -36,6 +36,13 @@ func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*ne
 	if err != nil {
 		return nil, err
 	}
+	sampler := NewSampler(SamplingOptions{
+		Temperature:   float32(req.Temperature),
+		TopP:          float32(req.TopP),
+		RepeatPenalty: float32(req.RepeatPenalty),
+		Seed:          req.Seed,
+	})
+	history := append([]int(nil), ids...)
 	var logits []float32
 	for _, id := range ids {
 		if err := ctx.Err(); err != nil {
@@ -51,10 +58,11 @@ func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*ne
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		nextID, err := argmaxToken(m.applyAdapter(logits))
+		nextID, err := sampler.SampleWithHistory(m.applyAdapter(logits), history)
 		if err != nil {
 			return nil, err
 		}
+		history = append(history, nextID)
 		text, err := m.tokenizer.Decode([]int{nextID})
 		if err != nil {
 			return nil, err
@@ -80,19 +88,6 @@ func (m *Model) applyAdapter(logits []float32) []float32 {
 		return logits
 	}
 	return m.adapter.Apply(logits)
-}
-
-func argmaxToken(logits []float32) (int, error) {
-	if len(logits) == 0 {
-		return 0, fmt.Errorf("logits are empty")
-	}
-	best := 0
-	for i := 1; i < len(logits); i++ {
-		if logits[i] > logits[best] {
-			best = i
-		}
-	}
-	return best, nil
 }
 
 func stopReached(text string, stops []string) bool {
