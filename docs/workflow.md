@@ -472,6 +472,9 @@ adapter.json
 Load the adapter for native generation:
 
 ```bash
+nego run ./models/qwen3 "Hello" \
+  --adapter ./outputs/qwen3-token-bias/adapter.json
+
 nego run --native ./models/qwen3-gguf "Hello" \
   --adapter ./outputs/qwen3-token-bias/adapter.json
 ```

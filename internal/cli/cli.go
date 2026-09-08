@@ -1002,7 +1002,7 @@ func nativeTrainingRuntimeArgs(command string, result training.NativeResult) []s
 	args := []string{"nego", command}
 	switch {
 	case result.Artifact != nil && result.Artifact.Format == modelinfo.ArtifactFormatHFSafetensors:
-		args = append(args, "--backend", "native-hf", result.BaseModel, "--adapter", result.AdapterPath, "--option", "experimental_generation=true")
+		args = append(args, result.BaseModel, "--adapter", result.AdapterPath)
 	default:
 		args = append(args, "--native", result.BaseModel, "--adapter", result.AdapterPath)
 	}

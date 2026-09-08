@@ -1463,7 +1463,7 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	}
 }
 
-func TestNativeTrainingCommandsUseNativeHFForSafetensors(t *testing.T) {
+func TestNativeTrainingCommandsUseAutoBackendForSafetensors(t *testing.T) {
 	result := training.NativeResult{
 		BaseModel:   "./models/qwen3",
 		AdapterPath: "./outputs/qwen3-token-bias/adapter.json",
@@ -1472,9 +1472,9 @@ func TestNativeTrainingCommandsUseNativeHFForSafetensors(t *testing.T) {
 	runCommand := nativeTrainingRunCommand(result)
 	chatCommand := nativeTrainingChatCommand(result)
 	for _, command := range []string{runCommand, chatCommand} {
-		if !strings.Contains(command, "--backend native-hf") ||
-			!strings.Contains(command, "--adapter ./outputs/qwen3-token-bias/adapter.json") ||
-			!strings.Contains(command, "--option experimental_generation=true") {
+		if strings.Contains(command, "--backend native-hf") ||
+			strings.Contains(command, "experimental_generation=true") ||
+			!strings.Contains(command, "./models/qwen3 --adapter ./outputs/qwen3-token-bias/adapter.json") {
 			t.Fatalf("unexpected command: %q", command)
 		}
 	}

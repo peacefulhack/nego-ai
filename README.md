@@ -138,7 +138,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 })
 ```
 
-Nego resolves GGUF artifacts to the experimental pure-Go `native` backend when possible. Hugging Face safetensors downloads are detected for native tensor loading and token-bias adapter training, while native safetensors chat and full LoRA/backprop training are still being built.
+Nego resolves GGUF artifacts to the experimental pure-Go `native` backend when possible. Hugging Face safetensors downloads resolve to the experimental pure-Go `native-hf` backend and can be used for native token-bias adapter training. Full LoRA/backprop training and production-quality local generation are still being built.
 
 ```go
 import _ "github.com/gakon/nego-ai/backends/llama"
