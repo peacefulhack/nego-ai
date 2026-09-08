@@ -46,7 +46,7 @@ func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*ne
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		nextID, err := argmaxToken(logits)
+		nextID, err := argmaxToken(m.applyAdapter(logits))
 		if err != nil {
 			return nil, err
 		}
@@ -69,6 +69,13 @@ func (m *Model) generateText(ctx context.Context, req nego.GenerateRequest) (*ne
 		position++
 	}
 	return &nego.GenerateOutput{Text: b.String()}, nil
+}
+
+func (m *Model) applyAdapter(logits []float32) []float32 {
+	if m.adapter == nil {
+		return logits
+	}
+	return m.adapter.Apply(logits)
 }
 
 func argmaxToken(logits []float32) (int, error) {

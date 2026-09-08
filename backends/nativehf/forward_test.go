@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	nego "github.com/gakon/nego-ai"
+	"github.com/gakon/nego-ai/adapters"
 )
 
 func TestForwardTokenTinyHFModel(t *testing.T) {
@@ -49,6 +50,37 @@ func TestGenerateTinyHFModelWhenExplicitlyEnabled(t *testing.T) {
 	}
 	if out.Text != "a" {
 		t.Fatalf("generated text = %q", out.Text)
+	}
+}
+
+func TestGenerateTinyHFModelAppliesAdapter(t *testing.T) {
+	dir := writeTinyForwardModel(t)
+	adapterPath := filepath.Join(t.TempDir(), "adapter.json")
+	if err := adapters.Save(adapterPath, &adapters.TokenBiasAdapter{
+		Version:   adapters.CurrentVersion,
+		Type:      "token_bias",
+		VocabSize: 2,
+		Bias:      map[int]float32{1: 100},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{
+		Path: dir,
+		Options: map[string]string{
+			"experimental_generation": "true",
+			"adapter_path":            adapterPath,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: "a", MaxTokens: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Text != "b" {
+		t.Fatalf("generated text = %q, want adapter-biased token", out.Text)
 	}
 }
 
