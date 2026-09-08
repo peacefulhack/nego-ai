@@ -85,6 +85,12 @@ Check runtime compatibility:
 nego check ./models/qwen3
 ```
 
+Estimate memory before choosing context length, chat settings, or training hardware:
+
+```bash
+nego memory ./models/qwen3 --context 4096
+```
+
 The check output includes an artifact summary:
 
 ```text

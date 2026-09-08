@@ -76,6 +76,8 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runInspect(args[1:], stdout, stderr)
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
+	case "memory":
+		return runMemory(args[1:], stdout, stderr)
 	case "run":
 		return runModel(args[1:], stdout, stderr)
 	case "chat":
@@ -412,6 +414,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
 	fmt.Fprintln(w, "  nego inspect <model-path> [flags]")
 	fmt.Fprintln(w, "  nego check <model-path> [flags]")
+	fmt.Fprintln(w, "  nego memory <model-path> [flags]")
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
 	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
@@ -1573,6 +1576,39 @@ func runInspect(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runMemory(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	var contextLength uint64
+	var kvBytes uint64
+	fs := flag.NewFlagSet("memory", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON estimate")
+	fs.Uint64Var(&contextLength, "context", 0, "context length for KV cache estimate")
+	fs.Uint64Var(&kvBytes, "kv-bytes", 4, "bytes per KV cache value")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego memory <model-path> [flags]")
+		return 2
+	}
+	estimate, err := modelinfo.EstimateMemory(positionals[0], modelinfo.MemoryOptions{
+		ContextLength: contextLength,
+		KVBytes:       kvBytes,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(estimate)
+		return 0
+	}
+	printMemoryEstimate(stdout, estimate)
+	return 0
+}
+
 func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 	fmt.Fprintf(w, "Path:        %s\n", info.Path)
 	if info.ModelType != "" {
@@ -1653,7 +1689,7 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 			fmt.Fprintf(w, "  Parameters:   %d\n", info.Safetensors.ParamCount)
 		}
 		if info.Safetensors.TotalSize > 0 {
-			fmt.Fprintf(w, "  Tensor bytes: %s\n", humanBytes(int64(info.Safetensors.TotalSize)))
+			fmt.Fprintf(w, "  Tensor bytes: %s\n", humanBytesUint(info.Safetensors.TotalSize))
 		}
 		if len(info.Safetensors.DTypeCounts) > 0 {
 			fmt.Fprintf(w, "  DTypes:       %s\n", formatDTypeCounts(info.Safetensors.DTypeCounts))
@@ -1731,6 +1767,45 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 			}
 			fmt.Fprintln(w)
 		}
+	}
+}
+
+func printMemoryEstimate(w io.Writer, estimate *modelinfo.MemoryEstimate) {
+	fmt.Fprintln(w, "Memory estimate")
+	fmt.Fprintf(w, "Path:          %s\n", estimate.Path)
+	fmt.Fprintf(w, "Format:        %s\n", estimate.Format)
+	if estimate.ContextLength > 0 {
+		fmt.Fprintf(w, "Context:       %d\n", estimate.ContextLength)
+	}
+	if estimate.BlockCount > 0 {
+		fmt.Fprintf(w, "Blocks:        %d\n", estimate.BlockCount)
+	}
+	if estimate.EmbeddingLength > 0 {
+		fmt.Fprintf(w, "Embedding:     %d\n", estimate.EmbeddingLength)
+	}
+	if estimate.AttentionHeadCount > 0 {
+		fmt.Fprintf(w, "Heads:         %d\n", estimate.AttentionHeadCount)
+	}
+	if estimate.KVHeadCount > 0 {
+		fmt.Fprintf(w, "KV heads:      %d\n", estimate.KVHeadCount)
+	}
+	if estimate.HeadDim > 0 {
+		fmt.Fprintf(w, "Head dim:      %d\n", estimate.HeadDim)
+	}
+	if estimate.WeightBytes > 0 {
+		fmt.Fprintf(w, "Weights:       %s\n", humanBytesUint(estimate.WeightBytes))
+	}
+	if estimate.KVCacheBytes > 0 {
+		fmt.Fprintf(w, "KV cache:      %s\n", humanBytesUint(estimate.KVCacheBytes))
+	}
+	if estimate.RuntimeBytes > 0 {
+		fmt.Fprintf(w, "Runtime:       %s\n", humanBytesUint(estimate.RuntimeBytes))
+	}
+	if estimate.TotalBytes > 0 {
+		fmt.Fprintf(w, "Total:         %s\n", humanBytesUint(estimate.TotalBytes))
+	}
+	for _, note := range estimate.Notes {
+		fmt.Fprintf(w, "Note:          %s\n", note)
 	}
 }
 
@@ -3911,6 +3986,14 @@ func humanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+func humanBytesUint(n uint64) string {
+	const maxInt64 = uint64(1<<63 - 1)
+	if n <= maxInt64 {
+		return humanBytes(int64(n))
+	}
+	return fmt.Sprintf("%d B", n)
 }
 
 func renderProgressLines(title string, order []string, entries map[string]*progressEntry, spinner string) []string {

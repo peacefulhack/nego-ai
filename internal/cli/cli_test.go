@@ -564,6 +564,59 @@ func TestInspectCommandShowsSafetensorsMetadata(t *testing.T) {
 	}
 }
 
+func TestMemoryCommandShowsHFEstimate(t *testing.T) {
+	dir := t.TempDir()
+	config := `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":4,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), cliSafetensorsFixture(t, `{
+		"weight":{"dtype":"F16","shape":[2,2],"data_offsets":[0,8]}
+	}`, 8), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"memory", dir, "--context", "4"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Memory estimate", "Format:        hf-safetensors", "Context:       4", "KV cache:      64 B", "Total:"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestMemoryCommandJSON(t *testing.T) {
+	dir := t.TempDir()
+	config := `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":4,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), cliSafetensorsFixture(t, `{
+		"weight":{"dtype":"F16","shape":[2,2],"data_offsets":[0,8]}
+	}`, 8), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"memory", dir, "--context", "4", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var body struct {
+		Format       string `json:"format"`
+		KVCacheBytes uint64 `json:"kv_cache_bytes"`
+		TotalBytes   uint64 `json:"total_bytes"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Format != "hf-safetensors" || body.KVCacheBytes != 64 || body.TotalBytes == 0 {
+		t.Fatalf("unexpected memory json: %s", stdout.String())
+	}
+}
+
 func TestCheckCommandReportsCompatibility(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	var stdout, stderr bytes.Buffer
