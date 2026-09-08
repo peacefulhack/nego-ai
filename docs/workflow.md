@@ -538,6 +538,7 @@ nego convert gguf ./outputs/qwen3-sft \
 Serve a local model through Nego's HTTP server:
 
 ```bash
+nego serve ./models/qwen3 --addr :8080
 nego serve ./outputs/qwen3-sft.gguf --addr :8080 --gpu full --flash-attn
 ```
 

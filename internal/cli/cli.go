@@ -2805,7 +2805,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.StringVar(&backend, "backend", "auto", "runtime backend: auto, native, native-hf, llama.cpp, or openai-compatible")
 	fs.BoolVar(&native, "native", false, "use the experimental pure-Go native backend")
 	fs.StringVar(&addr, "addr", ":8080", "listen address")
 	fs.StringVar(&modelID, "model", "nego-model", "served model id")
@@ -2829,6 +2829,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	if native {
 		backend = "native"
 	}
+	backend = normalizeBackendFlag(backend)
 	if len(positionals) != 1 {
 		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
 		return 2
@@ -2852,6 +2853,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
 	}
+	backend = resolveRuntimeBackend(backend, positionals[0], "", "")
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
 		Backend: backend,
 		Path:    positionals[0],

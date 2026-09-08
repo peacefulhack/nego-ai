@@ -151,6 +151,7 @@ nego backends info native
 nego backends info native-hf
 nego run ./models/qwen3-gguf "Hello"
 nego chat ./models/qwen3-gguf "Hello"
+nego serve ./models/qwen3 --addr :8080
 nego run --backend llama.cpp ./models/qwen3-gguf "Hello"
 nego run ./models/qwen3 "Hello"
 ```
