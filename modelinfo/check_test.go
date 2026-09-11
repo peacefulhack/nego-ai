@@ -75,6 +75,7 @@ func TestCheckReportsNativeKQuantCompatibility(t *testing.T) {
 func TestCheckReportsNativeHFCompatibility(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "config.json", `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":4,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`)
+	writeFile(t, dir, "generation_config.json", `{"max_new_tokens":64,"temperature":0.6}`)
 	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), safetensorsShapeFixture(t, hfShapeFixtureTensors(nil)), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -88,6 +89,9 @@ func TestCheckReportsNativeHFCompatibility(t *testing.T) {
 	}
 	if !nativeHF.Compatible {
 		t.Fatalf("expected native-hf compatibility: %#v", nativeHF)
+	}
+	if report.Generation == nil || report.Generation.MaxNewTokens == nil || *report.Generation.MaxNewTokens != 64 {
+		t.Fatalf("Generation = %#v", report.Generation)
 	}
 }
 

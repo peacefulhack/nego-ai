@@ -67,7 +67,7 @@ nego download meta-llama/Llama-3.2-1B --token "$HF_TOKEN" --local-dir ./models/l
 
 ## 2. Inspect the Downloaded Model
 
-Check model files, config, safetensors/GGUF metadata, and model card metadata:
+Check model files, config, generation defaults, safetensors/GGUF metadata, and model card metadata:
 
 ```bash
 nego inspect ./models/qwen3

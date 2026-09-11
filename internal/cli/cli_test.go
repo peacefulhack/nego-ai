@@ -546,6 +546,27 @@ func TestInspectCommandShowsModelCard(t *testing.T) {
 	}
 }
 
+func TestInspectCommandShowsGenerationConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":128,"temperature":0.7,"top_p":0.8,"eos_token_id":[151645,151643]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"inspect", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Generation:", "Max new:      128", "Temperature:  0.7", "Top-p:        0.8", "EOS tokens:   151645, 151643"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestInspectCommandShowsSafetensorsMetadata(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), cliSafetensorsFixture(t, `{
@@ -628,6 +649,27 @@ func TestCheckCommandReportsCompatibility(t *testing.T) {
 	}
 	out := stdout.String()
 	for _, want := range []string{"Artifact:", "Format:       gguf", "Run:          native", "Train:        native-token-bias", "Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestCheckCommandShowsGenerationConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":64,"temperature":0.6}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"check", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Generation:", "Max new:      64", "Temperature:  0.6"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output:\n%s", want, out)
 		}

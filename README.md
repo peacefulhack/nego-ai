@@ -90,6 +90,7 @@ path, err := hub.DownloadFile(ctx, hub.DownloadFileOptions{
 
 ```go
 info, err := modelinfo.Inspect("./models/qwen3")
+generation := info.Generation
 artifact, err := modelinfo.Resolve("./models/qwen3")
 ```
 

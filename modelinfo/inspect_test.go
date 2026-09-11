@@ -10,7 +10,7 @@ import (
 func TestInspectParsesMetadataAndDetectsFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "config.json", `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`)
-	writeFile(t, dir, "generation_config.json", `{"temperature":0.7}`)
+	writeFile(t, dir, "generation_config.json", `{"temperature":0.7,"top_p":0.8,"eos_token_id":[151645,151643]}`)
 	writeFile(t, dir, "tokenizer.json", `{}`)
 	writeFile(t, dir, "model.safetensors", "weights")
 	writeFile(t, dir, "README.md", strings.Join([]string{
@@ -57,6 +57,12 @@ func TestInspectParsesMetadataAndDetectsFiles(t *testing.T) {
 	}
 	if len(info.Card.Tags) != 2 || info.Card.Tags[0] != "qwen" || len(info.Card.Languages) != 2 {
 		t.Fatalf("Card lists = %#v", info.Card)
+	}
+	if info.Generation == nil || info.Generation.Temperature == nil || *info.Generation.Temperature != 0.7 {
+		t.Fatalf("Generation = %#v", info.Generation)
+	}
+	if len(info.Generation.EOSTokenIDs) != 2 || info.Generation.EOSTokenIDs[0] != 151645 {
+		t.Fatalf("EOSTokenIDs = %#v", info.Generation.EOSTokenIDs)
 	}
 }
 

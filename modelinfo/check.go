@@ -13,6 +13,7 @@ type CheckReport struct {
 	ChatTemplate  bool                   `json:"chat_template"`
 	ContextLength uint64                 `json:"context_length,omitempty"`
 	Quantization  string                 `json:"quantization,omitempty"`
+	Generation    *GenerationConfig      `json:"generation,omitempty"`
 	Artifact      *Artifact              `json:"artifact,omitempty"`
 	Backends      []BackendCompatibility `json:"backends"`
 	Warnings      []string               `json:"warnings,omitempty"`
@@ -39,6 +40,7 @@ func checkInfo(info *Info) (*CheckReport, error) {
 		Path:         info.Path,
 		ModelType:    info.ModelType,
 		ChatTemplate: hasChatTemplate(info),
+		Generation:   info.Generation,
 	}
 	if len(info.Architectures) > 0 {
 		report.Architecture = info.Architectures[0]

@@ -17,6 +17,7 @@ type Info struct {
 	Architectures    []string          `json:"architectures,omitempty"`
 	Config           map[string]any    `json:"config,omitempty"`
 	GenerationConfig map[string]any    `json:"generation_config,omitempty"`
+	Generation       *GenerationConfig `json:"generation,omitempty"`
 	Card             *Card             `json:"card,omitempty"`
 	GGUF             *GGUFInfo         `json:"gguf,omitempty"`
 	Safetensors      *SafetensorsInfo  `json:"safetensors,omitempty"`
@@ -98,6 +99,7 @@ func Inspect(path string) (*Info, error) {
 		return nil, err
 	}
 	info.GenerationConfig = generationConfig
+	info.Generation = ParseGenerationConfig(generationConfig)
 
 	card, err := readModelCard(filepath.Join(root, "README.md"))
 	if err != nil {

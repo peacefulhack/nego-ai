@@ -6,7 +6,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 
 1. Download Hugging Face-style model files and GGUF runtime files.
 2. Cache downloads and list, inspect, or remove local model registry entries.
-3. Inspect model directories, model cards, config files, tokenizer files, safetensors metadata, GGUF metadata, and rough memory needs.
+3. Inspect model directories, model cards, config files, generation defaults, tokenizer files, safetensors metadata, GGUF metadata, and rough memory needs.
 4. Load safetensors F32/F16/BF16 tensors into float32 buffers for native runtime development.
 5. Map Hugging Face Qwen/Llama safetensors tensor names into native weight manifests.
 6. Load Hugging Face safetensors directories through the experimental `native-hf` backend.

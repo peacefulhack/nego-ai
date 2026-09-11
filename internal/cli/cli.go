@@ -1772,6 +1772,9 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 	if len(info.Architectures) > 0 {
 		fmt.Fprintf(w, "Architecture:%s\n", " "+strings.Join(info.Architectures, ", "))
 	}
+	if info.Generation != nil {
+		writeGenerationConfig(w, info.Generation)
+	}
 	if info.HFSpec != nil {
 		fmt.Fprintln(w, "HF spec:")
 		fmt.Fprintf(w, "  Ready:        %v\n", info.HFSpec.Ready)
@@ -1925,6 +1928,62 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 	}
 }
 
+func writeGenerationConfig(w io.Writer, cfg *modelinfo.GenerationConfig) {
+	if cfg == nil {
+		return
+	}
+	fmt.Fprintln(w, "Generation:")
+	if cfg.MaxNewTokens != nil {
+		fmt.Fprintf(w, "  Max new:      %d\n", *cfg.MaxNewTokens)
+	} else if cfg.MaxLength != nil {
+		fmt.Fprintf(w, "  Max length:   %d\n", *cfg.MaxLength)
+	}
+	if cfg.MinNewTokens != nil {
+		fmt.Fprintf(w, "  Min new:      %d\n", *cfg.MinNewTokens)
+	}
+	if cfg.DoSample != nil {
+		fmt.Fprintf(w, "  Sample:       %v\n", *cfg.DoSample)
+	}
+	if cfg.Temperature != nil {
+		fmt.Fprintf(w, "  Temperature:  %g\n", *cfg.Temperature)
+	}
+	if cfg.TopP != nil {
+		fmt.Fprintf(w, "  Top-p:        %g\n", *cfg.TopP)
+	}
+	if cfg.TopK != nil {
+		fmt.Fprintf(w, "  Top-k:        %d\n", *cfg.TopK)
+	}
+	if cfg.TypicalP != nil {
+		fmt.Fprintf(w, "  Typical-p:    %g\n", *cfg.TypicalP)
+	}
+	if cfg.RepetitionPenalty != nil {
+		fmt.Fprintf(w, "  Repeat:       %g\n", *cfg.RepetitionPenalty)
+	}
+	if cfg.NoRepeatNGramSize != nil {
+		fmt.Fprintf(w, "  No repeat n:  %d\n", *cfg.NoRepeatNGramSize)
+	}
+	if cfg.BOSTokenID != nil {
+		fmt.Fprintf(w, "  BOS token:    %d\n", *cfg.BOSTokenID)
+	}
+	if cfg.PadTokenID != nil {
+		fmt.Fprintf(w, "  PAD token:    %d\n", *cfg.PadTokenID)
+	}
+	if len(cfg.EOSTokenIDs) > 0 {
+		fmt.Fprintf(w, "  EOS tokens:   %s\n", joinInts(cfg.EOSTokenIDs))
+	}
+	if len(cfg.StopStrings) > 0 {
+		fmt.Fprintf(w, "  Stop:         %s\n", strings.Join(cfg.StopStrings, ", "))
+	}
+}
+
+func joinInts(values []int) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, strconv.Itoa(value))
+	}
+	return strings.Join(parts, ", ")
+}
+
 func printMemoryEstimate(w io.Writer, estimate *modelinfo.MemoryEstimate) {
 	fmt.Fprintln(w, "Memory estimate")
 	fmt.Fprintf(w, "Path:          %s\n", estimate.Path)
@@ -2019,6 +2078,9 @@ func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 	}
 	if report.Quantization != "" {
 		fmt.Fprintf(w, "Quantization:  %s\n", report.Quantization)
+	}
+	if report.Generation != nil {
+		writeGenerationConfig(w, report.Generation)
 	}
 	if report.ChatTemplate {
 		fmt.Fprintln(w, "Chat template: yes")
