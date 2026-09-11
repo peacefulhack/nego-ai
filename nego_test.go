@@ -61,6 +61,23 @@ func TestEmbedUsesOptionalCapability(t *testing.T) {
 	}
 }
 
+func TestStreamGenerateFallsBackToGenerate(t *testing.T) {
+	stream, err := StreamGenerate(context.Background(), mockModel{}, GenerateRequest{Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for token := range stream.Tokens() {
+		text += token.Text
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if text != "generated: hello" {
+		t.Fatalf("stream text = %q", text)
+	}
+}
+
 func TestLoadModelRequiresRegisteredBackend(t *testing.T) {
 	if _, err := LoadModel(context.Background(), ModelOptions{Backend: "missing"}); err == nil {
 		t.Fatal("expected missing backend error")

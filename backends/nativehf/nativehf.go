@@ -24,7 +24,7 @@ func (b Backend) Info() nego.BackendInfo {
 	return nego.BackendInfo{
 		Name:         BackendName,
 		Description:  "Experimental pure-Go Hugging Face safetensors runtime loader.",
-		Capabilities: []string{"load_safetensors", "inspect_tensors", "load_tokenizer", "load_adapter"},
+		Capabilities: []string{"load_safetensors", "inspect_tensors", "load_tokenizer", "load_adapter", "generate_experimental", "stream_generate", "stream_chat"},
 		Required:     []string{"path"},
 		Options: []nego.BackendOption{
 			{Name: "adapter", Description: "token-bias adapter JSON produced by native training"},
@@ -88,6 +88,22 @@ func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.G
 	return m.generateText(ctx, req)
 }
 
+func (m *Model) StreamGenerate(ctx context.Context, req nego.GenerateRequest) (nego.Stream, error) {
+	if !m.generate {
+		return nil, m.inferenceError()
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	stream := newNativeHFStream(cancel)
+	go stream.run(ctx, func(emit func(string) error) error {
+		_, err := m.generateTextWithEmitter(ctx, req, emit)
+		return err
+	})
+	return stream, nil
+}
+
 func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
 	prompt, err := m.renderChatPrompt(req.Messages)
 	if err != nil {
@@ -116,21 +132,15 @@ func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stre
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	ctx, cancel := context.WithCancel(ctx)
-	stream := newNativeHFStream(cancel)
-	go stream.run(ctx, func(emit func(string) error) error {
-		_, err := m.generateTextWithEmitter(ctx, nego.GenerateRequest{
-			Prompt:        prompt,
-			MaxTokens:     req.MaxTokens,
-			Temperature:   req.Temperature,
-			TopP:          req.TopP,
-			RepeatPenalty: req.RepeatPenalty,
-			Stop:          req.Stop,
-			Seed:          req.Seed,
-		}, emit)
-		return err
+	return m.StreamGenerate(ctx, nego.GenerateRequest{
+		Prompt:        prompt,
+		MaxTokens:     req.MaxTokens,
+		Temperature:   req.Temperature,
+		TopP:          req.TopP,
+		RepeatPenalty: req.RepeatPenalty,
+		Stop:          req.Stop,
+		Seed:          req.Seed,
 	})
-	return stream, nil
 }
 
 func (m *Model) Close() error {

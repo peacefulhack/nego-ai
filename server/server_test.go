@@ -45,6 +45,22 @@ func TestCompletionEndpoint(t *testing.T) {
 	}
 }
 
+func TestCompletionStreamEndpoint(t *testing.T) {
+	handler := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodPost, "/v1/completions", strings.NewReader(`{"stream":true,"prompt":"hello"}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"data:", `"object":"text_completion"`, `"text":"gen"`, "[DONE]"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("expected %q in stream: %s", want, body)
+		}
+	}
+}
+
 func TestChatCompletionEndpoint(t *testing.T) {
 	handler := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"messages":[{"role":"user","content":"hello"}]}`))
@@ -111,6 +127,14 @@ type testModel struct{}
 
 func (testModel) Generate(_ context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
 	return &nego.GenerateOutput{Text: "generated: " + req.Prompt}, nil
+}
+
+func (testModel) StreamGenerate(context.Context, nego.GenerateRequest) (nego.Stream, error) {
+	ch := make(chan nego.Token, 2)
+	ch <- nego.Token{Text: "gen"}
+	ch <- nego.Token{Text: "erated"}
+	close(ch)
+	return testStream{tokens: ch}, nil
 }
 
 func (testModel) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {

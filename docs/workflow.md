@@ -548,6 +548,8 @@ Then point an OpenAI-compatible client at:
 http://localhost:8080/v1/chat/completions
 ```
 
+Both `/v1/completions` and `/v1/chat/completions` support `stream: true`.
+
 ## 12. Package or Share the Model
 
 Direct large-file LFS/Xet upload is still planned. Today, you can prepare the output directory, write a local share manifest, create an archive, and upload regular files through an inline Hub commit:

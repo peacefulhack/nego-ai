@@ -95,7 +95,7 @@ func handleCompletion(w http.ResponseWriter, r *http.Request, modelID string, mo
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	out, err := model.Generate(r.Context(), nego.GenerateRequest{
+	genReq := nego.GenerateRequest{
 		Prompt:        req.Prompt,
 		MaxTokens:     req.MaxTokens,
 		Temperature:   req.Temperature,
@@ -103,7 +103,17 @@ func handleCompletion(w http.ResponseWriter, r *http.Request, modelID string, mo
 		RepeatPenalty: req.RepeatPenalty,
 		Stop:          req.Stop,
 		Seed:          req.Seed,
-	})
+	}
+	if req.Stream {
+		stream, err := nego.StreamGenerate(r.Context(), model, genReq)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeCompletionStream(w, modelID, stream)
+		return
+	}
+	out, err := model.Generate(r.Context(), genReq)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -118,6 +128,32 @@ func handleCompletion(w http.ResponseWriter, r *http.Request, modelID string, mo
 			"finish_reason": "stop",
 		}},
 	})
+}
+
+func writeCompletionStream(w http.ResponseWriter, modelID string, stream nego.Stream) {
+	defer stream.Close()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	for token := range stream.Tokens() {
+		chunk := map[string]any{
+			"id":     "cmpl-nego",
+			"object": "text_completion",
+			"model":  modelID,
+			"choices": []map[string]any{{
+				"text":  token.Text,
+				"index": 0,
+			}},
+		}
+		data, err := json.Marshal(chunk)
+		if err != nil {
+			break
+		}
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}
+	fmt.Fprint(w, "data: [DONE]\n\n")
 }
 
 func handleChatCompletion(w http.ResponseWriter, r *http.Request, modelID string, model nego.Model) {

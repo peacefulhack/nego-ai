@@ -13,7 +13,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 7. Load selected Hugging Face safetensors weights into float32 buffers for native runtime and training development.
 8. Validate Hugging Face safetensors tensor shapes against local model config, including Qwen-style q/k attention norms.
 9. Run native HF float32 math primitives for embedding lookup, projections, normalization, MLP, and logits.
-10. Run experimental native HF generation and streaming chat with prompt decode state, KV cache history, adapter bias, and sampler controls.
+10. Run experimental native HF generation, streaming completions, and streaming chat with prompt decode state, KV cache history, adapter bias, and sampler controls.
 11. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
 12. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
 13. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
@@ -37,7 +37,7 @@ Implemented:
 5. RMSNorm, SiLU, softmax, vector math, RoPE, attention, KV-cache, MLP, logits, and transformer block primitives.
 6. Decode state plumbing that processes prompt tokens and appends K/V vectors.
 7. Early `Generate` and `Chat` loops for supported tiny GGUF fixtures.
-8. EOS stopping, repeat penalty controls, and streaming chat for native sampling.
+8. EOS stopping, repeat penalty controls, streaming completions, and streaming chat for native sampling.
 9. CLI access through `nego run --native` and `nego chat --native`.
 10. Early pure-Go token-bias adapter training for GGUF or Hugging Face safetensors downloads through `nego train native`.
 

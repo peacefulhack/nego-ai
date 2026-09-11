@@ -31,7 +31,7 @@ func (b Backend) Info() nego.BackendInfo {
 	return nego.BackendInfo{
 		Name:         BackendName,
 		Description:  "Local llama.cpp runner for GGUF models using llama-cli.",
-		Capabilities: []string{"generate", "chat", "stream_chat"},
+		Capabilities: []string{"generate", "stream_generate", "chat", "stream_chat"},
 		Required:     []string{"path", "llama-cli or NEGO_LLAMA_CLI"},
 		Options: []nego.BackendOption{
 			{Name: "threads", Description: "CPU thread count passed as -t"},
@@ -119,6 +119,32 @@ func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.G
 	return &nego.GenerateOutput{Text: stdout.String()}, nil
 }
 
+func (m *Model) StreamGenerate(ctx context.Context, req nego.GenerateRequest) (nego.Stream, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	cmd := exec.CommandContext(ctx, m.command, m.args(req.Prompt, req)...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		cancel()
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return nil, fmt.Errorf("llama.cpp command failed: %s", msg)
+	}
+	stream := newProcessStream(ctx, stdout, cmd, cancel, &stderr)
+	go stream.read()
+	return stream, nil
+}
+
 func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
 	prompt, err := m.renderChatPrompt(req.Messages)
 	if err != nil {
@@ -140,13 +166,11 @@ func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatRespo
 }
 
 func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stream, error) {
-	ctx, cancel := context.WithCancel(ctx)
 	prompt, err := m.renderChatPrompt(req.Messages)
 	if err != nil {
-		cancel()
 		return nil, err
 	}
-	genReq := nego.GenerateRequest{
+	return m.StreamGenerate(ctx, nego.GenerateRequest{
 		Prompt:        prompt,
 		MaxTokens:     req.MaxTokens,
 		Temperature:   req.Temperature,
@@ -154,26 +178,7 @@ func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stre
 		RepeatPenalty: req.RepeatPenalty,
 		Stop:          req.Stop,
 		Seed:          req.Seed,
-	}
-	cmd := exec.CommandContext(ctx, m.command, m.args(genReq.Prompt, genReq)...)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		cancel()
-		return nil, err
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		cancel()
-		msg := strings.TrimSpace(stderr.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return nil, fmt.Errorf("llama.cpp command failed: %s", msg)
-	}
-	stream := newProcessStream(ctx, stdout, cmd, cancel, &stderr)
-	go stream.read()
-	return stream, nil
+	})
 }
 
 func (m *Model) Close() error {

@@ -82,6 +82,10 @@ type Model interface {
 	Close() error
 }
 
+type StreamingGenerator interface {
+	StreamGenerate(ctx context.Context, req GenerateRequest) (Stream, error)
+}
+
 type Backend interface {
 	Load(ctx context.Context, opts ModelOptions) (Model, error)
 }
@@ -113,6 +117,42 @@ func Embed(ctx context.Context, model Model, req EmbeddingRequest) (*EmbeddingRe
 		return nil, fmt.Errorf("model does not support embeddings")
 	}
 	return embedder.Embed(ctx, req)
+}
+
+func StreamGenerate(ctx context.Context, model Model, req GenerateRequest) (Stream, error) {
+	if model == nil {
+		return nil, fmt.Errorf("model is required")
+	}
+	streamer, ok := model.(StreamingGenerator)
+	if ok {
+		return streamer.StreamGenerate(ctx, req)
+	}
+	out, err := model.Generate(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	tokens := make(chan Token, 1)
+	if out != nil && out.Text != "" {
+		tokens <- Token{Text: out.Text}
+	}
+	close(tokens)
+	return staticStream{tokens: tokens}, nil
+}
+
+type staticStream struct {
+	tokens <-chan Token
+}
+
+func (s staticStream) Tokens() <-chan Token {
+	return s.tokens
+}
+
+func (staticStream) Err() error {
+	return nil
+}
+
+func (staticStream) Close() error {
+	return nil
 }
 
 var backendRegistry = struct {

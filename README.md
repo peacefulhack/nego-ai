@@ -246,6 +246,8 @@ nego runs show runs.jsonl <id>
 nego embed "hello world" --endpoint http://localhost:8080 --model text-embedding-model
 ```
 
+The local server supports OpenAI-compatible non-streaming and streaming responses on `/v1/completions` and `/v1/chat/completions`.
+
 ```go
 resp, err := nego.Embed(ctx, model, nego.EmbeddingRequest{
     Input: []string{"hello world"},
