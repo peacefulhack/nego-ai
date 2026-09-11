@@ -2210,6 +2210,13 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	if len(stop) == 0 {
 		stop = append(stop, cfg.Stop...)
 	}
+	defaults := generationDefaultOverrides{
+		maxTokens:     flagWasSet(fs, "max-tokens") || cfg.MaxTokens > 0,
+		temperature:   flagWasSet(fs, "temperature") || cfg.Temperature > 0,
+		topP:          flagWasSet(fs, "top-p") || cfg.TopP > 0,
+		repeatPenalty: flagWasSet(fs, "repeat-penalty") || cfg.RepeatPenalty > 0,
+		stop:          flagWasSet(fs, "stop") || len(cfg.Stop) > 0,
+	}
 	if cfg.Log != "" && logPath == "" {
 		logPath = cfg.Log
 	}
@@ -2223,6 +2230,14 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	}
 	if path == "" || prompt == "" {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
+		return 2
+	}
+	if err := applyCLIGenerationDefaults(path, defaults, &maxTokens, &temperature, &topP, &repeatPenalty, &stop); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := validateRepeatPenalty(repeatPenalty); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
 	}
 	options, err := runtimeOptions(cfg.Options, runtimeFlagOptions{
@@ -2366,6 +2381,13 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(stop) == 0 {
 		stop = append(stop, cfg.Stop...)
 	}
+	defaults := generationDefaultOverrides{
+		maxTokens:     flagWasSet(fs, "max-tokens") || cfg.MaxTokens > 0,
+		temperature:   flagWasSet(fs, "temperature") || cfg.Temperature > 0,
+		topP:          flagWasSet(fs, "top-p") || cfg.TopP > 0,
+		repeatPenalty: flagWasSet(fs, "repeat-penalty") || cfg.RepeatPenalty > 0,
+		stop:          flagWasSet(fs, "stop") || len(cfg.Stop) > 0,
+	}
 	if cfg.Log != "" && logPath == "" {
 		logPath = cfg.Log
 	}
@@ -2423,6 +2445,14 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "usage: nego chat <model-path> <message> [flags]")
 			return 2
 		}
+	}
+	if err := applyCLIGenerationDefaults(path, defaults, &maxTokens, &temperature, &topP, &repeatPenalty, &stop); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := validateRepeatPenalty(repeatPenalty); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
 	}
 	options, err := runtimeOptions(cfg.Options, runtimeFlagOptions{
 		threads:        threads,
@@ -2716,6 +2746,40 @@ func loadRuntimeConfig(path string) (runtimeConfig, error) {
 		return runtimeConfig{}, err
 	}
 	return cfg, nil
+}
+
+type generationDefaultOverrides struct {
+	maxTokens     bool
+	temperature   bool
+	topP          bool
+	repeatPenalty bool
+	stop          bool
+}
+
+func applyCLIGenerationDefaults(path string, overrides generationDefaultOverrides, maxTokens *int, temperature, topP, repeatPenalty *float64, stop *repeatedFlag) error {
+	if path == "" {
+		return nil
+	}
+	cfg, err := modelinfo.LoadGenerationConfig(path)
+	if err != nil || cfg == nil {
+		return err
+	}
+	if !overrides.maxTokens && maxTokens != nil && *maxTokens == 0 && cfg.MaxNewTokens != nil {
+		*maxTokens = *cfg.MaxNewTokens
+	}
+	if !overrides.temperature && temperature != nil && *temperature == 0 && cfg.Temperature != nil {
+		*temperature = *cfg.Temperature
+	}
+	if !overrides.topP && topP != nil && *topP == 0 && cfg.TopP != nil {
+		*topP = *cfg.TopP
+	}
+	if !overrides.repeatPenalty && repeatPenalty != nil && *repeatPenalty == 0 && cfg.RepetitionPenalty != nil {
+		*repeatPenalty = *cfg.RepetitionPenalty
+	}
+	if !overrides.stop && stop != nil && len(*stop) == 0 && len(cfg.StopStrings) > 0 {
+		*stop = append((*stop)[:0], cfg.StopStrings...)
+	}
+	return nil
 }
 
 func appendRuntimeLog(path string, entry runs.Entry) error {

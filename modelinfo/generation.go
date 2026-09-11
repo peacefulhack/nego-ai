@@ -3,6 +3,8 @@ package modelinfo
 import (
 	"encoding/json"
 	"math"
+	"os"
+	"path/filepath"
 	"strconv"
 )
 
@@ -72,6 +74,25 @@ func ParseGenerationConfig(raw map[string]any) *GenerationConfig {
 		return nil
 	}
 	return cfg
+}
+
+func LoadGenerationConfig(path string) (*GenerationConfig, error) {
+	root, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	stat, err := os.Stat(root)
+	if err != nil {
+		return nil, err
+	}
+	if !stat.IsDir() {
+		root = filepath.Dir(root)
+	}
+	raw, err := readJSON(filepath.Join(root, "generation_config.json"))
+	if err != nil {
+		return nil, err
+	}
+	return ParseGenerationConfig(raw), nil
 }
 
 func (c *GenerationConfig) empty() bool {

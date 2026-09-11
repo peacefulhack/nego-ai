@@ -763,6 +763,76 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 	}
 }
 
+func TestRunCommandUsesGenerationConfigDefaults(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":6,"temperature":0.4,"top_p":0.75,"repetition_penalty":1.15,"stop_strings":["END"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"-n 6", "--temp 0.4", "--top-p 0.75", "--repeat-penalty 1.15", "--reverse-prompt END"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in output: %q", want, stdout.String())
+		}
+	}
+}
+
+func TestRunCommandFlagsOverrideGenerationConfigDefaults(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":6,"temperature":0.4,"stop_strings":["END"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp", "--max-tokens", "2", "--temperature", "0.9", "--stop", "DONE"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"-n 2", "--temp 0.9", "--reverse-prompt DONE"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output: %q", want, out)
+		}
+	}
+	for _, unwanted := range []string{"-n 6", "--temp 0.4", "--reverse-prompt END"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("did not expect %q in output: %q", unwanted, out)
+		}
+	}
+}
+
+func TestRunCommandRejectsInvalidGenerationConfigRepeatPenalty(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"repetition_penalty":0.5}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "repeat-penalty") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
 func TestRunCommandNativeShortcutUsesNativeBackend(t *testing.T) {
 	modelPath := fakeCLIGGUF(t)
 	var stdout, stderr bytes.Buffer

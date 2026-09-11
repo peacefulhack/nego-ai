@@ -139,6 +139,62 @@ func StreamGenerate(ctx context.Context, model Model, req GenerateRequest) (Stre
 	return staticStream{tokens: tokens}, nil
 }
 
+func ApplyGenerationDefaults(path string, req *GenerateRequest) error {
+	if req == nil {
+		return fmt.Errorf("generate request is nil")
+	}
+	cfg, err := modelinfo.LoadGenerationConfig(path)
+	if err != nil || cfg == nil {
+		return err
+	}
+	applyGenerationConfigToGenerateRequest(cfg, req)
+	return nil
+}
+
+func ApplyChatGenerationDefaults(path string, req *ChatRequest) error {
+	if req == nil {
+		return fmt.Errorf("chat request is nil")
+	}
+	cfg, err := modelinfo.LoadGenerationConfig(path)
+	if err != nil || cfg == nil {
+		return err
+	}
+	if req.MaxTokens == 0 && cfg.MaxNewTokens != nil {
+		req.MaxTokens = *cfg.MaxNewTokens
+	}
+	if req.Temperature == 0 && cfg.Temperature != nil {
+		req.Temperature = *cfg.Temperature
+	}
+	if req.TopP == 0 && cfg.TopP != nil {
+		req.TopP = *cfg.TopP
+	}
+	if req.RepeatPenalty == 0 && cfg.RepetitionPenalty != nil {
+		req.RepeatPenalty = *cfg.RepetitionPenalty
+	}
+	if len(req.Stop) == 0 && len(cfg.StopStrings) > 0 {
+		req.Stop = append([]string(nil), cfg.StopStrings...)
+	}
+	return nil
+}
+
+func applyGenerationConfigToGenerateRequest(cfg *modelinfo.GenerationConfig, req *GenerateRequest) {
+	if req.MaxTokens == 0 && cfg.MaxNewTokens != nil {
+		req.MaxTokens = *cfg.MaxNewTokens
+	}
+	if req.Temperature == 0 && cfg.Temperature != nil {
+		req.Temperature = *cfg.Temperature
+	}
+	if req.TopP == 0 && cfg.TopP != nil {
+		req.TopP = *cfg.TopP
+	}
+	if req.RepeatPenalty == 0 && cfg.RepetitionPenalty != nil {
+		req.RepeatPenalty = *cfg.RepetitionPenalty
+	}
+	if len(req.Stop) == 0 && len(cfg.StopStrings) > 0 {
+		req.Stop = append([]string(nil), cfg.StopStrings...)
+	}
+}
+
 type staticStream struct {
 	tokens <-chan Token
 }
