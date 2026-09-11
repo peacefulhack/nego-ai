@@ -722,6 +722,7 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 
 func runTrainInit(args []string, stdout, stderr io.Writer) int {
 	var name, method, baseModel, trainFile, evalFile, datasetFormat, outputDir, command, script, workDir, out string
+	var maxContext int
 	fs := flag.NewFlagSet("train init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&name, "name", "qwen3-lora", "training job name")
@@ -734,6 +735,7 @@ func runTrainInit(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&command, "command", "python", "training command")
 	fs.StringVar(&script, "script", "scripts/train_lora.py", "training script passed as first argument")
 	fs.StringVar(&workDir, "work-dir", ".", "training working directory")
+	fs.IntVar(&maxContext, "max-context", 0, "maximum context tokens checked during preflight")
 	fs.StringVar(&out, "out", "train-job.json", "output job JSON file")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
@@ -751,6 +753,7 @@ func runTrainInit(args []string, stdout, stderr io.Writer) int {
 		EvalFile:      evalFile,
 		DatasetFormat: datasetFormat,
 		OutputDir:     outputDir,
+		MaxContext:    maxContext,
 		Command:       command,
 		Script:        script,
 		WorkDir:       workDir,
@@ -1087,6 +1090,15 @@ func printTrainingPreflight(w io.Writer, report training.PreflightReport) {
 	if report.OutputDir != "" {
 		fmt.Fprintf(w, "Output dir:     %s\n", report.OutputDir)
 	}
+	if report.MaxContext > 0 {
+		fmt.Fprintf(w, "Max context:    %d\n", report.MaxContext)
+	}
+	if report.TrainTokens != nil {
+		printTrainingTokenBudget(w, "Train tokens", report.TrainTokens)
+	}
+	if report.EvalTokens != nil {
+		printTrainingTokenBudget(w, "Eval tokens", report.EvalTokens)
+	}
 	if report.Command != "" {
 		command := strings.TrimSpace(strings.Join(append([]string{report.Command}, redactTrainingArgs(report.Args)...), " "))
 		fmt.Fprintf(w, "Command:        %s\n", command)
@@ -1094,6 +1106,14 @@ func printTrainingPreflight(w io.Writer, report training.PreflightReport) {
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(w, "Warning:        %s\n", warning)
 	}
+}
+
+func printTrainingTokenBudget(w io.Writer, label string, summary *training.TokenBudgetSummary) {
+	fmt.Fprintf(w, "%s:   min %d / avg %.1f / max %d / total %d", label, summary.MinTokens, summary.AverageTokens, summary.MaxTokens, summary.TotalTokens)
+	if summary.MaxContext > 0 {
+		fmt.Fprintf(w, " / over %d", summary.OverLimit)
+	}
+	fmt.Fprintln(w)
 }
 
 func redactTrainingArgs(args []string) []string {

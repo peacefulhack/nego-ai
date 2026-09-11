@@ -403,6 +403,7 @@ nego train init \
   --train-file examples/5.train/train.jsonl \
   --eval-file examples/5.train/test.jsonl \
   --dataset-format completion \
+  --max-context 4096 \
   --output-dir ./outputs/qwen3-lora \
   --out examples/5.train/train-job.json
 ```
@@ -418,6 +419,7 @@ Minimal `job.json` shape:
   "eval_file": "examples/5.train/test.jsonl",
   "dataset_format": "completion",
   "output_dir": "./outputs/qwen3-lora",
+  "max_context": 4096,
   "command": "python",
   "args": [
     "scripts/train_lora.py",

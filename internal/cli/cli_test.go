@@ -1586,6 +1586,8 @@ func TestTrainInitCommand(t *testing.T) {
 		trainFile,
 		"--eval-file",
 		evalFile,
+		"--max-context",
+		"128",
 		"--output-dir",
 		filepath.Join(dir, "outputs", "qwen3-lora"),
 		"--out",
@@ -1602,7 +1604,7 @@ func TestTrainInitCommand(t *testing.T) {
 	if err := json.Unmarshal(data, &spec); err != nil {
 		t.Fatal(err)
 	}
-	if spec.BaseModel != modelDir || spec.TrainFile != trainFile || spec.OutputDir == "" {
+	if spec.BaseModel != modelDir || spec.TrainFile != trainFile || spec.OutputDir == "" || spec.MaxContext != 128 {
 		t.Fatalf("unexpected spec: %#v", spec)
 	}
 	if spec.DatasetFormat != "auto" {

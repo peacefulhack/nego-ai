@@ -149,6 +149,44 @@ func TestPreflightReportsModelAndDataset(t *testing.T) {
 	}
 }
 
+func TestPreflightChecksTokenBudget(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","unk_token":"[UNK]","vocab":{"[UNK]":0,"hello":1,"world":2,"Ġhello":3,"Ġworld":4,"Ċ":5}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hello hello hello","completion":"world"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Preflight(JobSpec{
+		Name:          "qwen3-lora",
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		MaxContext:    3,
+		Command:       fakeTrainingCommand(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds token budget") {
+		t.Fatalf("expected token budget error, got report=%#v err=%v", report, err)
+	}
+	if report.TrainTokens == nil || report.TrainTokens.OverLimit != 1 || report.TrainTokens.MaxTokens <= 3 {
+		t.Fatalf("unexpected token summary: %#v", report.TrainTokens)
+	}
+}
+
 func TestPreflightWarnsForGGUFTrainingArtifact(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models", "qwen3-gguf")
