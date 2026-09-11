@@ -432,6 +432,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego share check <model-dir> [flags]")
 	fmt.Fprintln(w, "  nego share package <model-dir> --out <archive.tar.gz> [flags]")
 	fmt.Fprintln(w, "  nego share upload <repo-id> <local-path> [path-in-repo] [flags]")
 }
@@ -444,6 +445,8 @@ func runShare(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	switch args[0] {
 	case "manifest":
 		return runShareManifest(args[1:], stdout, stderr)
+	case "check":
+		return runShareCheck(args[1:], stdout, stderr)
 	case "package":
 		return runSharePackage(args[1:], stdout, stderr)
 	case "upload":
@@ -503,6 +506,46 @@ func runShareManifest(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runShareCheck(args []string, stdout, stderr io.Writer) int {
+	var repo string
+	var baseModel string
+	var maxInlineSize int64
+	var jsonOutput bool
+	fs := flag.NewFlagSet("share check", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&repo, "repo", "", "target repository id")
+	fs.StringVar(&baseModel, "base-model", "", "base model id")
+	fs.Int64Var(&maxInlineSize, "max-inline-size", 0, "maximum inline file size in bytes")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON report")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego share check <model-dir> [flags]")
+		return 2
+	}
+	report, err := share.Check(share.CheckOptions{
+		Path:          positionals[0],
+		RepoID:        repo,
+		BaseModel:     baseModel,
+		MaxInlineSize: maxInlineSize,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(report)
+	} else {
+		printShareCheck(stdout, report)
+	}
+	if !report.Valid {
+		return 1
+	}
+	return 0
+}
+
 func runSharePackage(args []string, stdout, stderr io.Writer) int {
 	var out string
 	var repo string
@@ -537,6 +580,25 @@ func runSharePackage(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Files:          %d\n", len(manifest.Files))
 	fmt.Fprintf(stdout, "Size:           %s\n", humanBytes(manifest.TotalSize))
 	return 0
+}
+
+func printShareCheck(w io.Writer, report *share.CheckReport) {
+	fmt.Fprintln(w, "Share check")
+	fmt.Fprintf(w, "Path:          %s\n", report.Path)
+	if report.RepoID != "" {
+		fmt.Fprintf(w, "Repo:          %s\n", report.RepoID)
+	}
+	fmt.Fprintf(w, "Files:         %d\n", report.Files)
+	fmt.Fprintf(w, "Size:          %s\n", humanBytes(report.TotalSize))
+	fmt.Fprintf(w, "Inline limit:  %s\n", humanBytes(report.MaxInlineSize))
+	fmt.Fprintf(w, "Inline files:  %d\n", report.InlineFiles)
+	fmt.Fprintf(w, "Large files:   %d\n", len(report.LargeFiles))
+	for _, file := range report.LargeFiles {
+		fmt.Fprintf(w, "  - %s %s requires LFS/Xet\n", file.Path, humanBytes(file.Size))
+	}
+	for _, warning := range report.Warnings {
+		fmt.Fprintf(w, "Warning:       %s\n", warning)
+	}
 }
 
 func runShareUpload(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -644,6 +706,7 @@ func runShareUpload(ctx context.Context, args []string, stdout, stderr io.Writer
 func shareUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego share check <model-dir> [flags]")
 	fmt.Fprintln(w, "  nego share package <model-dir> --out <archive.tar.gz> [flags]")
 	fmt.Fprintln(w, "  nego share upload <repo-id> <local-path> [path-in-repo] [flags]")
 }

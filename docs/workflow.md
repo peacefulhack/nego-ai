@@ -601,6 +601,12 @@ nego share manifest ./outputs/qwen3-sft \
   --base-model Qwen/Qwen3-0.6B
 ```
 
+Check whether the output can be uploaded through the current inline uploader:
+
+```bash
+nego share check ./outputs/qwen3-sft
+```
+
 Create a portable archive:
 
 ```bash

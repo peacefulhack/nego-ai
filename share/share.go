@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+const DefaultInlineUploadLimit int64 = 10 * 1024 * 1024
+
 type Manifest struct {
 	Path      string    `json:"path"`
 	RepoID    string    `json:"repo_id,omitempty"`
@@ -46,6 +48,64 @@ type PackageOptions struct {
 	BaseModel       string
 	Gzip            bool
 	IncludeManifest bool
+}
+
+type CheckOptions struct {
+	Path          string
+	RepoID        string
+	BaseModel     string
+	MaxInlineSize int64
+}
+
+type CheckReport struct {
+	Path          string   `json:"path"`
+	RepoID        string   `json:"repo_id,omitempty"`
+	BaseModel     string   `json:"base_model,omitempty"`
+	Valid         bool     `json:"valid"`
+	Files         int      `json:"files"`
+	TotalSize     int64    `json:"total_size"`
+	MaxInlineSize int64    `json:"max_inline_size"`
+	InlineFiles   int      `json:"inline_files"`
+	LargeFiles    []File   `json:"large_files,omitempty"`
+	LargeSize     int64    `json:"large_size,omitempty"`
+	Warnings      []string `json:"warnings,omitempty"`
+}
+
+func Check(opts CheckOptions) (*CheckReport, error) {
+	limit := opts.MaxInlineSize
+	if limit <= 0 {
+		limit = DefaultInlineUploadLimit
+	}
+	manifest, err := BuildManifest(ManifestOptions{
+		Path:      opts.Path,
+		RepoID:    opts.RepoID,
+		BaseModel: opts.BaseModel,
+	})
+	if err != nil {
+		return nil, err
+	}
+	report := &CheckReport{
+		Path:          manifest.Path,
+		RepoID:        manifest.RepoID,
+		BaseModel:     manifest.BaseModel,
+		Files:         len(manifest.Files),
+		TotalSize:     manifest.TotalSize,
+		MaxInlineSize: limit,
+		Valid:         true,
+	}
+	for _, file := range manifest.Files {
+		if file.Size > limit {
+			report.LargeFiles = append(report.LargeFiles, file)
+			report.LargeSize += file.Size
+			report.Valid = false
+			continue
+		}
+		report.InlineFiles++
+	}
+	if len(report.LargeFiles) > 0 {
+		report.Warnings = append(report.Warnings, "large model files require Hugging Face LFS/Xet upload, which is not implemented yet")
+	}
+	return report, nil
 }
 
 func BuildManifest(opts ManifestOptions) (*Manifest, error) {

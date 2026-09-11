@@ -331,11 +331,12 @@ This writes a small token-bias adapter from the dataset. Full LoRA/backprop trai
 
 ```bash
 nego share manifest ./outputs/qwen3-lora --out ./outputs/qwen3-lora/share-manifest.json --repo username/qwen3-lora --base-model Qwen/Qwen3-0.6B
+nego share check ./outputs/qwen3-lora
 nego share package ./outputs/qwen3-lora --out ./outputs/qwen3-lora.tar.gz --repo username/qwen3-lora --base-model Qwen/Qwen3-0.6B
 nego share upload username/qwen3-lora ./outputs/qwen3-lora README.md --token $HF_TOKEN
 ```
 
-`nego share upload` currently supports regular inline Hub commit uploads. Large model files that require Hugging Face LFS/Xet upload are still planned.
+`nego share check` reports files that are too large for inline uploads. `nego share upload` currently supports regular inline Hub commit uploads. Large model files that require Hugging Face LFS/Xet upload are still planned.
 
 ## Eval
 

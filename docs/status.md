@@ -21,7 +21,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 15. Prepare, validate, token-budget check, convert, filter, split, and sample datasets.
 16. Run eval suites and compare reports.
 17. Create, validate, and run external training job JSON files.
-18. Create local share manifests and archive packages for trained model output directories.
+18. Create local share manifests, upload preflight checks, and archive packages for trained model output directories.
 19. Upload regular files or small folders to Hub repos through inline commit uploads.
 
 ## Pure-Go Native Runtime Status

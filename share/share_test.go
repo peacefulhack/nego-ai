@@ -82,6 +82,23 @@ func TestBuildManifestRejectsFilePath(t *testing.T) {
 	}
 }
 
+func TestCheckReportsLargeFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("model card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("large model"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Check(CheckOptions{Path: dir, RepoID: "user/model", MaxInlineSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Valid || len(report.LargeFiles) != 1 || report.LargeFiles[0].Path != "model.safetensors" || report.MaxInlineSize != 10 {
+		t.Fatalf("unexpected report: %#v", report)
+	}
+}
+
 func TestPackageArchiveWritesTarGzip(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "model")

@@ -20,6 +20,7 @@ import (
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/registry"
 	"github.com/gakon/nego-ai/modelinfo"
+	"github.com/gakon/nego-ai/share"
 	"github.com/gakon/nego-ai/training"
 )
 
@@ -1668,6 +1669,45 @@ func TestSharePackageCommand(t *testing.T) {
 	}
 	if info, err := os.Stat(outPath); err != nil || info.Size() == 0 {
 		t.Fatalf("archive was not written: info=%#v err=%v", info, err)
+	}
+}
+
+func TestShareCheckCommandReportsLargeFiles(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "README.md"), []byte("model card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), []byte("large model"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "check", modelDir, "--max-inline-size", "10"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Large files:") || !strings.Contains(stdout.String(), "requires LFS/Xet") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"share", "check", modelDir, "--max-inline-size", "10", "--json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var report struct {
+		Valid      bool         `json:"valid"`
+		LargeFiles []share.File `json:"large_files"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Valid || len(report.LargeFiles) != 1 {
+		t.Fatalf("unexpected report: %s", stdout.String())
 	}
 }
 
