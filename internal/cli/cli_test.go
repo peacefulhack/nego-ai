@@ -1487,6 +1487,8 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 		trainFile,
 		"--dataset-format",
 		"completion",
+		"--max-context",
+		"16",
 		"--out",
 		outputDir,
 	}, &stdout, &stderr)
@@ -1495,6 +1497,7 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Native training completed") ||
 		!strings.Contains(stdout.String(), "Adapter:") ||
+		!strings.Contains(stdout.String(), "Train budget:") ||
 		!strings.Contains(stdout.String(), "Run:            nego run --native") ||
 		!strings.Contains(stdout.String(), "Chat:           nego chat --native") {
 		t.Fatalf("unexpected output: %q", stdout.String())

@@ -23,6 +23,7 @@ type NativeOptions struct {
 	Method        string  `json:"method,omitempty"`
 	LearningRate  float64 `json:"learning_rate,omitempty"`
 	Epochs        int     `json:"epochs,omitempty"`
+	MaxContext    int     `json:"max_context,omitempty"`
 }
 
 type NativeResult struct {
@@ -34,8 +35,11 @@ type NativeResult struct {
 	AdapterPath   string                     `json:"adapter_path"`
 	Method        string                     `json:"method"`
 	Epochs        int                        `json:"epochs"`
+	MaxContext    int                        `json:"max_context,omitempty"`
 	TrainRows     int                        `json:"train_rows"`
 	EvalRows      int                        `json:"eval_rows,omitempty"`
+	TrainBudget   *TokenBudgetSummary        `json:"train_budget,omitempty"`
+	EvalBudget    *TokenBudgetSummary        `json:"eval_budget,omitempty"`
 	TrainTokens   int                        `json:"train_tokens"`
 	VocabSize     int                        `json:"vocab_size"`
 	UpdatedTokens int                        `json:"updated_tokens"`
@@ -58,6 +62,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 		OutputDir:     opts.OutputDir,
 		Method:        opts.Method,
 		Epochs:        opts.Epochs,
+		MaxContext:    opts.MaxContext,
 	}
 	normalized, err := normalizeNativeOptions(opts)
 	if err != nil {
@@ -67,6 +72,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.OutputDir = normalized.OutputDir
 	result.Method = normalized.Method
 	result.Epochs = normalized.Epochs
+	result.MaxContext = normalized.MaxContext
 	artifact, err := modelinfo.Resolve(normalized.BaseModel)
 	if err != nil {
 		return result, fmt.Errorf("resolve base model: %w", err)
@@ -91,6 +97,13 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 		return result, fmt.Errorf("train file %q does not match %s format: %w", normalized.TrainFile, normalized.DatasetFormat, err)
 	}
 	result.TrainRows = len(rows)
+	if normalized.MaxContext > 0 {
+		budget, err := nativeRowsTokenBudget(rows, normalized.DatasetFormat, tok, normalized.MaxContext)
+		result.TrainBudget = budget
+		if err != nil {
+			return result, fmt.Errorf("train file %q exceeds token budget: %w", normalized.TrainFile, err)
+		}
+	}
 	if normalized.EvalFile != "" {
 		evalRows, err := datasets.ReadFile(resolvePath("", normalized.EvalFile))
 		if err != nil {
@@ -100,6 +113,13 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 			return result, fmt.Errorf("eval file %q does not match %s format: %w", normalized.EvalFile, normalized.DatasetFormat, err)
 		}
 		result.EvalRows = len(evalRows)
+		if normalized.MaxContext > 0 {
+			budget, err := nativeRowsTokenBudget(evalRows, normalized.DatasetFormat, tok, normalized.MaxContext)
+			result.EvalBudget = budget
+			if err != nil {
+				return result, fmt.Errorf("eval file %q exceeds token budget: %w", normalized.EvalFile, err)
+			}
+		}
 	}
 	counts := make(map[int]int)
 	for epoch := 0; epoch < normalized.Epochs; epoch++ {
@@ -176,6 +196,9 @@ func normalizeNativeOptions(opts NativeOptions) (NativeOptions, error) {
 	if opts.LearningRate <= 0 {
 		opts.LearningRate = 0.1
 	}
+	if opts.MaxContext < 0 {
+		return opts, fmt.Errorf("max context must be greater than or equal to 0")
+	}
 	if _, err := os.Stat(opts.BaseModel); err != nil {
 		return opts, fmt.Errorf("base model %q is not available: %w", opts.BaseModel, err)
 	}
@@ -226,6 +249,126 @@ func loadNativeTrainingTokenizer(baseModel string, artifact *modelinfo.Artifact)
 		return ggufTrainingTokenizer{vocab: vocab}, nil
 	}
 	return nil, fmt.Errorf("native training requires tokenizer.json beside the model or GGUF tokenizer metadata")
+}
+
+func nativeRowsTokenBudget(rows []datasets.Row, format string, tok nativeTrainingTokenizer, maxContext int) (*TokenBudgetSummary, error) {
+	summary := &TokenBudgetSummary{
+		Rows:       len(rows),
+		MaxContext: maxContext,
+		MinTokens:  -1,
+	}
+	for i, row := range rows {
+		rowFormat := nativeBudgetFormat(row, format)
+		detail := datasets.TokenBudgetRow{Row: i + 1, Format: rowFormat}
+		text, err := nativeBudgetText(row, rowFormat)
+		if err != nil {
+			detail.Error = err.Error()
+			summary.InvalidRows++
+			summary.LongestRows = append(summary.LongestRows, detail)
+			continue
+		}
+		ids, err := tok.encode(text)
+		if err != nil {
+			detail.Error = err.Error()
+			summary.InvalidRows++
+			summary.LongestRows = append(summary.LongestRows, detail)
+			continue
+		}
+		detail.Tokens = len(ids)
+		summary.CountedRows++
+		summary.TotalTokens += detail.Tokens
+		if summary.MinTokens < 0 || detail.Tokens < summary.MinTokens {
+			summary.MinTokens = detail.Tokens
+		}
+		if detail.Tokens > summary.MaxTokens {
+			summary.MaxTokens = detail.Tokens
+		}
+		if maxContext > 0 && detail.Tokens > maxContext {
+			detail.OverLimit = true
+			summary.OverLimit++
+		}
+		summary.LongestRows = append(summary.LongestRows, detail)
+	}
+	if summary.MinTokens < 0 {
+		summary.MinTokens = 0
+	}
+	if summary.CountedRows > 0 {
+		summary.AverageTokens = float64(summary.TotalTokens) / float64(summary.CountedRows)
+	}
+	summary.LongestRows = datasets.LongestTokenRows(summary.LongestRows, 5)
+	if summary.InvalidRows > 0 || summary.OverLimit > 0 {
+		return summary, fmt.Errorf("over_limit=%d invalid_rows=%d max_context=%d", summary.OverLimit, summary.InvalidRows, maxContext)
+	}
+	return summary, nil
+}
+
+func nativeBudgetFormat(row datasets.Row, format string) string {
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format != "" && format != "auto" {
+		return format
+	}
+	switch {
+	case row["messages"] != nil:
+		return "chat"
+	case row["prompt"] != nil && (row["completion"] != nil || row["response"] != nil):
+		return "completion"
+	case row["instruction"] != nil && row["output"] != nil:
+		return "instruction"
+	default:
+		return "unknown"
+	}
+}
+
+func nativeBudgetText(row datasets.Row, format string) (string, error) {
+	switch format {
+	case "completion":
+		prompt := rowString(row, "prompt")
+		completion := rowString(row, "completion", "response")
+		if prompt == "" || completion == "" {
+			return "", fmt.Errorf("completion row requires prompt and completion or response")
+		}
+		return prompt + "\n" + completion, nil
+	case "instruction":
+		instruction := rowString(row, "instruction")
+		output := rowString(row, "output")
+		if instruction == "" || output == "" {
+			return "", fmt.Errorf("instruction row requires instruction and output")
+		}
+		input := rowString(row, "input")
+		if input != "" {
+			return "Instruction: " + instruction + "\nInput: " + input + "\nOutput: " + output, nil
+		}
+		return "Instruction: " + instruction + "\nOutput: " + output, nil
+	case "chat":
+		text := chatBudgetText(row)
+		if text == "" {
+			return "", fmt.Errorf("chat row requires messages")
+		}
+		return text, nil
+	default:
+		return "", fmt.Errorf("unknown row format")
+	}
+}
+
+func chatBudgetText(row datasets.Row) string {
+	raw, ok := row["messages"].([]any)
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	for _, value := range raw {
+		message, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := message["role"].(string)
+		content, _ := message["content"].(string)
+		if strings.TrimSpace(role) == "" || strings.TrimSpace(content) == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "%s: %s\n", strings.ToUpper(role), content)
+	}
+	return b.String()
 }
 
 func targetTexts(rows []datasets.Row, format string) []string {

@@ -463,11 +463,13 @@ nego train capabilities ./models/qwen3
 nego train native ./models/qwen3 \
   --train-file examples/5.train/train.jsonl \
   --dataset-format completion \
+  --max-context 4096 \
   --out ./outputs/qwen3-token-bias
 
 nego train native ./models/qwen3-gguf \
   --train-file examples/5.train/train.jsonl \
   --dataset-format completion \
+  --max-context 4096 \
   --out ./outputs/qwen3-token-bias
 ```
 

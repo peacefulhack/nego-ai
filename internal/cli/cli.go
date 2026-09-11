@@ -908,6 +908,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	var method string
 	var learningRate float64
 	var epochs int
+	var maxContext int
 	var jsonOutput bool
 	fs := flag.NewFlagSet("train native", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -918,6 +919,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&method, "method", "token-bias", "native training method")
 	fs.Float64Var(&learningRate, "learning-rate", 0.1, "adapter learning-rate scale")
 	fs.IntVar(&epochs, "epochs", 1, "number of passes over the dataset")
+	fs.IntVar(&maxContext, "max-context", 0, "maximum context tokens checked before native training")
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
@@ -936,6 +938,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 		Method:        method,
 		LearningRate:  learningRate,
 		Epochs:        epochs,
+		MaxContext:    maxContext,
 	})
 	if jsonOutput {
 		body := map[string]any{
@@ -967,6 +970,15 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	fmt.Fprintf(w, "Dataset format: %s\n", result.DatasetFormat)
 	fmt.Fprintf(w, "Method:         %s\n", result.Method)
 	fmt.Fprintf(w, "Epochs:         %d\n", result.Epochs)
+	if result.MaxContext > 0 {
+		fmt.Fprintf(w, "Max context:    %d\n", result.MaxContext)
+	}
+	if result.TrainBudget != nil {
+		printTrainingTokenBudget(w, "Train budget", result.TrainBudget)
+	}
+	if result.EvalBudget != nil {
+		printTrainingTokenBudget(w, "Eval budget", result.EvalBudget)
+	}
 	fmt.Fprintf(w, "Train tokens:   %d\n", result.TrainTokens)
 	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
 	fmt.Fprintf(w, "Adapter:        %s\n", result.AdapterPath)

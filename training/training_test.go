@@ -245,11 +245,12 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 		OutputDir:     outputDir,
 		Epochs:        2,
 		LearningRate:  0.2,
+		MaxContext:    8,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.AdapterPath == "" || result.TrainRows != 1 || result.TrainTokens != 4 || result.UpdatedTokens != 2 {
+	if result.AdapterPath == "" || result.TrainRows != 1 || result.TrainTokens != 4 || result.UpdatedTokens != 2 || result.TrainBudget == nil {
 		t.Fatalf("unexpected result: %#v", result)
 	}
 	if _, err := os.Stat(result.AdapterPath); err != nil {
@@ -257,6 +258,47 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	}
 	if result.Adapter.Bias[0] <= 0 || result.Adapter.Bias[1] <= 0 {
 		t.Fatalf("unexpected adapter bias: %#v", result.Adapter.Bias)
+	}
+}
+
+func TestRunNativeRejectsRowsOverTokenBudget(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	outputDir := filepath.Join(dir, "outputs", "qwen3-adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"num_hidden_layers":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0,"▁hello":1,"world":2,"Ċ":3},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), minimalSafetensors(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hello hello hello","completion":"world"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		OutputDir:     outputDir,
+		MaxContext:    2,
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds token budget") {
+		t.Fatalf("expected token budget error, got result=%#v err=%v", result, err)
+	}
+	if result.TrainBudget == nil || result.TrainBudget.OverLimit != 1 {
+		t.Fatalf("unexpected budget: %#v", result.TrainBudget)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
+		t.Fatalf("adapter should not be written when budget fails: %v", err)
 	}
 }
 
