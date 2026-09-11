@@ -256,6 +256,27 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if _, err := os.Stat(result.AdapterPath); err != nil {
 		t.Fatal(err)
 	}
+	if result.ManifestPath == "" || result.ReadmePath == "" {
+		t.Fatalf("missing output metadata: %#v", result)
+	}
+	data, err := os.ReadFile(result.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest NativeManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.RuntimeOptions["adapter_path"] != result.AdapterPath {
+		t.Fatalf("unexpected manifest: %#v", manifest)
+	}
+	readme, err := os.ReadFile(result.ReadmePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(readme), "nego run --backend native") || !strings.Contains(string(readme), "nego chat --backend native") {
+		t.Fatalf("unexpected README: %s", string(readme))
+	}
 	if result.Adapter.Bias[0] <= 0 || result.Adapter.Bias[1] <= 0 {
 		t.Fatalf("unexpected adapter bias: %#v", result.Adapter.Bias)
 	}

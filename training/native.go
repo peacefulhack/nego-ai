@@ -2,9 +2,11 @@ package training
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,6 +35,8 @@ type NativeResult struct {
 	DatasetFormat string                     `json:"dataset_format"`
 	OutputDir     string                     `json:"output_dir"`
 	AdapterPath   string                     `json:"adapter_path"`
+	ManifestPath  string                     `json:"manifest_path,omitempty"`
+	ReadmePath    string                     `json:"readme_path,omitempty"`
 	Method        string                     `json:"method"`
 	Epochs        int                        `json:"epochs"`
 	MaxContext    int                        `json:"max_context,omitempty"`
@@ -47,6 +51,25 @@ type NativeResult struct {
 	Artifact      *modelinfo.Artifact        `json:"artifact,omitempty"`
 	Adapter       *adapters.TokenBiasAdapter `json:"adapter,omitempty"`
 	Warnings      []string                   `json:"warnings,omitempty"`
+}
+
+type NativeManifest struct {
+	Version            int               `json:"version"`
+	Type               string            `json:"type"`
+	BaseModel          string            `json:"base_model"`
+	AdapterPath        string            `json:"adapter_path"`
+	Method             string            `json:"method"`
+	DatasetFormat      string            `json:"dataset_format"`
+	TrainFile          string            `json:"train_file"`
+	EvalFile           string            `json:"eval_file,omitempty"`
+	RecommendedBackend string            `json:"recommended_backend"`
+	RuntimeOptions     map[string]string `json:"runtime_options"`
+	RunArgs            []string          `json:"run_args"`
+	ChatArgs           []string          `json:"chat_args"`
+	VocabSize          int               `json:"vocab_size"`
+	UpdatedTokens      int               `json:"updated_tokens"`
+	TrainTokens        int               `json:"train_tokens"`
+	CreatedAt          time.Time         `json:"created_at"`
 }
 
 func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
@@ -148,12 +171,115 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.AdapterPath = adapterPath
 	result.Adapter = adapter
 	result.UpdatedTokens = len(adapter.Bias)
+	manifest, err := buildNativeManifest(normalized, result, artifact)
+	if err != nil {
+		return result, err
+	}
+	manifestPath := filepath.Join(normalized.OutputDir, "manifest.json")
+	if err := writeNativeManifest(manifestPath, manifest); err != nil {
+		return result, err
+	}
+	result.ManifestPath = manifestPath
+	readmePath := filepath.Join(normalized.OutputDir, "README.md")
+	if err := writeNativeTrainingReadme(readmePath, manifest); err != nil {
+		return result, err
+	}
+	result.ReadmePath = readmePath
 	result.Duration = time.Since(start)
 	result.Warnings = []string{
 		"native training currently writes a token-bias adapter; full LoRA/backprop training is still planned",
 		"load the adapter with native backend option adapter_path when using a compatible runtime vocabulary",
 	}
 	return result, nil
+}
+
+func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *modelinfo.Artifact) (NativeManifest, error) {
+	backend := nativeTrainingRuntimeBackend(artifact)
+	if backend == "" {
+		return NativeManifest{}, fmt.Errorf("native training output has no runnable backend recommendation")
+	}
+	runArgs := []string{"nego", "run", "--backend", backend, opts.BaseModel, "--adapter", result.AdapterPath, "Hello"}
+	chatArgs := []string{"nego", "chat", "--backend", backend, opts.BaseModel, "--adapter", result.AdapterPath, "Hello"}
+	return NativeManifest{
+		Version:            1,
+		Type:               "nego-native-adapter",
+		BaseModel:          opts.BaseModel,
+		AdapterPath:        result.AdapterPath,
+		Method:             result.Method,
+		DatasetFormat:      result.DatasetFormat,
+		TrainFile:          opts.TrainFile,
+		EvalFile:           opts.EvalFile,
+		RecommendedBackend: backend,
+		RuntimeOptions:     map[string]string{"adapter_path": result.AdapterPath},
+		RunArgs:            runArgs,
+		ChatArgs:           chatArgs,
+		VocabSize:          result.VocabSize,
+		UpdatedTokens:      result.UpdatedTokens,
+		TrainTokens:        result.TrainTokens,
+		CreatedAt:          time.Now().UTC(),
+	}, nil
+}
+
+func nativeTrainingRuntimeBackend(artifact *modelinfo.Artifact) string {
+	if artifact == nil {
+		return "native"
+	}
+	switch artifact.Format {
+	case modelinfo.ArtifactFormatHFSafetensors:
+		return "native-hf"
+	case modelinfo.ArtifactFormatGGUF, modelinfo.ArtifactFormatMixed:
+		return "native"
+	default:
+		return artifact.RecommendedRunBackend
+	}
+}
+
+func writeNativeManifest(path string, manifest NativeManifest) error {
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
+func writeNativeTrainingReadme(path string, manifest NativeManifest) error {
+	var b strings.Builder
+	fmt.Fprintln(&b, "# Nego Native Adapter")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "Base model: `%s`\n", manifest.BaseModel)
+	fmt.Fprintf(&b, "Adapter: `%s`\n", manifest.AdapterPath)
+	fmt.Fprintf(&b, "Backend: `%s`\n", manifest.RecommendedBackend)
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "Run:")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "```bash")
+	fmt.Fprintln(&b, strings.Join(shellQuoteArgs(manifest.RunArgs), " "))
+	fmt.Fprintln(&b, "```")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "Chat:")
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "```bash")
+	fmt.Fprintln(&b, strings.Join(shellQuoteArgs(manifest.ChatArgs), " "))
+	fmt.Fprintln(&b, "```")
+	return os.WriteFile(path, []byte(b.String()), 0o644)
+}
+
+func shellQuoteArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		out = append(out, shellQuoteArg(arg))
+	}
+	return out
+}
+
+func shellQuoteArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	if strings.ContainsAny(arg, " \t\r\n\"") {
+		return strconv.Quote(arg)
+	}
+	return arg
 }
 
 func nativeTrainingFormat(format modelinfo.ArtifactFormat) bool {

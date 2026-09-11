@@ -331,6 +331,8 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 ```
 
 This writes a small token-bias adapter from the dataset. Full LoRA/backprop training remains planned.
+The output directory also includes `manifest.json` and `README.md` so the
+trained adapter can be inspected or reused by local tooling.
 
 ## Share Preparation
 

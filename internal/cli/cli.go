@@ -1045,6 +1045,12 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	fmt.Fprintf(w, "Train tokens:   %d\n", result.TrainTokens)
 	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
 	fmt.Fprintf(w, "Adapter:        %s\n", result.AdapterPath)
+	if result.ManifestPath != "" {
+		fmt.Fprintf(w, "Manifest:       %s\n", result.ManifestPath)
+	}
+	if result.ReadmePath != "" {
+		fmt.Fprintf(w, "Guide:          %s\n", result.ReadmePath)
+	}
 	if runCommand := nativeTrainingRunCommand(result); runCommand != "" {
 		fmt.Fprintf(w, "Run:            %s\n", runCommand)
 	}

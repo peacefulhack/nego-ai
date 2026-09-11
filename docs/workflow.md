@@ -482,7 +482,13 @@ The output directory contains:
 
 ```text
 adapter.json
+manifest.json
+README.md
 ```
+
+`manifest.json` records the base model, adapter path, recommended backend,
+runtime options, and reusable `run_args` / `chat_args`. `README.md` gives the
+same next-step commands for humans.
 
 Load the adapter for native generation:
 
