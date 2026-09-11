@@ -1021,6 +1021,35 @@ func TestDatasetCommands(t *testing.T) {
 		t.Fatalf("validate code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 
+	modelDir := t.TempDir()
+	writeCLITokenizer(t, modelDir)
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "tokens", dataPath, "--model", modelDir, "--format", "chat"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("tokens code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Dataset token budget") || !strings.Contains(stdout.String(), "Longest rows:") {
+		t.Fatalf("unexpected tokens output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "tokens", dataPath, "--model", modelDir, "--format", "chat", "--max-context", "1", "--json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("tokens over-limit code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var tokenReport struct {
+		Valid     bool `json:"valid"`
+		OverLimit int  `json:"over_limit"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &tokenReport); err != nil {
+		t.Fatal(err)
+	}
+	if tokenReport.Valid || tokenReport.OverLimit == 0 {
+		t.Fatalf("unexpected token report: %s", stdout.String())
+	}
+
 	csvPath := filepath.Join(dir, "data.csv")
 	if err := os.WriteFile(csvPath, []byte("prompt,completion,split\nhi,hello,train\nbye,later,test\n,missing,train\n"), 0o644); err != nil {
 		t.Fatal(err)

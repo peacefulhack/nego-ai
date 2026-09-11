@@ -174,6 +174,12 @@ Validate the JSONL dataset:
 nego dataset validate data/completion.jsonl --format completion
 ```
 
+Check token length before training:
+
+```bash
+nego dataset tokens data/completion.jsonl --model ./models/qwen3 --format completion --max-context 4096
+```
+
 Filter rows for a subset:
 
 ```bash

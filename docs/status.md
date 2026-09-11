@@ -18,7 +18,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 12. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
 13. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
 14. Use remote OpenAI-compatible chat and embedding APIs.
-15. Prepare, validate, convert, filter, split, and sample datasets.
+15. Prepare, validate, token-budget check, convert, filter, split, and sample datasets.
 16. Run eval suites and compare reports.
 17. Create, validate, and run external training job JSON files.
 18. Create local share manifests and archive packages for trained model output directories.

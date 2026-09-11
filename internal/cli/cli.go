@@ -402,6 +402,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego backends info <name> [flags]")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset tokens <file> --model <model-path> [flags]")
 	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
@@ -3053,6 +3054,8 @@ func runDataset(args []string, stdout, stderr io.Writer) int {
 		return runDatasetInspect(args[1:], stdout, stderr)
 	case "validate":
 		return runDatasetValidate(args[1:], stdout, stderr)
+	case "tokens":
+		return runDatasetTokens(args[1:], stdout, stderr)
 	case "convert":
 		return runDatasetConvert(args[1:], stdout, stderr)
 	case "filter":
@@ -3129,6 +3132,52 @@ func runDatasetValidate(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "Valid %s dataset: %d rows\n", format, len(rows))
+	return 0
+}
+
+func runDatasetTokens(args []string, stdout, stderr io.Writer) int {
+	var modelPath string
+	var format string
+	var maxContext int
+	var jsonOutput bool
+	var top int
+	fs := flag.NewFlagSet("dataset tokens", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&modelPath, "model", "", "model directory containing tokenizer.json")
+	fs.StringVar(&format, "format", "auto", "dataset format: auto, chat, completion, or instruction")
+	fs.IntVar(&maxContext, "max-context", 0, "maximum allowed context tokens")
+	fs.IntVar(&top, "top", 5, "number of longest rows to show")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || modelPath == "" {
+		fmt.Fprintln(stderr, "usage: nego dataset tokens <file> --model <model-path> [flags]")
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	report, err := datasets.AnalyzeTokenBudget(rows, datasets.TokenBudgetOptions{
+		ModelPath:  modelPath,
+		Format:     format,
+		MaxContext: maxContext,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(report)
+	} else {
+		printDatasetTokenBudget(stdout, positionals[0], modelPath, report, top)
+	}
+	if !report.Valid {
+		return 1
+	}
 	return 0
 }
 
@@ -3298,10 +3347,50 @@ func datasetUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset tokens <file> --model <model-path> [flags]")
 	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset sample <file> [flags]")
+}
+
+func printDatasetTokenBudget(w io.Writer, path, modelPath string, report datasets.TokenBudgetReport, top int) {
+	fmt.Fprintln(w, "Dataset token budget")
+	fmt.Fprintf(w, "Path:         %s\n", path)
+	fmt.Fprintf(w, "Model:        %s\n", modelPath)
+	fmt.Fprintf(w, "Format:       %s\n", report.Format)
+	fmt.Fprintf(w, "Rows:         %d\n", report.Rows)
+	fmt.Fprintf(w, "Counted rows: %d\n", report.CountedRows)
+	fmt.Fprintf(w, "Tokens:       min %d / avg %.1f / max %d / total %d\n", report.MinTokens, report.AverageTokens, report.MaxTokens, report.TotalTokens)
+	if report.MaxContext > 0 {
+		fmt.Fprintf(w, "Max context:  %d\n", report.MaxContext)
+		fmt.Fprintf(w, "Over limit:   %d\n", report.OverLimit)
+	}
+	var invalid []datasets.TokenBudgetRow
+	for _, row := range report.RowsDetail {
+		if row.Error != "" {
+			invalid = append(invalid, row)
+		}
+	}
+	if len(invalid) > 0 {
+		fmt.Fprintln(w, "Invalid rows:")
+		for _, row := range invalid {
+			fmt.Fprintf(w, "  - row %d: %s\n", row.Row, row.Error)
+		}
+	}
+	longest := datasets.LongestTokenRows(report.RowsDetail, top)
+	if len(longest) > 0 {
+		fmt.Fprintln(w, "Longest rows:")
+		for _, row := range longest {
+			status := "ok"
+			if row.Error != "" {
+				status = "invalid"
+			} else if row.OverLimit {
+				status = "over limit"
+			}
+			fmt.Fprintf(w, "  - row %d: %d tokens (%s)\n", row.Row, row.Tokens, status)
+		}
+	}
 }
 
 func datasetSummary(path string, rows []datasets.Row) map[string]any {

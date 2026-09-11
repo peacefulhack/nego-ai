@@ -271,6 +271,7 @@ train, test := datasets.Split(rows, 0.2, 42)
 ```bash
 nego dataset inspect data.jsonl
 nego dataset validate data.jsonl --format chat
+nego dataset tokens data.jsonl --model ./models/qwen3 --format chat --max-context 4096
 nego dataset convert data.csv --out data.jsonl --select prompt,completion --require prompt,completion
 nego dataset filter data.jsonl --where split=train --out train-only.jsonl
 nego dataset sample data.jsonl --n 5
