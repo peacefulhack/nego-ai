@@ -6,11 +6,13 @@ import (
 	"net/http"
 
 	nego "github.com/gakon/nego-ai"
+	"github.com/gakon/nego-ai/modelinfo"
 )
 
 type HandlerOptions struct {
-	ModelID string
-	Model   nego.Model
+	ModelID    string
+	Model      nego.Model
+	Generation *modelinfo.GenerationConfig
 }
 
 func NewHandler(opts HandlerOptions) (http.Handler, error) {
@@ -41,14 +43,14 @@ func NewHandler(opts HandlerOptions) (http.Handler, error) {
 			methodNotAllowed(w)
 			return
 		}
-		handleCompletion(w, r, modelID, opts.Model)
+		handleCompletion(w, r, modelID, opts.Model, opts.Generation)
 	})
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			methodNotAllowed(w)
 			return
 		}
-		handleChatCompletion(w, r, modelID, opts.Model)
+		handleChatCompletion(w, r, modelID, opts.Model, opts.Generation)
 	})
 	mux.HandleFunc("/v1/embeddings", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -63,10 +65,10 @@ func NewHandler(opts HandlerOptions) (http.Handler, error) {
 type completionRequest struct {
 	Model         string   `json:"model"`
 	Prompt        string   `json:"prompt"`
-	MaxTokens     int      `json:"max_tokens"`
-	Temperature   float64  `json:"temperature"`
-	TopP          float64  `json:"top_p"`
-	RepeatPenalty float64  `json:"repeat_penalty"`
+	MaxTokens     *int     `json:"max_tokens"`
+	Temperature   *float64 `json:"temperature"`
+	TopP          *float64 `json:"top_p"`
+	RepeatPenalty *float64 `json:"repeat_penalty"`
 	Stop          []string `json:"stop"`
 	Seed          int64    `json:"seed"`
 	Stream        bool     `json:"stream"`
@@ -75,10 +77,10 @@ type completionRequest struct {
 type chatRequest struct {
 	Model         string         `json:"model"`
 	Messages      []nego.Message `json:"messages"`
-	MaxTokens     int            `json:"max_tokens"`
-	Temperature   float64        `json:"temperature"`
-	TopP          float64        `json:"top_p"`
-	RepeatPenalty float64        `json:"repeat_penalty"`
+	MaxTokens     *int           `json:"max_tokens"`
+	Temperature   *float64       `json:"temperature"`
+	TopP          *float64       `json:"top_p"`
+	RepeatPenalty *float64       `json:"repeat_penalty"`
 	Stop          []string       `json:"stop"`
 	Seed          int64          `json:"seed"`
 	Stream        bool           `json:"stream"`
@@ -89,21 +91,17 @@ type embeddingsRequest struct {
 	Input []string `json:"input"`
 }
 
-func handleCompletion(w http.ResponseWriter, r *http.Request, modelID string, model nego.Model) {
+func handleCompletion(w http.ResponseWriter, r *http.Request, modelID string, model nego.Model, generation *modelinfo.GenerationConfig) {
 	var req completionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	genReq := nego.GenerateRequest{
-		Prompt:        req.Prompt,
-		MaxTokens:     req.MaxTokens,
-		Temperature:   req.Temperature,
-		TopP:          req.TopP,
-		RepeatPenalty: req.RepeatPenalty,
-		Stop:          req.Stop,
-		Seed:          req.Seed,
+		Prompt: req.Prompt,
+		Seed:   req.Seed,
 	}
+	applyCompletionRequestOptions(&genReq, req, generation)
 	if req.Stream {
 		stream, err := nego.StreamGenerate(r.Context(), model, genReq)
 		if err != nil {
@@ -128,6 +126,34 @@ func handleCompletion(w http.ResponseWriter, r *http.Request, modelID string, mo
 			"finish_reason": "stop",
 		}},
 	})
+}
+
+func applyCompletionRequestOptions(out *nego.GenerateRequest, req completionRequest, generation *modelinfo.GenerationConfig) {
+	if req.MaxTokens != nil {
+		out.MaxTokens = *req.MaxTokens
+	} else if generation != nil && generation.MaxNewTokens != nil {
+		out.MaxTokens = *generation.MaxNewTokens
+	}
+	if req.Temperature != nil {
+		out.Temperature = *req.Temperature
+	} else if generation != nil && generation.Temperature != nil {
+		out.Temperature = *generation.Temperature
+	}
+	if req.TopP != nil {
+		out.TopP = *req.TopP
+	} else if generation != nil && generation.TopP != nil {
+		out.TopP = *generation.TopP
+	}
+	if req.RepeatPenalty != nil {
+		out.RepeatPenalty = *req.RepeatPenalty
+	} else if generation != nil && generation.RepetitionPenalty != nil {
+		out.RepeatPenalty = *generation.RepetitionPenalty
+	}
+	if req.Stop != nil {
+		out.Stop = append([]string(nil), req.Stop...)
+	} else if generation != nil && len(generation.StopStrings) > 0 {
+		out.Stop = append([]string(nil), generation.StopStrings...)
+	}
 }
 
 func writeCompletionStream(w http.ResponseWriter, modelID string, stream nego.Stream) {
@@ -156,21 +182,17 @@ func writeCompletionStream(w http.ResponseWriter, modelID string, stream nego.St
 	fmt.Fprint(w, "data: [DONE]\n\n")
 }
 
-func handleChatCompletion(w http.ResponseWriter, r *http.Request, modelID string, model nego.Model) {
+func handleChatCompletion(w http.ResponseWriter, r *http.Request, modelID string, model nego.Model, generation *modelinfo.GenerationConfig) {
 	var req chatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	chatReq := nego.ChatRequest{
-		Messages:      req.Messages,
-		MaxTokens:     req.MaxTokens,
-		Temperature:   req.Temperature,
-		TopP:          req.TopP,
-		RepeatPenalty: req.RepeatPenalty,
-		Stop:          req.Stop,
-		Seed:          req.Seed,
+		Messages: req.Messages,
+		Seed:     req.Seed,
 	}
+	applyChatRequestOptions(&chatReq, req, generation)
 	if req.Stream {
 		stream, err := model.StreamChat(r.Context(), chatReq)
 		if err != nil {
@@ -195,6 +217,34 @@ func handleChatCompletion(w http.ResponseWriter, r *http.Request, modelID string
 			"finish_reason": "stop",
 		}},
 	})
+}
+
+func applyChatRequestOptions(out *nego.ChatRequest, req chatRequest, generation *modelinfo.GenerationConfig) {
+	if req.MaxTokens != nil {
+		out.MaxTokens = *req.MaxTokens
+	} else if generation != nil && generation.MaxNewTokens != nil {
+		out.MaxTokens = *generation.MaxNewTokens
+	}
+	if req.Temperature != nil {
+		out.Temperature = *req.Temperature
+	} else if generation != nil && generation.Temperature != nil {
+		out.Temperature = *generation.Temperature
+	}
+	if req.TopP != nil {
+		out.TopP = *req.TopP
+	} else if generation != nil && generation.TopP != nil {
+		out.TopP = *generation.TopP
+	}
+	if req.RepeatPenalty != nil {
+		out.RepeatPenalty = *req.RepeatPenalty
+	} else if generation != nil && generation.RepetitionPenalty != nil {
+		out.RepeatPenalty = *generation.RepetitionPenalty
+	}
+	if req.Stop != nil {
+		out.Stop = append([]string(nil), req.Stop...)
+	} else if generation != nil && len(generation.StopStrings) > 0 {
+		out.Stop = append([]string(nil), generation.StopStrings...)
+	}
 }
 
 func writeChatStream(w http.ResponseWriter, modelID string, stream nego.Stream) {

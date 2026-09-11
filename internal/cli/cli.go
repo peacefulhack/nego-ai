@@ -3075,6 +3075,11 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
 	}
+	generation, err := modelinfo.LoadGenerationConfig(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
 	backend = resolveRuntimeBackend(backend, positionals[0], "", "")
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
 		Backend: backend,
@@ -3086,7 +3091,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer model.Close()
-	handler, err := server.NewHandler(server.HandlerOptions{ModelID: modelID, Model: model})
+	handler, err := server.NewHandler(server.HandlerOptions{ModelID: modelID, Model: model, Generation: generation})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1

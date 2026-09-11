@@ -101,7 +101,7 @@ nego check ./models/qwen3-gguf
 nego memory ./models/qwen3 --context 4096
 ```
 
-`nego run` and `nego chat` automatically use local `generation_config.json`
+`nego run`, `nego chat`, and `nego serve` automatically use local `generation_config.json`
 defaults for `max_new_tokens`, `temperature`, `top_p`, `repetition_penalty`,
 and stop strings unless explicit CLI flags or config-file values are provided.
 

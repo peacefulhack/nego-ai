@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	nego "github.com/gakon/nego-ai"
+	"github.com/gakon/nego-ai/modelinfo"
 )
 
 func TestModelsEndpoint(t *testing.T) {
@@ -61,6 +62,55 @@ func TestCompletionStreamEndpoint(t *testing.T) {
 	}
 }
 
+func TestCompletionEndpointAppliesGenerationDefaults(t *testing.T) {
+	model := &captureModel{}
+	handler, err := NewHandler(HandlerOptions{
+		ModelID: "test-model",
+		Model:   model,
+		Generation: &modelinfo.GenerationConfig{
+			MaxNewTokens:      intServerPtr(12),
+			Temperature:       floatServerPtr(0.4),
+			TopP:              floatServerPtr(0.75),
+			RepetitionPenalty: floatServerPtr(1.15),
+			StopStrings:       []string{"END"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/completions", strings.NewReader(`{"prompt":"hello"}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	got := model.generateReq
+	if got.MaxTokens != 12 || got.Temperature != 0.4 || got.TopP != 0.75 || got.RepeatPenalty != 1.15 || len(got.Stop) != 1 || got.Stop[0] != "END" {
+		t.Fatalf("unexpected request: %#v", got)
+	}
+}
+
+func TestCompletionEndpointKeepsExplicitZeroTemperature(t *testing.T) {
+	model := &captureModel{}
+	handler, err := NewHandler(HandlerOptions{
+		ModelID:    "test-model",
+		Model:      model,
+		Generation: &modelinfo.GenerationConfig{Temperature: floatServerPtr(0.4)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/completions", strings.NewReader(`{"prompt":"hello","temperature":0}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if model.generateReq.Temperature != 0 {
+		t.Fatalf("Temperature = %v", model.generateReq.Temperature)
+	}
+}
+
 func TestChatCompletionEndpoint(t *testing.T) {
 	handler := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"messages":[{"role":"user","content":"hello"}]}`))
@@ -71,6 +121,31 @@ func TestChatCompletionEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"content":"chat: hello"`) {
 		t.Fatalf("unexpected body: %s", rec.Body.String())
+	}
+}
+
+func TestChatCompletionEndpointAppliesGenerationDefaults(t *testing.T) {
+	model := &captureModel{}
+	handler, err := NewHandler(HandlerOptions{
+		ModelID: "test-model",
+		Model:   model,
+		Generation: &modelinfo.GenerationConfig{
+			MaxNewTokens: intServerPtr(9),
+			Temperature:  floatServerPtr(0.6),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"messages":[{"role":"user","content":"hello"}]}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	got := model.chatReq
+	if got.MaxTokens != 9 || got.Temperature != 0.6 {
+		t.Fatalf("unexpected request: %#v", got)
 	}
 }
 
@@ -155,6 +230,34 @@ func (testModel) StreamChat(context.Context, nego.ChatRequest) (nego.Stream, err
 
 func (testModel) Close() error {
 	return nil
+}
+
+type captureModel struct {
+	testModel
+	generateReq nego.GenerateRequest
+	chatReq     nego.ChatRequest
+}
+
+func (m *captureModel) Generate(_ context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
+	m.generateReq = req
+	return &nego.GenerateOutput{Text: "generated: " + req.Prompt}, nil
+}
+
+func (m *captureModel) Chat(_ context.Context, req nego.ChatRequest) (*nego.ChatResponse, error) {
+	m.chatReq = req
+	content := ""
+	if len(req.Messages) > 0 {
+		content = req.Messages[len(req.Messages)-1].Content
+	}
+	return &nego.ChatResponse{Message: nego.Message{Role: nego.RoleAssistant, Content: "chat: " + content}}, nil
+}
+
+func intServerPtr(value int) *int {
+	return &value
+}
+
+func floatServerPtr(value float64) *float64 {
+	return &value
 }
 
 type testStream struct {

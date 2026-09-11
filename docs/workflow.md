@@ -85,9 +85,10 @@ Check runtime compatibility:
 nego check ./models/qwen3
 ```
 
-`nego run` and `nego chat` read local `generation_config.json` defaults for
-token limits, sampling, repeat penalty, and stop strings. CLI flags still win
-when you want to override those defaults for an experiment.
+`nego run`, `nego chat`, and `nego serve` read local `generation_config.json`
+defaults for token limits, sampling, repeat penalty, and stop strings. CLI flags
+or API request fields still win when you want to override those defaults for an
+experiment.
 
 Estimate memory before choosing context length, chat settings, or training hardware:
 
