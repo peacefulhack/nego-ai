@@ -3060,6 +3060,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	var splitMode string
 	var flashAttention bool
 	var native bool
+	var adapterPath string
 	var extraOptions repeatedFlag
 
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
@@ -3076,6 +3077,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
+	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.Var(&extraOptions, "option", "backend option key=value, repeatable")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
@@ -3102,6 +3104,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		tensorSplit:    tensorSplit,
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
+		adapterPath:    adapterPath,
 		extraOptions:   extraOptions,
 	})
 	if err != nil {

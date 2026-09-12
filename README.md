@@ -340,6 +340,7 @@ nego inspect ./outputs/qwen3-token-bias
 nego check ./outputs/qwen3-token-bias
 nego run ./outputs/qwen3-token-bias "Hello"
 nego chat ./outputs/qwen3-token-bias "Hello"
+nego serve ./outputs/qwen3-token-bias
 ```
 
 ## Share Preparation

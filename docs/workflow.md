@@ -498,11 +498,15 @@ nego check ./outputs/qwen3-token-bias
 
 nego run ./outputs/qwen3-token-bias "Hello"
 nego chat ./outputs/qwen3-token-bias "Hello"
+nego serve ./outputs/qwen3-token-bias
 
 nego run ./models/qwen3 "Hello" \
   --adapter ./outputs/qwen3-token-bias/adapter.json
 
 nego run --native ./models/qwen3-gguf "Hello" \
+  --adapter ./outputs/qwen3-token-bias/adapter.json
+
+nego serve ./models/qwen3 \
   --adapter ./outputs/qwen3-token-bias/adapter.json
 ```
 

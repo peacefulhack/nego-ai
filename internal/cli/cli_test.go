@@ -905,6 +905,18 @@ func TestServeCommandDefaultsToAutoBackend(t *testing.T) {
 	}
 }
 
+func TestServeCommandAcceptsAdapterFlag(t *testing.T) {
+	modelPath := filepath.Join(t.TempDir(), "missing-model")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"serve", modelPath, "--addr", "127.0.0.1:0", "--adapter", "adapter.json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "flag provided but not defined") {
+		t.Fatalf("serve should accept --adapter, got stderr %q", stderr.String())
+	}
+}
+
 func TestRunCommandRejectsInvalidGPUMode(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
