@@ -154,6 +154,7 @@ func (m *Model) Chat(ctx context.Context, req nego.ChatRequest) (*nego.ChatRespo
 		Prompt:        prompt,
 		MaxTokens:     req.MaxTokens,
 		Temperature:   req.Temperature,
+		TopK:          req.TopK,
 		TopP:          req.TopP,
 		RepeatPenalty: req.RepeatPenalty,
 		Stop:          req.Stop,
@@ -174,6 +175,7 @@ func (m *Model) StreamChat(ctx context.Context, req nego.ChatRequest) (nego.Stre
 		Prompt:        prompt,
 		MaxTokens:     req.MaxTokens,
 		Temperature:   req.Temperature,
+		TopK:          req.TopK,
 		TopP:          req.TopP,
 		RepeatPenalty: req.RepeatPenalty,
 		Stop:          req.Stop,
@@ -223,6 +225,9 @@ func (m *Model) args(prompt string, req nego.GenerateRequest) []string {
 	}
 	if req.Temperature > 0 {
 		args = append(args, "--temp", strconv.FormatFloat(req.Temperature, 'f', -1, 64))
+	}
+	if req.TopK > 0 {
+		args = append(args, "--top-k", strconv.Itoa(req.TopK))
 	}
 	if req.TopP > 0 {
 		args = append(args, "--top-p", strconv.FormatFloat(req.TopP, 'f', -1, 64))

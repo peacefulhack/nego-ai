@@ -30,6 +30,7 @@ type Entry struct {
 	DurationMS    int64             `json:"duration_ms"`
 	MaxTokens     int               `json:"max_tokens,omitempty"`
 	Temperature   float64           `json:"temperature,omitempty"`
+	TopK          int               `json:"top_k,omitempty"`
 	TopP          float64           `json:"top_p,omitempty"`
 	RepeatPenalty float64           `json:"repeat_penalty,omitempty"`
 	Stop          []string          `json:"stop,omitempty"`

@@ -2150,6 +2150,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var backend string
 	var maxTokens int
 	var temperature float64
+	var topK int
 	var topP float64
 	var repeatPenalty float64
 	var seed int64
@@ -2173,6 +2174,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&native, "native", false, "use the experimental pure-Go native backend")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
 	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
+	fs.IntVar(&topK, "top-k", 0, "keep only the top k tokens during sampling")
 	fs.Float64Var(&topP, "top-p", 0, "nucleus sampling probability")
 	fs.Float64Var(&repeatPenalty, "repeat-penalty", 0, "penalty for repeated tokens, >= 1")
 	fs.Int64Var(&seed, "seed", 0, "random seed")
@@ -2216,11 +2218,18 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	if cfg.Temperature > 0 && temperature == 0 {
 		temperature = cfg.Temperature
 	}
+	if cfg.TopK != 0 && topK == 0 {
+		topK = cfg.TopK
+	}
 	if cfg.TopP > 0 && topP == 0 {
 		topP = cfg.TopP
 	}
 	if cfg.RepeatPenalty > 0 && repeatPenalty == 0 {
 		repeatPenalty = cfg.RepeatPenalty
+	}
+	if err := validateTopK(topK); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
 	}
 	if err := validateRepeatPenalty(repeatPenalty); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2235,6 +2244,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	defaults := generationDefaultOverrides{
 		maxTokens:     flagWasSet(fs, "max-tokens") || cfg.MaxTokens > 0,
 		temperature:   flagWasSet(fs, "temperature") || cfg.Temperature > 0,
+		topK:          flagWasSet(fs, "top-k") || cfg.TopK > 0,
 		topP:          flagWasSet(fs, "top-p") || cfg.TopP > 0,
 		repeatPenalty: flagWasSet(fs, "repeat-penalty") || cfg.RepeatPenalty > 0,
 		stop:          flagWasSet(fs, "stop") || len(cfg.Stop) > 0,
@@ -2254,9 +2264,13 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
 		return 2
 	}
-	if err := applyCLIGenerationDefaults(path, defaults, &maxTokens, &temperature, &topP, &repeatPenalty, &stop); err != nil {
+	if err := applyCLIGenerationDefaults(path, defaults, &maxTokens, &temperature, &topK, &topP, &repeatPenalty, &stop); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
+	}
+	if err := validateTopK(topK); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
 	}
 	if err := validateRepeatPenalty(repeatPenalty); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2287,22 +2301,22 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
-		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
 	}
 	defer model.Close()
-	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: prompt, MaxTokens: maxTokens, Temperature: temperature, TopP: topP, RepeatPenalty: repeatPenalty, Stop: stop, Seed: seed})
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: prompt, MaxTokens: maxTokens, Temperature: temperature, TopK: topK, TopP: topP, RepeatPenalty: repeatPenalty, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
-		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
 	}
 	fmt.Fprint(stdout, out.Text)
-	if err := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, out.Text, started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, nil)); err != nil {
+	if err := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, out.Text, started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, nil)); err != nil {
 		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 		return 1
 	}
@@ -2314,6 +2328,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var system string
 	var maxTokens int
 	var temperature float64
+	var topK int
 	var topP float64
 	var repeatPenalty float64
 	var seed int64
@@ -2341,6 +2356,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&system, "system", "", "system message")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
 	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
+	fs.IntVar(&topK, "top-k", 0, "keep only the top k tokens during sampling")
 	fs.Float64Var(&topP, "top-p", 0, "nucleus sampling probability")
 	fs.Float64Var(&repeatPenalty, "repeat-penalty", 0, "penalty for repeated tokens, >= 1")
 	fs.Int64Var(&seed, "seed", 0, "random seed")
@@ -2387,11 +2403,18 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if cfg.Temperature > 0 && temperature == 0 {
 		temperature = cfg.Temperature
 	}
+	if cfg.TopK != 0 && topK == 0 {
+		topK = cfg.TopK
+	}
 	if cfg.TopP > 0 && topP == 0 {
 		topP = cfg.TopP
 	}
 	if cfg.RepeatPenalty > 0 && repeatPenalty == 0 {
 		repeatPenalty = cfg.RepeatPenalty
+	}
+	if err := validateTopK(topK); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
 	}
 	if err := validateRepeatPenalty(repeatPenalty); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2406,6 +2429,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	defaults := generationDefaultOverrides{
 		maxTokens:     flagWasSet(fs, "max-tokens") || cfg.MaxTokens > 0,
 		temperature:   flagWasSet(fs, "temperature") || cfg.Temperature > 0,
+		topK:          flagWasSet(fs, "top-k") || cfg.TopK > 0,
 		topP:          flagWasSet(fs, "top-p") || cfg.TopP > 0,
 		repeatPenalty: flagWasSet(fs, "repeat-penalty") || cfg.RepeatPenalty > 0,
 		stop:          flagWasSet(fs, "stop") || len(cfg.Stop) > 0,
@@ -2468,9 +2492,13 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	if err := applyCLIGenerationDefaults(path, defaults, &maxTokens, &temperature, &topP, &repeatPenalty, &stop); err != nil {
+	if err := applyCLIGenerationDefaults(path, defaults, &maxTokens, &temperature, &topK, &topP, &repeatPenalty, &stop); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
+	}
+	if err := validateTopK(topK); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
 	}
 	if err := validateRepeatPenalty(repeatPenalty); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2501,7 +2529,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		started := time.Now().UTC()
-		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
@@ -2517,6 +2545,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			messages:      messages,
 			maxTokens:     maxTokens,
 			temperature:   temperature,
+			topK:          topK,
 			topP:          topP,
 			repeatPenalty: repeatPenalty,
 			stop:          stop,
@@ -2528,10 +2557,10 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		})
 	}
 	started := time.Now().UTC()
-	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens, Temperature: temperature, TopP: topP, RepeatPenalty: repeatPenalty, Stop: stop, Seed: seed})
+	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens, Temperature: temperature, TopK: topK, TopP: topP, RepeatPenalty: repeatPenalty, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
-		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
@@ -2543,7 +2572,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
 		return 1
 	}
-	if err := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, resp.Message.Content, started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, nil)); err != nil {
+	if err := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, resp.Message.Content, started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, nil)); err != nil {
 		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 		return 1
 	}
@@ -2559,6 +2588,7 @@ type interactiveChatOptions struct {
 	messages      []nego.Message
 	maxTokens     int
 	temperature   float64
+	topK          int
 	topP          float64
 	repeatPenalty float64
 	stop          []string
@@ -2609,6 +2639,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 			Messages:      messages,
 			MaxTokens:     opts.maxTokens,
 			Temperature:   opts.temperature,
+			TopK:          opts.topK,
 			TopP:          opts.topP,
 			RepeatPenalty: opts.repeatPenalty,
 			Stop:          opts.stop,
@@ -2617,7 +2648,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 		if err != nil {
 			fmt.Fprintln(stdout)
 			fmt.Fprintf(stderr, "nego: %v\n", err)
-			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, "", started, opts.maxTokens, opts.temperature, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err)); logErr != nil {
+			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, "", started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err)); logErr != nil {
 				fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 			}
 			return 1
@@ -2631,7 +2662,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 			_ = stream.Close()
 			fmt.Fprintln(stdout)
 			fmt.Fprintf(stderr, "nego: %v\n", err)
-			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, output.String(), started, opts.maxTokens, opts.temperature, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err)); logErr != nil {
+			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, output.String(), started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err)); logErr != nil {
 				fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 			}
 			return 1
@@ -2645,7 +2676,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 			fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
 			return 1
 		}
-		if err := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, reply, started, opts.maxTokens, opts.temperature, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, nil)); err != nil {
+		if err := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, reply, started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, nil)); err != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 			return 1
 		}
@@ -2669,6 +2700,7 @@ type runtimeConfig struct {
 	Messages      []nego.Message    `json:"messages"`
 	MaxTokens     int               `json:"max_tokens"`
 	Temperature   float64           `json:"temperature"`
+	TopK          int               `json:"top_k"`
 	TopP          float64           `json:"top_p"`
 	RepeatPenalty float64           `json:"repeat_penalty"`
 	Stop          []string          `json:"stop"`
@@ -2773,12 +2805,13 @@ func loadRuntimeConfig(path string) (runtimeConfig, error) {
 type generationDefaultOverrides struct {
 	maxTokens     bool
 	temperature   bool
+	topK          bool
 	topP          bool
 	repeatPenalty bool
 	stop          bool
 }
 
-func applyCLIGenerationDefaults(path string, overrides generationDefaultOverrides, maxTokens *int, temperature, topP, repeatPenalty *float64, stop *repeatedFlag) error {
+func applyCLIGenerationDefaults(path string, overrides generationDefaultOverrides, maxTokens *int, temperature *float64, topK *int, topP, repeatPenalty *float64, stop *repeatedFlag) error {
 	if path == "" {
 		return nil
 	}
@@ -2791,6 +2824,9 @@ func applyCLIGenerationDefaults(path string, overrides generationDefaultOverride
 	}
 	if !overrides.temperature && temperature != nil && *temperature == 0 && cfg.Temperature != nil {
 		*temperature = *cfg.Temperature
+	}
+	if !overrides.topK && topK != nil && *topK == 0 && cfg.TopK != nil {
+		*topK = *cfg.TopK
 	}
 	if !overrides.topP && topP != nil && *topP == 0 && cfg.TopP != nil {
 		*topP = *cfg.TopP
@@ -2811,7 +2847,7 @@ func appendRuntimeLog(path string, entry runs.Entry) error {
 	return runs.Append(path, entry)
 }
 
-func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, messages []nego.Message, output string, started time.Time, maxTokens int, temperature, topP, repeatPenalty float64, stop []string, seed int64, options map[string]string, runErr error) runs.Entry {
+func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, messages []nego.Message, output string, started time.Time, maxTokens int, temperature float64, topK int, topP, repeatPenalty float64, stop []string, seed int64, options map[string]string, runErr error) runs.Entry {
 	entry := runs.Entry{
 		ID:            runs.NewID(),
 		Command:       command,
@@ -2826,6 +2862,7 @@ func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, m
 		DurationMS:    time.Since(started).Milliseconds(),
 		MaxTokens:     maxTokens,
 		Temperature:   temperature,
+		TopK:          topK,
 		TopP:          topP,
 		RepeatPenalty: repeatPenalty,
 		Stop:          append([]string(nil), stop...),
@@ -2992,6 +3029,13 @@ func validateRepeatPenalty(value float64) error {
 	}
 	if math.IsNaN(value) || math.IsInf(value, 0) || value < 1 {
 		return fmt.Errorf("repeat-penalty must be finite and >= 1")
+	}
+	return nil
+}
+
+func validateTopK(value int) error {
+	if value < 0 {
+		return fmt.Errorf("top-k must be greater than or equal to 0")
 	}
 	return nil
 }

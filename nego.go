@@ -36,6 +36,7 @@ type GenerateRequest struct {
 	Prompt        string
 	MaxTokens     int
 	Temperature   float64
+	TopK          int
 	TopP          float64
 	RepeatPenalty float64
 	Stop          []string
@@ -50,6 +51,7 @@ type ChatRequest struct {
 	Messages      []Message
 	MaxTokens     int
 	Temperature   float64
+	TopK          int
 	TopP          float64
 	RepeatPenalty float64
 	Stop          []string
@@ -168,6 +170,9 @@ func ApplyChatGenerationDefaults(path string, req *ChatRequest) error {
 	if req.Temperature == 0 && cfg.Temperature != nil {
 		req.Temperature = *cfg.Temperature
 	}
+	if req.TopK == 0 && cfg.TopK != nil {
+		req.TopK = *cfg.TopK
+	}
 	if req.TopP == 0 && cfg.TopP != nil {
 		req.TopP = *cfg.TopP
 	}
@@ -186,6 +191,9 @@ func applyGenerationConfigToGenerateRequest(cfg *modelinfo.GenerationConfig, req
 	}
 	if req.Temperature == 0 && cfg.Temperature != nil {
 		req.Temperature = *cfg.Temperature
+	}
+	if req.TopK == 0 && cfg.TopK != nil {
+		req.TopK = *cfg.TopK
 	}
 	if req.TopP == 0 && cfg.TopP != nil {
 		req.TopP = *cfg.TopP

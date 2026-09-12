@@ -72,6 +72,9 @@ func TestSamplerRejectsInvalidOptions(t *testing.T) {
 	if _, err := NewSampler(SamplingOptions{Temperature: 1, TopP: float32(math.Inf(1))}).Sample([]float32{1}); err == nil {
 		t.Fatal("expected Inf top-p error")
 	}
+	if _, err := NewSampler(SamplingOptions{Temperature: 1, TopK: -1}).Sample([]float32{1}); err == nil {
+		t.Fatal("expected invalid top-k error")
+	}
 	if _, err := NewSampler(SamplingOptions{RepeatPenalty: 0.5}).SampleWithHistory([]float32{1}, []int{0}); err == nil {
 		t.Fatal("expected invalid repeat penalty error")
 	}

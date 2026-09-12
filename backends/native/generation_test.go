@@ -22,12 +22,13 @@ func TestChatGenerationOptions(t *testing.T) {
 	opts := chatGenerationOptions(nego.ChatRequest{
 		MaxTokens:     4,
 		Temperature:   0.5,
+		TopK:          20,
 		TopP:          0.9,
 		RepeatPenalty: 1.1,
 		Stop:          []string{"</s>"},
 		Seed:          7,
 	})
-	if opts.MaxTokens != 4 || opts.Sampling.Temperature != 0.5 || opts.Sampling.TopP != 0.9 || opts.Sampling.RepeatPenalty != 1.1 || opts.Sampling.Seed != 7 {
+	if opts.MaxTokens != 4 || opts.Sampling.Temperature != 0.5 || opts.Sampling.TopK != 20 || opts.Sampling.TopP != 0.9 || opts.Sampling.RepeatPenalty != 1.1 || opts.Sampling.Seed != 7 {
 		t.Fatalf("unexpected options: %#v", opts)
 	}
 	if len(opts.Stop) != 1 || opts.Stop[0] != "</s>" {

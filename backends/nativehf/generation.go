@@ -42,6 +42,7 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 	}
 	sampler := NewSampler(SamplingOptions{
 		Temperature:   float32(req.Temperature),
+		TopK:          req.TopK,
 		TopP:          float32(req.TopP),
 		RepeatPenalty: float32(req.RepeatPenalty),
 		Seed:          req.Seed,

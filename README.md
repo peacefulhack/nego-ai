@@ -102,7 +102,7 @@ nego memory ./models/qwen3 --context 4096
 ```
 
 `nego run`, `nego chat`, and `nego serve` automatically use local `generation_config.json`
-defaults for `max_new_tokens`, `temperature`, `top_p`, `repetition_penalty`,
+defaults for `max_new_tokens`, `temperature`, `top_k`, `top_p`, `repetition_penalty`,
 and stop strings unless explicit CLI flags or config-file values are provided.
 
 ## Tokenizer
@@ -219,7 +219,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 })
 ```
 
-Current status: it loads safetensors metadata, tensor readers, selected F32/F16/BF16 tensors as float32, HF Qwen/Llama weight manifests, tokenizer.json, native adapters, early float32 math primitives, prompt decode state, KV cache history, repeat-penalty/top-p/temperature sampling, experimental generation, and streaming chat. Full production-quality autoregressive generation for Qwen/Llama models is still in progress.
+Current status: it loads safetensors metadata, tensor readers, selected F32/F16/BF16 tensors as float32, HF Qwen/Llama weight manifests, tokenizer.json, native adapters, early float32 math primitives, prompt decode state, KV cache history, repeat-penalty/top-k/top-p/temperature sampling, experimental generation, and streaming chat. Full production-quality autoregressive generation for Qwen/Llama models is still in progress.
 
 ## Local llama.cpp runtime
 

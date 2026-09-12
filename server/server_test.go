@@ -70,6 +70,7 @@ func TestCompletionEndpointAppliesGenerationDefaults(t *testing.T) {
 		Generation: &modelinfo.GenerationConfig{
 			MaxNewTokens:      intServerPtr(12),
 			Temperature:       floatServerPtr(0.4),
+			TopK:              intServerPtr(20),
 			TopP:              floatServerPtr(0.75),
 			RepetitionPenalty: floatServerPtr(1.15),
 			StopStrings:       []string{"END"},
@@ -85,7 +86,7 @@ func TestCompletionEndpointAppliesGenerationDefaults(t *testing.T) {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
 	got := model.generateReq
-	if got.MaxTokens != 12 || got.Temperature != 0.4 || got.TopP != 0.75 || got.RepeatPenalty != 1.15 || len(got.Stop) != 1 || got.Stop[0] != "END" {
+	if got.MaxTokens != 12 || got.Temperature != 0.4 || got.TopK != 20 || got.TopP != 0.75 || got.RepeatPenalty != 1.15 || len(got.Stop) != 1 || got.Stop[0] != "END" {
 		t.Fatalf("unexpected request: %#v", got)
 	}
 }
@@ -132,6 +133,7 @@ func TestChatCompletionEndpointAppliesGenerationDefaults(t *testing.T) {
 		Generation: &modelinfo.GenerationConfig{
 			MaxNewTokens: intServerPtr(9),
 			Temperature:  floatServerPtr(0.6),
+			TopK:         intServerPtr(30),
 		},
 	})
 	if err != nil {
@@ -144,7 +146,7 @@ func TestChatCompletionEndpointAppliesGenerationDefaults(t *testing.T) {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
 	got := model.chatReq
-	if got.MaxTokens != 9 || got.Temperature != 0.6 {
+	if got.MaxTokens != 9 || got.Temperature != 0.6 || got.TopK != 30 {
 		t.Fatalf("unexpected request: %#v", got)
 	}
 }

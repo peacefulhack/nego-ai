@@ -67,6 +67,7 @@ type completionRequest struct {
 	Prompt        string   `json:"prompt"`
 	MaxTokens     *int     `json:"max_tokens"`
 	Temperature   *float64 `json:"temperature"`
+	TopK          *int     `json:"top_k"`
 	TopP          *float64 `json:"top_p"`
 	RepeatPenalty *float64 `json:"repeat_penalty"`
 	Stop          []string `json:"stop"`
@@ -79,6 +80,7 @@ type chatRequest struct {
 	Messages      []nego.Message `json:"messages"`
 	MaxTokens     *int           `json:"max_tokens"`
 	Temperature   *float64       `json:"temperature"`
+	TopK          *int           `json:"top_k"`
 	TopP          *float64       `json:"top_p"`
 	RepeatPenalty *float64       `json:"repeat_penalty"`
 	Stop          []string       `json:"stop"`
@@ -138,6 +140,11 @@ func applyCompletionRequestOptions(out *nego.GenerateRequest, req completionRequ
 		out.Temperature = *req.Temperature
 	} else if generation != nil && generation.Temperature != nil {
 		out.Temperature = *generation.Temperature
+	}
+	if req.TopK != nil {
+		out.TopK = *req.TopK
+	} else if generation != nil && generation.TopK != nil {
+		out.TopK = *generation.TopK
 	}
 	if req.TopP != nil {
 		out.TopP = *req.TopP
@@ -229,6 +236,11 @@ func applyChatRequestOptions(out *nego.ChatRequest, req chatRequest, generation 
 		out.Temperature = *req.Temperature
 	} else if generation != nil && generation.Temperature != nil {
 		out.Temperature = *generation.Temperature
+	}
+	if req.TopK != nil {
+		out.TopK = *req.TopK
+	} else if generation != nil && generation.TopK != nil {
+		out.TopK = *generation.TopK
 	}
 	if req.TopP != nil {
 		out.TopP = *req.TopP

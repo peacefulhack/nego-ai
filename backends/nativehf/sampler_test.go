@@ -27,9 +27,23 @@ func TestSamplerTopPIsDeterministicWithSeed(t *testing.T) {
 	}
 }
 
+func TestSamplerTopKLimitsCandidates(t *testing.T) {
+	sampler := NewSampler(SamplingOptions{Temperature: 1, TopK: 1, Seed: 42})
+	id, err := sampler.SampleWithHistory([]float32{0, 3, 2}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != 1 {
+		t.Fatalf("sampled token = %d, want top candidate", id)
+	}
+}
+
 func TestSamplerRejectsInvalidOptions(t *testing.T) {
 	if _, err := NewSampler(SamplingOptions{Temperature: float32(math.NaN())}).SampleWithHistory([]float32{1}, nil); err == nil {
 		t.Fatal("expected NaN temperature error")
+	}
+	if _, err := NewSampler(SamplingOptions{Temperature: 1, TopK: -1}).SampleWithHistory([]float32{1}, nil); err == nil {
+		t.Fatal("expected top-k error")
 	}
 	if _, err := NewSampler(SamplingOptions{RepeatPenalty: 0.5}).SampleWithHistory([]float32{1}, []int{0}); err == nil {
 		t.Fatal("expected repeat penalty error")

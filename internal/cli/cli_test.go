@@ -772,6 +772,8 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 		"8",
 		"--temperature",
 		"0.7",
+		"--top-k",
+		"20",
 		"--top-p",
 		"0.9",
 		"--repeat-penalty",
@@ -799,7 +801,7 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--repeat-penalty 1.2", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
+	for _, want := range []string{"-n 8", "--temp 0.7", "--top-k 20", "--top-p 0.9", "--repeat-penalty 1.2", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected %q in output: %q", want, stdout.String())
 		}
@@ -813,7 +815,7 @@ func TestRunCommandUsesGenerationConfigDefaults(t *testing.T) {
 	if err := os.WriteFile(modelPath, []byte("gguf"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":6,"temperature":0.4,"top_p":0.75,"repetition_penalty":1.15,"stop_strings":["END"]}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":6,"temperature":0.4,"top_k":12,"top_p":0.75,"repetition_penalty":1.15,"stop_strings":["END"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
@@ -821,7 +823,7 @@ func TestRunCommandUsesGenerationConfigDefaults(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	for _, want := range []string{"-n 6", "--temp 0.4", "--top-p 0.75", "--repeat-penalty 1.15", "--reverse-prompt END"} {
+	for _, want := range []string{"-n 6", "--temp 0.4", "--top-k 12", "--top-p 0.75", "--repeat-penalty 1.15", "--reverse-prompt END"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected %q in output: %q", want, stdout.String())
 		}
@@ -835,21 +837,21 @@ func TestRunCommandFlagsOverrideGenerationConfigDefaults(t *testing.T) {
 	if err := os.WriteFile(modelPath, []byte("gguf"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":6,"temperature":0.4,"stop_strings":["END"]}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":6,"temperature":0.4,"top_k":12,"stop_strings":["END"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp", "--max-tokens", "2", "--temperature", "0.9", "--stop", "DONE"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp", "--max-tokens", "2", "--temperature", "0.9", "--top-k", "4", "--stop", "DONE"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"-n 2", "--temp 0.9", "--reverse-prompt DONE"} {
+	for _, want := range []string{"-n 2", "--temp 0.9", "--top-k 4", "--reverse-prompt DONE"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output: %q", want, out)
 		}
 	}
-	for _, unwanted := range []string{"-n 6", "--temp 0.4", "--reverse-prompt END"} {
+	for _, unwanted := range []string{"-n 6", "--temp 0.4", "--top-k 12", "--reverse-prompt END"} {
 		if strings.Contains(out, unwanted) {
 			t.Fatalf("did not expect %q in output: %q", unwanted, out)
 		}
@@ -945,6 +947,18 @@ func TestRunCommandRejectsInvalidRepeatPenalty(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "repeat-penalty") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
+func TestRunCommandRejectsInvalidTopK(t *testing.T) {
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--top-k", "-1"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "top-k") {
 		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
@@ -1348,14 +1362,14 @@ func TestValidateRuntimeOptions(t *testing.T) {
 }
 
 func TestRuntimeLogEntrySanitizesEndpoint(t *testing.T) {
-	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, 0, nil, 0, nil, nil)
+	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, 0, 0, nil, 0, nil, nil)
 	if entry.Endpoint != "https://example.com/v1" {
 		t.Fatalf("Endpoint = %q", entry.Endpoint)
 	}
 }
 
 func TestRuntimeLogEntryRedactsSensitiveOptions(t *testing.T) {
-	entry := runtimeLogEntry("run", "native", "model.gguf", "", "", "hello", nil, "world", time.Now(), 0, 0, 0, 0, nil, 0, map[string]string{
+	entry := runtimeLogEntry("run", "native", "model.gguf", "", "", "hello", nil, "world", time.Now(), 0, 0, 0, 0, 0, nil, 0, map[string]string{
 		"api_key":                 "secret",
 		"hf_token":                "token",
 		"experimental_generation": "true",

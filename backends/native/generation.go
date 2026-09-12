@@ -22,6 +22,7 @@ func generationOptions(req nego.GenerateRequest) GenerationOptions {
 		MaxTokens: maxTokens,
 		Sampling: SamplingOptions{
 			Temperature:   float32(req.Temperature),
+			TopK:          req.TopK,
 			TopP:          float32(req.TopP),
 			RepeatPenalty: float32(req.RepeatPenalty),
 			Seed:          req.Seed,
@@ -34,6 +35,7 @@ func chatGenerationOptions(req nego.ChatRequest) GenerationOptions {
 	return generationOptions(nego.GenerateRequest{
 		MaxTokens:     req.MaxTokens,
 		Temperature:   req.Temperature,
+		TopK:          req.TopK,
 		TopP:          req.TopP,
 		RepeatPenalty: req.RepeatPenalty,
 		Stop:          req.Stop,
