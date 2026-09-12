@@ -270,6 +270,20 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.RuntimeOptions["adapter_path"] != result.AdapterPath {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
+	loaded, err := LoadNativeManifest(outputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.AdapterPath != result.AdapterPath {
+		t.Fatalf("loaded manifest = %#v", loaded)
+	}
+	loaded, err = LoadNativeManifest(result.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.BaseModel != modelDir {
+		t.Fatalf("loaded manifest = %#v", loaded)
+	}
 	readme, err := os.ReadFile(result.ReadmePath)
 	if err != nil {
 		t.Fatal(err)

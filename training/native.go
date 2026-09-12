@@ -16,6 +16,8 @@ import (
 	"github.com/gakon/nego-ai/tokenizer"
 )
 
+const maxNativeManifestBytes = 1 << 20
+
 type NativeOptions struct {
 	BaseModel     string  `json:"base_model"`
 	TrainFile     string  `json:"train_file"`
@@ -240,6 +242,64 @@ func writeNativeManifest(path string, manifest NativeManifest) error {
 		return err
 	}
 	return os.WriteFile(path, append(data, '\n'), 0o600)
+}
+
+func LoadNativeManifest(path string) (NativeManifest, error) {
+	manifestPath, err := NativeManifestPath(path)
+	if err != nil {
+		return NativeManifest{}, err
+	}
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return NativeManifest{}, err
+	}
+	if len(data) > maxNativeManifestBytes {
+		return NativeManifest{}, fmt.Errorf("native training manifest exceeds %d bytes", maxNativeManifestBytes)
+	}
+	var manifest NativeManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return NativeManifest{}, err
+	}
+	if err := manifest.Validate(); err != nil {
+		return NativeManifest{}, err
+	}
+	return manifest, nil
+}
+
+func NativeManifestPath(path string) (string, error) {
+	if strings.TrimSpace(path) == "" {
+		return "", fmt.Errorf("native training manifest path is required")
+	}
+	stat, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if stat.IsDir() {
+		return filepath.Join(path, "manifest.json"), nil
+	}
+	if filepath.Base(path) != "manifest.json" {
+		return "", os.ErrNotExist
+	}
+	return path, nil
+}
+
+func (m NativeManifest) Validate() error {
+	if m.Version != 1 {
+		return fmt.Errorf("unsupported native training manifest version %d", m.Version)
+	}
+	if m.Type != "nego-native-adapter" {
+		return fmt.Errorf("unsupported native training manifest type %q", m.Type)
+	}
+	if strings.TrimSpace(m.BaseModel) == "" {
+		return fmt.Errorf("native training manifest base_model is required")
+	}
+	if strings.TrimSpace(m.AdapterPath) == "" {
+		return fmt.Errorf("native training manifest adapter_path is required")
+	}
+	if strings.TrimSpace(m.RecommendedBackend) == "" {
+		return fmt.Errorf("native training manifest recommended_backend is required")
+	}
+	return nil
 }
 
 func writeNativeTrainingReadme(path string, manifest NativeManifest) error {

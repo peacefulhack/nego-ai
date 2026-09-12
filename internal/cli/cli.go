@@ -1084,6 +1084,9 @@ func nativeTrainingRuntimeArgs(command string, result training.NativeResult) []s
 	if result.BaseModel == "" || result.AdapterPath == "" {
 		return nil
 	}
+	if result.OutputDir != "" && result.ManifestPath != "" {
+		return []string{"nego", command, result.OutputDir}
+	}
 	args := []string{"nego", command}
 	switch {
 	case result.Artifact != nil && result.Artifact.Format == modelinfo.ArtifactFormatHFSafetensors:

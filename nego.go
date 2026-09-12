@@ -2,13 +2,16 @@ package nego
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/modelinfo"
+	"github.com/gakon/nego-ai/training"
 )
 
 type Role = chattemplate.Role
@@ -256,6 +259,11 @@ func BackendInfoByName(name string) (BackendInfo, bool) {
 }
 
 func LoadModel(ctx context.Context, opts ModelOptions) (Model, error) {
+	expanded, err := expandNativeManifestOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	opts = expanded
 	if opts.Backend == "" {
 		backend, err := ResolveBackend(opts)
 		if err != nil {
@@ -273,6 +281,11 @@ func LoadModel(ctx context.Context, opts ModelOptions) (Model, error) {
 }
 
 func ResolveBackend(opts ModelOptions) (string, error) {
+	expanded, err := expandNativeManifestOptions(opts)
+	if err != nil {
+		return "", err
+	}
+	opts = expanded
 	if opts.Backend != "" {
 		return opts.Backend, nil
 	}
@@ -290,6 +303,36 @@ func ResolveBackend(opts ModelOptions) (string, error) {
 		return artifact.RecommendedRunBackend, nil
 	}
 	return "", modelinfo.FormatResolveError(opts.Path, artifact)
+}
+
+func expandNativeManifestOptions(opts ModelOptions) (ModelOptions, error) {
+	if strings.TrimSpace(opts.Path) == "" {
+		return opts, nil
+	}
+	manifest, err := training.LoadNativeManifest(opts.Path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return opts, nil
+		}
+		return opts, fmt.Errorf("load native training manifest: %w", err)
+	}
+	if manifest.BaseModel != "" {
+		opts.Path = manifest.BaseModel
+	}
+	if opts.Backend == "" {
+		opts.Backend = manifest.RecommendedBackend
+	}
+	if len(manifest.RuntimeOptions) > 0 {
+		if opts.Options == nil {
+			opts.Options = make(map[string]string, len(manifest.RuntimeOptions))
+		}
+		for key, value := range manifest.RuntimeOptions {
+			if _, exists := opts.Options[key]; !exists && value != "" {
+				opts.Options[key] = value
+			}
+		}
+	}
+	return opts, nil
 }
 
 func backendInfo(name string, backend Backend) BackendInfo {

@@ -493,6 +493,9 @@ same next-step commands for humans.
 Load the adapter for native generation:
 
 ```bash
+nego run ./outputs/qwen3-token-bias "Hello"
+nego chat ./outputs/qwen3-token-bias "Hello"
+
 nego run ./models/qwen3 "Hello" \
   --adapter ./outputs/qwen3-token-bias/adapter.json
 

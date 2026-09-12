@@ -1613,8 +1613,9 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 		!strings.Contains(stdout.String(), "Manifest:") ||
 		!strings.Contains(stdout.String(), "Guide:") ||
 		!strings.Contains(stdout.String(), "Train budget:") ||
-		!strings.Contains(stdout.String(), "Run:            nego run --native") ||
-		!strings.Contains(stdout.String(), "Chat:           nego chat --native") {
+		!strings.Contains(stdout.String(), "Run:            nego run") ||
+		!strings.Contains(stdout.String(), outputDir) ||
+		!strings.Contains(stdout.String(), "Chat:           nego chat") {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); err != nil {
