@@ -58,7 +58,7 @@ nego download Qwen/Qwen3-0.6B --gguf --local-dir ./models/qwen3-gguf
 nego download Qwen/Qwen3-0.6B --gguf --gguf-repo unsloth/Qwen3-0.6B-GGUF --quant Q4_K_M --local-dir ./models/qwen3-gguf
 ```
 
-Regular Hugging Face downloads are useful for inspection, tokenization, and training jobs. Local chat through llama.cpp needs GGUF, so Nego warns when a downloaded model only contains safetensors.
+Regular Hugging Face downloads are useful for inspection, tokenization, native-HF experiments, and training jobs. After a model download, Nego prints a compatibility summary with the detected format and recommended run/train backend.
 
 ## Go API
 

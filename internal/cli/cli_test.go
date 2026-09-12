@@ -138,20 +138,27 @@ func TestRenderProgressEntryShowsMaterializing(t *testing.T) {
 	}
 }
 
-func TestDownloadRuntimeWarningForSafetensorsOnly(t *testing.T) {
+func TestDownloadCompatibilitySummaryForSafetensorsOnly(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":1,"max_position_embeddings":8,"hidden_size":1,"num_hidden_layers":1,"intermediate_size":1,"num_attention_heads":1,"head_dim":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	warning := downloadRuntimeWarning(dir)
-	if !strings.Contains(warning, "cannot run this directly") || !strings.Contains(warning, "--gguf") {
-		t.Fatalf("unexpected warning: %q", warning)
+	summary := downloadCompatibilitySummary(dir)
+	if !strings.Contains(summary, "format=hf-safetensors") || !strings.Contains(summary, "run=native-hf") || !strings.Contains(summary, "train=native-token-bias") {
+		t.Fatalf("unexpected summary: %q", summary)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "model.gguf"), []byte("gguf"), 0o644); err != nil {
+	ggufData, err := os.ReadFile(fakeInspectGGUF(t))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if warning := downloadRuntimeWarning(dir); warning != "" {
-		t.Fatalf("unexpected warning with GGUF present: %q", warning)
+	if err := os.WriteFile(filepath.Join(dir, "model.gguf"), ggufData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if summary := downloadCompatibilitySummary(dir); !strings.Contains(summary, "format=mixed") {
+		t.Fatalf("unexpected summary with GGUF present: %q", summary)
 	}
 }
 

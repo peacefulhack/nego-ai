@@ -251,9 +251,9 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		printError(stderr, err)
 		return exitCode(err)
 	}
-	warning := ""
-	if !gguf && commonRepoType == hub.RepoTypeModel {
-		warning = downloadRuntimeWarning(path)
+	compatibility := ""
+	if commonRepoType == hub.RepoTypeModel {
+		compatibility = downloadCompatibilitySummary(path)
 	}
 	if jsonOutput {
 		result := map[string]string{"path": path}
@@ -261,8 +261,8 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			result["repo"] = resolvedGGUF.RepoID
 			result["file"] = resolvedGGUF.Filename
 		}
-		if warning != "" {
-			result["warning"] = warning
+		if compatibility != "" {
+			result["compatibility"] = compatibility
 		}
 		_ = json.NewEncoder(stdout).Encode(result)
 	} else if quiet {
@@ -272,45 +272,30 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		if resolvedGGUF != nil {
 			fmt.Fprintf(stdout, "Runtime file: %s/%s\n", resolvedGGUF.RepoID, resolvedGGUF.Filename)
 		}
-		if warning != "" {
-			fmt.Fprintf(stderr, "nego: %s\n", warning)
+		if compatibility != "" {
+			fmt.Fprintf(stdout, "Compatibility: %s\n", compatibility)
 		}
 	}
 	return 0
 }
 
-func downloadRuntimeWarning(path string) string {
-	hasSafeTensors, hasGGUF := pathHasRuntimeExtension(path, ".safetensors"), pathHasRuntimeExtension(path, ".gguf")
-	if !hasSafeTensors || hasGGUF {
+func downloadCompatibilitySummary(path string) string {
+	report, err := modelinfo.Check(path)
+	if err != nil || report.Artifact == nil {
 		return ""
 	}
-	return "downloaded Hugging Face safetensors; Nego cannot run this directly with the local llama.cpp backend. Use `nego download <repo-id> --gguf --local-dir <dir>` for chat/runtime, or `nego convert gguf <model-dir> --out <file>` with a llama.cpp converter."
+	run := firstNonEmptyString(report.Artifact.RecommendedRunBackend, "not ready")
+	train := firstNonEmptyString(report.Artifact.RecommendedTrainBackend, "not ready")
+	return fmt.Sprintf("format=%s run=%s train=%s", report.Artifact.Format, run, train)
 }
 
-func pathHasRuntimeExtension(root, ext string) bool {
-	if root == "" {
-		return false
-	}
-	info, err := os.Stat(root)
-	if err != nil {
-		return false
-	}
-	ext = strings.ToLower(ext)
-	if !info.IsDir() {
-		return strings.HasSuffix(strings.ToLower(root), ext)
-	}
-	found := false
-	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
-			return nil
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
 		}
-		if strings.HasSuffix(strings.ToLower(entry.Name()), ext) {
-			found = true
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return found
+	}
+	return ""
 }
 
 func splitFlags(args []string) ([]string, []string) {

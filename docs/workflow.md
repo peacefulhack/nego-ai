@@ -29,7 +29,7 @@ Download a full model snapshot into a local directory:
 nego download Qwen/Qwen3-0.6B --local-dir ./models/qwen3
 ```
 
-That downloads the original Hugging Face files, usually `*.safetensors`. Use this for inspection, tokenizer work, dataset checks, or training flows. Nego will warn that safetensors are not directly runnable by the local llama.cpp backend.
+That downloads the original Hugging Face files, usually `*.safetensors`. Use this for inspection, tokenizer work, native-HF experiments, dataset checks, or training flows. Nego prints a compatibility summary with the detected format and recommended run/train backend.
 
 Download a llama.cpp-ready GGUF file when you want to run local chat immediately:
 
