@@ -7,7 +7,7 @@ Some late workflow steps are marked as planned because Nego does not implement d
 ## Numbered Flow
 
 1. Download a base model.
-2. Inspect the downloaded model.
+2. Check local model status and inspect metadata.
 3. Prepare a dataset.
 4. Check tokenizer and context budget.
 5. Render a chat prompt.
@@ -65,7 +65,17 @@ Download a private or gated model:
 nego download meta-llama/Llama-3.2-1B --token "$HF_TOKEN" --local-dir ./models/llama
 ```
 
-## 2. Inspect the Downloaded Model
+## 2. Check Status and Inspect the Downloaded Model
+
+Start with the short status view after any download:
+
+```bash
+nego status ./models/qwen3
+nego status ./models/qwen3-gguf
+```
+
+This tells you the detected artifact format, the recommended run backend, the
+recommended training path, and any current blockers.
 
 Check model files, config, generation defaults, safetensors/GGUF metadata, and model card metadata:
 
@@ -493,6 +503,7 @@ same next-step commands for humans.
 Load the adapter for native generation:
 
 ```bash
+nego status ./outputs/qwen3-token-bias
 nego inspect ./outputs/qwen3-token-bias
 nego check ./outputs/qwen3-token-bias
 
