@@ -76,6 +76,25 @@ func TestGenerateTinyHFModelWhenExplicitlyEnabled(t *testing.T) {
 	}
 }
 
+func TestGenerateTinyHFModelStopsOnGenerationEOS(t *testing.T) {
+	dir := writeTinyForwardModel(t)
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"eos_token_id":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: "a", MaxTokens: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Text != "" {
+		t.Fatalf("generated text = %q, want empty EOS-trimmed output", out.Text)
+	}
+}
+
 func TestGenerateTinyHFModelAppliesAdapter(t *testing.T) {
 	dir := writeTinyForwardModel(t)
 	adapterPath := filepath.Join(t.TempDir(), "adapter.json")
