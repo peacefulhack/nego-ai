@@ -15,14 +15,15 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 9. Run native HF float32 math primitives for embedding lookup, projections, normalization, MLP, and logits.
 10. Run experimental native HF generation, streaming completions, streaming chat, and local serving with prompt decode state, KV cache history, adapter bias, sampler controls, and local generation defaults.
 11. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
-12. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
-13. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
-14. Use remote OpenAI-compatible chat and embedding APIs.
-15. Prepare, validate, token-budget check, convert, filter, split, and sample datasets.
-16. Run eval suites and compare reports.
-17. Create, validate, and run external training job JSON files.
-18. Create local native training manifests, share manifests, upload preflight checks, and archive packages for trained model output directories.
-19. Upload regular files or small folders to Hub repos through inline commit uploads.
+12. Inspect and check native training output directories as runnable adapter artifacts.
+13. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
+14. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
+15. Use remote OpenAI-compatible chat and embedding APIs.
+16. Prepare, validate, token-budget check, convert, filter, split, and sample datasets.
+17. Run eval suites and compare reports.
+18. Create, validate, and run external training job JSON files.
+19. Create local native training manifests, share manifests, upload preflight checks, and archive packages for trained model output directories.
+20. Upload regular files or small folders to Hub repos through inline commit uploads.
 
 ## Pure-Go Native Runtime Status
 

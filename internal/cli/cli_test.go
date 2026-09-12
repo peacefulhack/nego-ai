@@ -567,6 +567,24 @@ func TestInspectCommandShowsGenerationConfig(t *testing.T) {
 	}
 }
 
+func TestInspectCommandShowsNativeAdapter(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"inspect", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Native adapter:", "Base model:   ./models/qwen3", "Adapter:      ./outputs/qwen3/adapter.json", "Backend:      native-hf"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestInspectCommandShowsSafetensorsMetadata(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), cliSafetensorsFixture(t, `{
@@ -670,6 +688,24 @@ func TestCheckCommandShowsGenerationConfig(t *testing.T) {
 	}
 	out := stdout.String()
 	for _, want := range []string{"Generation:", "Max new:      64", "Temperature:  0.6"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestCheckCommandShowsNativeAdapter(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"check", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Native adapter:", "Backend:      native-hf", "Artifact:", "Format:       native-adapter", "Run:          native-hf", "native-hf: yes"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output:\n%s", want, out)
 		}

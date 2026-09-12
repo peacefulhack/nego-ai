@@ -1784,6 +1784,9 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 	if info.Generation != nil {
 		writeGenerationConfig(w, info.Generation)
 	}
+	if info.NativeAdapter != nil {
+		writeNativeAdapterInfo(w, info.NativeAdapter)
+	}
 	if info.HFSpec != nil {
 		fmt.Fprintln(w, "HF spec:")
 		fmt.Fprintf(w, "  Ready:        %v\n", info.HFSpec.Ready)
@@ -1993,6 +1996,28 @@ func joinInts(values []int) string {
 	return strings.Join(parts, ", ")
 }
 
+func writeNativeAdapterInfo(w io.Writer, info *modelinfo.NativeAdapterInfo) {
+	if info == nil {
+		return
+	}
+	fmt.Fprintln(w, "Native adapter:")
+	if info.BaseModel != "" {
+		fmt.Fprintf(w, "  Base model:   %s\n", info.BaseModel)
+	}
+	if info.AdapterPath != "" {
+		fmt.Fprintf(w, "  Adapter:      %s\n", info.AdapterPath)
+	}
+	if info.RecommendedBackend != "" {
+		fmt.Fprintf(w, "  Backend:      %s\n", info.RecommendedBackend)
+	}
+	if info.Method != "" {
+		fmt.Fprintf(w, "  Method:       %s\n", info.Method)
+	}
+	if info.UpdatedTokens > 0 {
+		fmt.Fprintf(w, "  Tokens:       %d updated\n", info.UpdatedTokens)
+	}
+}
+
 func printMemoryEstimate(w io.Writer, estimate *modelinfo.MemoryEstimate) {
 	fmt.Fprintln(w, "Memory estimate")
 	fmt.Fprintf(w, "Path:          %s\n", estimate.Path)
@@ -2095,6 +2120,9 @@ func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 		fmt.Fprintln(w, "Chat template: yes")
 	} else {
 		fmt.Fprintln(w, "Chat template: no")
+	}
+	if report.NativeAdapter != nil {
+		writeNativeAdapterInfo(w, report.NativeAdapter)
 	}
 	if report.Artifact != nil {
 		fmt.Fprintln(w, "Artifact:")

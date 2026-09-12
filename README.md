@@ -336,6 +336,8 @@ trained adapter can be inspected or reused by local tooling. You can run a
 native training output directory directly:
 
 ```bash
+nego inspect ./outputs/qwen3-token-bias
+nego check ./outputs/qwen3-token-bias
 nego run ./outputs/qwen3-token-bias "Hello"
 nego chat ./outputs/qwen3-token-bias "Hello"
 ```

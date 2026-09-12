@@ -12,19 +12,20 @@ import (
 const maxModelCardBytes = 2 << 20
 
 type Info struct {
-	Path             string            `json:"path"`
-	ModelType        string            `json:"model_type,omitempty"`
-	Architectures    []string          `json:"architectures,omitempty"`
-	Config           map[string]any    `json:"config,omitempty"`
-	GenerationConfig map[string]any    `json:"generation_config,omitempty"`
-	Generation       *GenerationConfig `json:"generation,omitempty"`
-	Card             *Card             `json:"card,omitempty"`
-	GGUF             *GGUFInfo         `json:"gguf,omitempty"`
-	Safetensors      *SafetensorsInfo  `json:"safetensors,omitempty"`
-	HFSpec           *HFModelSpec      `json:"hf_spec,omitempty"`
-	HFWeights        *HFWeightManifest `json:"hf_weights,omitempty"`
-	HFShapes         *HFShapeReport    `json:"hf_shapes,omitempty"`
-	Files            []File            `json:"files,omitempty"`
+	Path             string             `json:"path"`
+	ModelType        string             `json:"model_type,omitempty"`
+	Architectures    []string           `json:"architectures,omitempty"`
+	Config           map[string]any     `json:"config,omitempty"`
+	GenerationConfig map[string]any     `json:"generation_config,omitempty"`
+	Generation       *GenerationConfig  `json:"generation,omitempty"`
+	Card             *Card              `json:"card,omitempty"`
+	GGUF             *GGUFInfo          `json:"gguf,omitempty"`
+	Safetensors      *SafetensorsInfo   `json:"safetensors,omitempty"`
+	HFSpec           *HFModelSpec       `json:"hf_spec,omitempty"`
+	HFWeights        *HFWeightManifest  `json:"hf_weights,omitempty"`
+	HFShapes         *HFShapeReport     `json:"hf_shapes,omitempty"`
+	NativeAdapter    *NativeAdapterInfo `json:"native_adapter,omitempty"`
+	Files            []File             `json:"files,omitempty"`
 }
 
 type Card struct {
@@ -82,6 +83,13 @@ func Inspect(path string) (*Info, error) {
 			info.Safetensors = safetensors
 			info.HFWeights, _ = HFWeightManifestFromInfo(info)
 		}
+		if kind == "native_manifest" {
+			adapter, err := InspectNativeAdapter(root)
+			if err != nil {
+				return nil, err
+			}
+			info.NativeAdapter = adapter
+		}
 		return info, nil
 	}
 
@@ -112,6 +120,11 @@ func Inspect(path string) (*Info, error) {
 		return nil, err
 	}
 	info.Files = files
+	nativeAdapter, err := InspectNativeAdapter(root)
+	if err != nil {
+		return nil, err
+	}
+	info.NativeAdapter = nativeAdapter
 	if path := firstFileKind(root, files, "gguf"); path != "" {
 		gguf, err := InspectGGUF(path)
 		if err != nil {
@@ -317,6 +330,10 @@ func fileKind(path string) string {
 		return "config"
 	case "generation_config.json":
 		return "generation_config"
+	case "manifest.json":
+		return "native_manifest"
+	case "adapter.json":
+		return "native_adapter"
 	case "tokenizer.json":
 		return "tokenizer"
 	case "tokenizer_config.json":

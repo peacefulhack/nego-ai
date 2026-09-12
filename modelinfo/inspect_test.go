@@ -94,6 +94,25 @@ func TestInspectModelCardFile(t *testing.T) {
 	}
 }
 
+func TestInspectNativeAdapterManifest(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "manifest.json", `{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2}`)
+	writeFile(t, dir, "adapter.json", `{"version":1,"type":"token_bias","bias":{"1":0.1}}`)
+	info, err := Inspect(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.NativeAdapter == nil {
+		t.Fatalf("NativeAdapter = nil")
+	}
+	if info.NativeAdapter.BaseModel != "./models/qwen3" || info.NativeAdapter.RecommendedBackend != "native-hf" || info.NativeAdapter.UpdatedTokens != 2 {
+		t.Fatalf("NativeAdapter = %#v", info.NativeAdapter)
+	}
+	if !hasFileKind(info.Files, "manifest.json", "native_manifest") || !hasFileKind(info.Files, "adapter.json", "native_adapter") {
+		t.Fatalf("Files = %#v", info.Files)
+	}
+}
+
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	path := filepath.Join(dir, filepath.FromSlash(name))

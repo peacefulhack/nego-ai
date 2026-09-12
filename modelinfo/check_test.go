@@ -95,6 +95,27 @@ func TestCheckReportsNativeHFCompatibility(t *testing.T) {
 	}
 }
 
+func TestCheckReportsNativeAdapterArtifact(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "manifest.json", `{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2}`)
+	report, err := Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.NativeAdapter == nil || report.NativeAdapter.RecommendedBackend != "native-hf" {
+		t.Fatalf("NativeAdapter = %#v", report.NativeAdapter)
+	}
+	if report.Artifact == nil || report.Artifact.Format != ArtifactFormatNativeAdapter || report.Artifact.RecommendedRunBackend != "native-hf" {
+		t.Fatalf("Artifact = %#v", report.Artifact)
+	}
+	if !backendCompatible(report.Backends, "native-hf") {
+		t.Fatalf("Backends = %#v", report.Backends)
+	}
+	if len(report.Warnings) != 0 {
+		t.Fatalf("Warnings = %#v", report.Warnings)
+	}
+}
+
 func testGGUF(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer

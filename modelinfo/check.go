@@ -14,6 +14,7 @@ type CheckReport struct {
 	ContextLength uint64                 `json:"context_length,omitempty"`
 	Quantization  string                 `json:"quantization,omitempty"`
 	Generation    *GenerationConfig      `json:"generation,omitempty"`
+	NativeAdapter *NativeAdapterInfo     `json:"native_adapter,omitempty"`
 	Artifact      *Artifact              `json:"artifact,omitempty"`
 	Backends      []BackendCompatibility `json:"backends"`
 	Warnings      []string               `json:"warnings,omitempty"`
@@ -37,10 +38,11 @@ func Check(path string) (*CheckReport, error) {
 
 func checkInfo(info *Info) (*CheckReport, error) {
 	report := &CheckReport{
-		Path:         info.Path,
-		ModelType:    info.ModelType,
-		ChatTemplate: hasChatTemplate(info),
-		Generation:   info.Generation,
+		Path:          info.Path,
+		ModelType:     info.ModelType,
+		ChatTemplate:  hasChatTemplate(info),
+		Generation:    info.Generation,
+		NativeAdapter: info.NativeAdapter,
 	}
 	if len(info.Architectures) > 0 {
 		report.Architecture = info.Architectures[0]
@@ -71,6 +73,14 @@ func hasChatTemplate(info *Info) bool {
 }
 
 func backendCompatibility(report *CheckReport, info *Info) []BackendCompatibility {
+	if info.NativeAdapter != nil {
+		name := firstNonEmpty(info.NativeAdapter.RecommendedBackend, "native")
+		return []BackendCompatibility{{
+			Name:       name,
+			Compatible: true,
+			Reason:     "native training output manifest points to a base model and adapter",
+		}}
+	}
 	var out []BackendCompatibility
 	hasGGUF := report.RuntimeFile != nil && report.RuntimeFile.Kind == "gguf"
 	hasONNX := report.RuntimeFile != nil && report.RuntimeFile.Kind == "onnx"
@@ -197,13 +207,13 @@ func nativeCompatibilityWarnings(report *CheckReport, unsupported []string) []st
 
 func checkWarnings(report *CheckReport, info *Info) []string {
 	var warnings []string
-	if report.RuntimeFile == nil {
+	if info.NativeAdapter == nil && report.RuntimeFile == nil {
 		warnings = append(warnings, "no local runtime file found")
 	}
-	if !report.ChatTemplate {
+	if info.NativeAdapter == nil && !report.ChatTemplate {
 		warnings = append(warnings, "no chat template detected")
 	}
-	if info.ModelType == "" && report.Architecture == "" {
+	if info.NativeAdapter == nil && info.ModelType == "" && report.Architecture == "" {
 		warnings = append(warnings, "model architecture metadata is missing")
 	}
 	for _, backend := range report.Backends {
