@@ -145,6 +145,9 @@ func nativeHFCompatibility(info *Info, hasSafetensors bool) (bool, string) {
 	if !hasSafetensors {
 		return false, "requires safetensors weights"
 	}
+	if !hasTokenizerFiles(info.Files) {
+		return false, "requires tokenizer.json"
+	}
 	if info.HFSpec == nil {
 		return false, "requires Hugging Face config.json model spec"
 	}

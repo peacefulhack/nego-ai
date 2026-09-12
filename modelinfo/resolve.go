@@ -153,10 +153,17 @@ func runCapabilities(artifact *Artifact, report *CheckReport) []ArtifactCapabili
 			Reason: "GGUF runtime file can be run through the optional llama.cpp backend",
 		})
 	case ArtifactFormatHFSafetensors:
+		nativeHF := backendCompatibilityByName(report, "native-hf")
+		status := CapabilityUnsupported
+		reason := firstNonEmpty(nativeHF.Reason, "native-hf cannot run this safetensors artifact yet")
+		if nativeHF.Compatible {
+			status = CapabilityExperimental
+			reason = "native-hf can run safetensors models through the experimental pure-Go path; production-quality generation is still in progress"
+		}
 		out = append(out, ArtifactCapability{
 			Name:   "native-hf",
-			Status: CapabilityExperimental,
-			Reason: "native-hf can run safetensors models through the experimental pure-Go path; production-quality generation is still in progress",
+			Status: status,
+			Reason: reason,
 		})
 	case ArtifactFormatONNX:
 		out = append(out, ArtifactCapability{
@@ -264,7 +271,7 @@ func artifactWarnings(artifact *Artifact, report *CheckReport) []string {
 	if artifact.RecommendedTrainBackend == "" {
 		add("no training backend is ready for this artifact yet")
 	}
-	if artifact.Format == ArtifactFormatHFSafetensors {
+	if artifact.Format == ArtifactFormatHFSafetensors && artifact.RecommendedRunBackend != "" {
 		add("downloaded Hugging Face safetensors can run through the experimental native-hf backend; production-quality native chat is still in progress")
 	}
 	return warnings

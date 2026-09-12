@@ -147,7 +147,7 @@ func TestDownloadCompatibilitySummaryForSafetensorsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	summary := downloadCompatibilitySummary(dir)
-	if !strings.Contains(summary, "format=hf-safetensors") || !strings.Contains(summary, "run=native-hf") || !strings.Contains(summary, "train=native-token-bias") {
+	if !strings.Contains(summary, "format=hf-safetensors") || !strings.Contains(summary, "run=not ready") || !strings.Contains(summary, "train=native-token-bias") {
 		t.Fatalf("unexpected summary: %q", summary)
 	}
 	ggufData, err := os.ReadFile(fakeInspectGGUF(t))
