@@ -745,6 +745,40 @@ func TestCheckCommandJSON(t *testing.T) {
 	}
 }
 
+func TestStatusCommandSummarizesArtifact(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"status", modelPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Format:        gguf", "Run:           native", "Train:         native-token-bias", "Run backends:", "Train backends:", "Chat template: yes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestStatusCommandJSON(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"status", modelPath, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var body struct {
+		Format                string `json:"format"`
+		RecommendedRunBackend string `json:"recommended_run_backend"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Format != "gguf" || body.RecommendedRunBackend == "" {
+		t.Fatalf("unexpected status json: %s", stdout.String())
+	}
+}
+
 func TestRunCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)

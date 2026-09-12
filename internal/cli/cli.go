@@ -76,6 +76,8 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runInspect(args[1:], stdout, stderr)
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
+	case "status":
+		return runStatus(args[1:], stdout, stderr)
 	case "memory":
 		return runMemory(args[1:], stdout, stderr)
 	case "run":
@@ -400,6 +402,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
 	fmt.Fprintln(w, "  nego inspect <model-path> [flags]")
 	fmt.Fprintln(w, "  nego check <model-path> [flags]")
+	fmt.Fprintln(w, "  nego status <model-path> [flags]")
 	fmt.Fprintln(w, "  nego memory <model-path> [flags]")
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
@@ -2079,6 +2082,84 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	}
 	writeCheckReport(stdout, report)
 	return 0
+}
+
+func runStatus(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego status <model-path> [flags]")
+		return 2
+	}
+	artifact, err := modelinfo.Resolve(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(artifact)
+		return 0
+	}
+	writeArtifactStatus(stdout, artifact)
+	return 0
+}
+
+func writeArtifactStatus(w io.Writer, artifact *modelinfo.Artifact) {
+	fmt.Fprintf(w, "Path:          %s\n", artifact.Path)
+	fmt.Fprintf(w, "Format:        %s\n", artifact.Format)
+	fmt.Fprintf(w, "Run:           %s\n", firstNonEmptyString(artifact.RecommendedRunBackend, "not ready"))
+	fmt.Fprintf(w, "Train:         %s\n", firstNonEmptyString(artifact.RecommendedTrainBackend, "not ready"))
+	if artifact.RuntimeFile != nil {
+		fmt.Fprintf(w, "Runtime file:  %s [%s]\n", artifact.RuntimeFile.Path, artifact.RuntimeFile.Kind)
+	}
+	if artifact.ModelType != "" {
+		fmt.Fprintf(w, "Model type:    %s\n", artifact.ModelType)
+	}
+	if artifact.ContextLength > 0 {
+		fmt.Fprintf(w, "Context:       %d\n", artifact.ContextLength)
+	}
+	if artifact.Quantization != "" {
+		fmt.Fprintf(w, "Quantization:  %s\n", artifact.Quantization)
+	}
+	if artifact.ParameterCount > 0 {
+		fmt.Fprintf(w, "Parameters:    %d\n", artifact.ParameterCount)
+	}
+	fmt.Fprintf(w, "Chat template: %s\n", yesNo(artifact.ChatTemplate))
+	writeArtifactCapabilities(w, "Run backends:", artifact.RunBackends)
+	writeArtifactCapabilities(w, "Train backends:", artifact.TrainBackends)
+	if len(artifact.Warnings) > 0 {
+		fmt.Fprintln(w, "Warnings:")
+		for _, warning := range artifact.Warnings {
+			fmt.Fprintf(w, "  - %s\n", warning)
+		}
+	}
+}
+
+func writeArtifactCapabilities(w io.Writer, label string, capabilities []modelinfo.ArtifactCapability) {
+	if len(capabilities) == 0 {
+		return
+	}
+	fmt.Fprintln(w, label)
+	for _, capability := range capabilities {
+		fmt.Fprintf(w, "  - %s: %s", capability.Name, capability.Status)
+		if capability.Reason != "" {
+			fmt.Fprintf(w, " (%s)", capability.Reason)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
 }
 
 func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
