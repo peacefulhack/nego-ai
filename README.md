@@ -245,6 +245,7 @@ Chat sessions also include message history, so keep session JSON files private.
 ```bash
 nego runs list runs.jsonl
 nego runs show runs.jsonl <id>
+nego runs compare runs.jsonl <baseline-id> <candidate-id>
 ```
 
 ## Embeddings

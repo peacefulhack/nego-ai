@@ -387,6 +387,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego models remove <repo-id> --yes [flags]")
 	fmt.Fprintln(w, "  nego runs list <runs.jsonl> [flags]")
 	fmt.Fprintln(w, "  nego runs show <runs.jsonl> <id> [flags]")
+	fmt.Fprintln(w, "  nego runs compare <runs.jsonl> <baseline-id> <candidate-id> [flags]")
 	fmt.Fprintln(w, "  nego backends list [flags]")
 	fmt.Fprintln(w, "  nego backends info <name> [flags]")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
@@ -3661,6 +3662,8 @@ func runRuns(args []string, stdout, stderr io.Writer) int {
 		return runRunsList(args[1:], stdout, stderr)
 	case "show":
 		return runRunsShow(args[1:], stdout, stderr)
+	case "compare":
+		return runRunsCompare(args[1:], stdout, stderr)
 	case "help", "-h", "--help":
 		runsUsage(stdout)
 		return 0
@@ -4310,15 +4313,11 @@ func runRunsList(args []string, stdout, stderr io.Writer) int {
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tw, "ID\tTIME\tCOMMAND\tBACKEND\tMODEL/PATH\tSTATUS\tDURATION")
 	for _, entry := range entries {
-		status := "ok"
-		if entry.Error != "" {
-			status = "error"
-		}
 		target := entry.Model
 		if target == "" {
 			target = entry.Path
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%dms\n", entry.ID, entry.StartedAt.Format(time.RFC3339), entry.Command, entry.Backend, target, status, entry.DurationMS)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%dms\n", entry.ID, entry.StartedAt.Format(time.RFC3339), entry.Command, entry.Backend, target, runEntryStatus(entry), entry.DurationMS)
 	}
 	_ = tw.Flush()
 	return 0
@@ -4355,10 +4354,146 @@ func runRunsShow(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runRunsCompare(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("runs compare", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 3 {
+		fmt.Fprintln(stderr, "usage: nego runs compare <runs.jsonl> <baseline-id> <candidate-id> [flags]")
+		return 2
+	}
+	entries, err := runs.Read(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	baseline, ok := runs.Find(entries, positionals[1])
+	if !ok {
+		fmt.Fprintf(stderr, "nego: run %q not found\n", positionals[1])
+		return 4
+	}
+	candidate, ok := runs.Find(entries, positionals[2])
+	if !ok {
+		fmt.Fprintf(stderr, "nego: run %q not found\n", positionals[2])
+		return 4
+	}
+	comparison := compareRuns(baseline, candidate)
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(comparison)
+		return 0
+	}
+	writeRunsComparison(stdout, comparison)
+	return 0
+}
+
 func runsUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego runs list <runs.jsonl> [flags]")
 	fmt.Fprintln(w, "  nego runs show <runs.jsonl> <id> [flags]")
+	fmt.Fprintln(w, "  nego runs compare <runs.jsonl> <baseline-id> <candidate-id> [flags]")
+}
+
+type runComparison struct {
+	Baseline  runComparisonItem  `json:"baseline"`
+	Candidate runComparisonItem  `json:"candidate"`
+	Delta     runComparisonDelta `json:"delta"`
+}
+
+type runComparisonItem struct {
+	ID          string `json:"id"`
+	Command     string `json:"command"`
+	Backend     string `json:"backend,omitempty"`
+	Target      string `json:"target,omitempty"`
+	Status      string `json:"status"`
+	DurationMS  int64  `json:"duration_ms"`
+	OutputChars int    `json:"output_chars,omitempty"`
+	TrainRows   int    `json:"train_rows,omitempty"`
+	EvalRows    int    `json:"eval_rows,omitempty"`
+}
+
+type runComparisonDelta struct {
+	DurationMS  int64 `json:"duration_ms"`
+	OutputChars int   `json:"output_chars,omitempty"`
+	TrainRows   int   `json:"train_rows,omitempty"`
+	EvalRows    int   `json:"eval_rows,omitempty"`
+}
+
+func compareRuns(baseline, candidate runs.Entry) runComparison {
+	base := runComparisonItemFromEntry(baseline)
+	next := runComparisonItemFromEntry(candidate)
+	return runComparison{
+		Baseline:  base,
+		Candidate: next,
+		Delta: runComparisonDelta{
+			DurationMS:  next.DurationMS - base.DurationMS,
+			OutputChars: next.OutputChars - base.OutputChars,
+			TrainRows:   next.TrainRows - base.TrainRows,
+			EvalRows:    next.EvalRows - base.EvalRows,
+		},
+	}
+}
+
+func runComparisonItemFromEntry(entry runs.Entry) runComparisonItem {
+	target := entry.Model
+	if target == "" {
+		target = entry.Path
+	}
+	item := runComparisonItem{
+		ID:          entry.ID,
+		Command:     entry.Command,
+		Backend:     entry.Backend,
+		Target:      target,
+		Status:      runEntryStatus(entry),
+		DurationMS:  entry.DurationMS,
+		OutputChars: len([]rune(entry.Output)),
+	}
+	if entry.Training != nil {
+		item.TrainRows = entry.Training.TrainRows
+		item.EvalRows = entry.Training.EvalRows
+	}
+	return item
+}
+
+func runEntryStatus(entry runs.Entry) string {
+	if entry.Error != "" {
+		return "error"
+	}
+	return "ok"
+}
+
+func writeRunsComparison(w io.Writer, comparison runComparison) {
+	fmt.Fprintln(w, "Run comparison")
+	writeRunComparisonItem(w, "Baseline", comparison.Baseline)
+	writeRunComparisonItem(w, "Candidate", comparison.Candidate)
+	fmt.Fprintf(w, "Duration delta: %s\n", signedDurationMS(comparison.Delta.DurationMS))
+	if comparison.Baseline.OutputChars > 0 || comparison.Candidate.OutputChars > 0 {
+		fmt.Fprintf(w, "Output chars:   %d -> %d (%+d)\n", comparison.Baseline.OutputChars, comparison.Candidate.OutputChars, comparison.Delta.OutputChars)
+	}
+	if comparison.Baseline.TrainRows > 0 || comparison.Candidate.TrainRows > 0 {
+		fmt.Fprintf(w, "Train rows:     %d -> %d (%+d)\n", comparison.Baseline.TrainRows, comparison.Candidate.TrainRows, comparison.Delta.TrainRows)
+	}
+	if comparison.Baseline.EvalRows > 0 || comparison.Candidate.EvalRows > 0 {
+		fmt.Fprintf(w, "Eval rows:      %d -> %d (%+d)\n", comparison.Baseline.EvalRows, comparison.Candidate.EvalRows, comparison.Delta.EvalRows)
+	}
+}
+
+func writeRunComparisonItem(w io.Writer, label string, item runComparisonItem) {
+	fmt.Fprintf(w, "%s: %s %s %s %dms\n", label, item.ID, item.Command, item.Status, item.DurationMS)
+	if item.Backend != "" || item.Target != "" {
+		fmt.Fprintf(w, "  %s %s\n", item.Backend, item.Target)
+	}
+}
+
+func signedDurationMS(value int64) string {
+	if value >= 0 {
+		return fmt.Sprintf("+%dms", value)
+	}
+	return fmt.Sprintf("%dms", value)
 }
 
 func writeRunInfo(w io.Writer, entry runs.Entry) {

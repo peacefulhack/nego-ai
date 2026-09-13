@@ -1204,6 +1204,40 @@ func TestRunsListAndShow(t *testing.T) {
 	}
 }
 
+func TestRunsCompare(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
+	baseline := runs.Entry{ID: "base", Command: "run", Backend: "native", Path: "model.gguf", Output: "hello", DurationMS: 20}
+	candidate := runs.Entry{ID: "next", Command: "run", Backend: "native", Path: "model.gguf", Output: "hello world", DurationMS: 12}
+	if err := runs.Append(logPath, baseline); err != nil {
+		t.Fatal(err)
+	}
+	if err := runs.Append(logPath, candidate); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"runs", "compare", logPath, "base", "next"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Run comparison") || !strings.Contains(stdout.String(), "Duration delta: -8ms") || !strings.Contains(stdout.String(), "Output chars:") {
+		t.Fatalf("unexpected compare output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"runs", "compare", logPath, "base", "next", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var comparison runComparison
+	if err := json.Unmarshal(stdout.Bytes(), &comparison); err != nil {
+		t.Fatal(err)
+	}
+	if comparison.Baseline.ID != "base" || comparison.Candidate.ID != "next" || comparison.Delta.DurationMS != -8 || comparison.Delta.OutputChars != 6 {
+		t.Fatalf("unexpected comparison: %#v", comparison)
+	}
+}
+
 func TestBackendsCommands(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run(context.Background(), []string{"backends", "list"}, &stdout, &stderr)
