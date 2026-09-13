@@ -273,6 +273,9 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.AdapterPath != "adapter.json" || manifest.RuntimeOptions["adapter_path"] != "adapter.json" || len(manifest.TopTokens) != 2 {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
+	if manifest.LearningRate != 0.2 || manifest.Epochs != 2 || manifest.MaxContext != 8 || manifest.TrainRows != 1 || manifest.BaseFormat != "gguf" {
+		t.Fatalf("unexpected manifest: %#v", manifest)
+	}
 	loaded, err := LoadNativeManifest(outputDir)
 	if err != nil {
 		t.Fatal(err)

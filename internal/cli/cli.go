@@ -2242,6 +2242,27 @@ func writeNativeAdapterInfo(w io.Writer, info *modelinfo.NativeAdapterInfo) {
 	if info.Method != "" {
 		fmt.Fprintf(w, "  Method:       %s\n", info.Method)
 	}
+	if info.DatasetFormat != "" {
+		fmt.Fprintf(w, "  Dataset:      %s\n", info.DatasetFormat)
+	}
+	if info.BaseFormat != "" {
+		fmt.Fprintf(w, "  Base format:  %s\n", info.BaseFormat)
+	}
+	if info.LearningRate > 0 {
+		fmt.Fprintf(w, "  Learn rate:   %.6g\n", info.LearningRate)
+	}
+	if info.Epochs > 0 {
+		fmt.Fprintf(w, "  Epochs:       %d\n", info.Epochs)
+	}
+	if info.MaxContext > 0 {
+		fmt.Fprintf(w, "  Max context:  %d\n", info.MaxContext)
+	}
+	if info.TrainRows > 0 {
+		fmt.Fprintf(w, "  Train rows:   %d\n", info.TrainRows)
+	}
+	if info.EvalRows > 0 {
+		fmt.Fprintf(w, "  Eval rows:    %d\n", info.EvalRows)
+	}
 	if info.UpdatedTokens > 0 {
 		fmt.Fprintf(w, "  Tokens:       %d updated\n", info.UpdatedTokens)
 	}

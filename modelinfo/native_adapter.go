@@ -19,6 +19,12 @@ type NativeAdapterInfo struct {
 	AdapterPath        string               `json:"adapter_path"`
 	Method             string               `json:"method,omitempty"`
 	DatasetFormat      string               `json:"dataset_format,omitempty"`
+	LearningRate       float64              `json:"learning_rate,omitempty"`
+	Epochs             int                  `json:"epochs,omitempty"`
+	MaxContext         int                  `json:"max_context,omitempty"`
+	TrainRows          int                  `json:"train_rows,omitempty"`
+	EvalRows           int                  `json:"eval_rows,omitempty"`
+	BaseFormat         string               `json:"base_format,omitempty"`
 	RecommendedBackend string               `json:"recommended_backend,omitempty"`
 	RuntimeOptions     map[string]string    `json:"runtime_options,omitempty"`
 	RunArgs            []string             `json:"run_args,omitempty"`

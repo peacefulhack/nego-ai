@@ -79,6 +79,12 @@ type NativeManifest struct {
 	DatasetFormat      string               `json:"dataset_format"`
 	TrainFile          string               `json:"train_file"`
 	EvalFile           string               `json:"eval_file,omitempty"`
+	LearningRate       float64              `json:"learning_rate,omitempty"`
+	Epochs             int                  `json:"epochs,omitempty"`
+	MaxContext         int                  `json:"max_context,omitempty"`
+	TrainRows          int                  `json:"train_rows,omitempty"`
+	EvalRows           int                  `json:"eval_rows,omitempty"`
+	BaseFormat         string               `json:"base_format,omitempty"`
 	RecommendedBackend string               `json:"recommended_backend"`
 	RuntimeOptions     map[string]string    `json:"runtime_options"`
 	RunArgs            []string             `json:"run_args"`
@@ -271,6 +277,12 @@ func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *mode
 		DatasetFormat:      result.DatasetFormat,
 		TrainFile:          opts.TrainFile,
 		EvalFile:           opts.EvalFile,
+		LearningRate:       result.LearningRate,
+		Epochs:             result.Epochs,
+		MaxContext:         result.MaxContext,
+		TrainRows:          result.TrainRows,
+		EvalRows:           result.EvalRows,
+		BaseFormat:         string(artifact.Format),
 		RecommendedBackend: backend,
 		RuntimeOptions:     map[string]string{"adapter_path": adapterPath},
 		RunArgs:            runArgs,

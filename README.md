@@ -341,7 +341,8 @@ This writes a small token-bias adapter from the dataset. Full LoRA/backprop trai
 The output directory also includes `manifest.json` and `README.md` so the
 trained adapter can be inspected or reused by local tooling. You can run a
 native training output directory directly. Native training output includes
-top updated tokens so you can sanity-check what the dataset reinforced.
+training provenance and top updated tokens so you can sanity-check what the
+dataset reinforced.
 Pass `--log runs.jsonl` to record a training experiment summary without storing
 dataset row contents.
 

@@ -521,9 +521,10 @@ README.md
 ```
 
 `manifest.json` records the base model, adapter path, recommended backend,
-runtime options, and reusable `run_args` / `chat_args`. `README.md` gives the
-same next-step commands for humans. Native training also records top updated
-tokens so you can catch dataset formatting mistakes before reusing the adapter.
+runtime options, training provenance, and reusable `run_args` / `chat_args`.
+`README.md` gives the same next-step commands for humans. Native training also
+records top updated tokens so you can catch dataset formatting mistakes before
+reusing the adapter.
 Use `--log runs.jsonl` when you want the training result to appear in
 `nego runs list runs.jsonl` and `nego runs show runs.jsonl <id>`. The training
 log stores dataset paths and summary counts, not dataset row contents. Compare
