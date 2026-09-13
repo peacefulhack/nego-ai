@@ -19,11 +19,13 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 13. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
 14. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.
 15. Use remote OpenAI-compatible chat and embedding APIs.
-16. Prepare, validate, token-budget check, convert, filter, split, and sample datasets.
-17. Run eval suites and compare reports.
-18. Create, validate, and run external training job JSON files.
-19. Create local native training manifests, share manifests, upload preflight checks, and archive packages for trained model output directories.
-20. Upload regular files or small folders to Hub repos through inline commit uploads.
+16. Prepare, quality-check, validate, token-budget check, render, convert, filter, dedupe, split, and sample datasets.
+17. Export reusable run/chat config files from local model or adapter paths.
+18. Log run/chat and native training experiments, inspect them, and compare two logged runs.
+19. Run eval suites and compare reports.
+20. Create, validate, and run external training job JSON files.
+21. Create local native training manifests with provenance, share manifests, upload preflight checks, and archive packages for trained model output directories.
+22. Upload regular files or small folders to Hub repos through inline commit uploads.
 
 ## Pure-Go Native Runtime Status
 
@@ -41,6 +43,7 @@ Implemented:
 8. EOS stopping, context guards, repeat penalty controls, streaming completions, and streaming chat for native sampling.
 9. CLI access through `nego run --native` and `nego chat --native`.
 10. Early pure-Go token-bias adapter training for GGUF or Hugging Face safetensors downloads through `nego train native`.
+11. Native adapter manifests with training provenance, reusable commands, and direct load support through output directories.
 
 Not production-ready yet:
 
@@ -53,8 +56,9 @@ Not production-ready yet:
 
 ## Next Critical Phases
 
-1. Add a native HF safetensors model loader that reuses the Qwen/Llama manifest.
-2. Validate native forward math against known tiny Llama/Qwen GGUF fixtures.
-3. Run K-quant compatibility tests against small real GGUF fixtures.
-4. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
-5. Design native training separately from runtime inference; keep external training orchestration stable until then.
+1. Validate native forward math against known tiny Llama/Qwen GGUF and safetensors fixtures.
+2. Run K-quant compatibility tests against small real GGUF fixtures.
+3. Add optimized CPU execution, batching, and memory reuse for larger local models.
+4. Add GPU execution behind a clean backend interface once CPU correctness is stable.
+5. Add full LoRA/backprop training and optimizer checkpoints for GGUF or safetensors artifacts.
+6. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
