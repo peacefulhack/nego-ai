@@ -37,6 +37,17 @@ type TokenBudgetRow struct {
 	Error     string `json:"error,omitempty"`
 }
 
+type RenderOptions struct {
+	ModelPath string
+	Format    string
+}
+
+type RenderedTrainingText struct {
+	Row    int    `json:"row,omitempty"`
+	Format string `json:"format"`
+	Text   string `json:"text"`
+}
+
 func AnalyzeTokenBudget(rows []Row, opts TokenBudgetOptions) (TokenBudgetReport, error) {
 	format := normalizeFormat(opts.Format)
 	if format == "" {
@@ -104,6 +115,42 @@ func AnalyzeTokenBudget(rows []Row, opts TokenBudgetOptions) (TokenBudgetReport,
 		report.AverageTokens = float64(report.TotalTokens) / float64(report.CountedRows)
 	}
 	return report, nil
+}
+
+func RenderTrainingText(row Row, opts RenderOptions) (RenderedTrainingText, error) {
+	format := normalizeFormat(opts.Format)
+	if format == "" {
+		format = "auto"
+	}
+	if !supportedFormat(format) {
+		return RenderedTrainingText{}, fmt.Errorf("unsupported dataset format %q", opts.Format)
+	}
+	template := &chattemplate.Template{}
+	if strings.TrimSpace(opts.ModelPath) != "" {
+		loaded, err := chattemplate.Load(opts.ModelPath)
+		if err != nil {
+			return RenderedTrainingText{}, err
+		}
+		template = loaded
+	}
+	text, rowFormat, err := datasetTrainingText(row, format, template)
+	if err != nil {
+		return RenderedTrainingText{}, err
+	}
+	return RenderedTrainingText{Format: rowFormat, Text: text}, nil
+}
+
+func RenderTrainingRows(rows []Row, opts RenderOptions) ([]RenderedTrainingText, error) {
+	out := make([]RenderedTrainingText, 0, len(rows))
+	for i, row := range rows {
+		rendered, err := RenderTrainingText(row, opts)
+		if err != nil {
+			return nil, fmt.Errorf("row %d: %w", i+1, err)
+		}
+		rendered.Row = i + 1
+		out = append(out, rendered)
+	}
+	return out, nil
 }
 
 func LongestTokenRows(rows []TokenBudgetRow, n int) []TokenBudgetRow {

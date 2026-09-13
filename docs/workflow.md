@@ -189,6 +189,12 @@ Validate the JSONL dataset:
 nego dataset validate data/completion.jsonl --format completion
 ```
 
+Preview the exact training text Nego will feed into tokenizer and native training:
+
+```bash
+nego dataset render data/completion.jsonl --model ./models/qwen3 --format completion --n 3
+```
+
 Check token length before training:
 
 ```bash

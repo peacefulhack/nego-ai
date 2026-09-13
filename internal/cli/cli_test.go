@@ -1251,6 +1251,41 @@ func TestDatasetCommands(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "render", dataPath, "--model", modelDir, "--format", "chat", "--n", "1"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("render code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Rendered dataset") || !strings.Contains(stdout.String(), "Row 1 [chat]") || !strings.Contains(stdout.String(), "USER: hi") {
+		t.Fatalf("unexpected render output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "render", dataPath, "--model", modelDir, "--format", "chat", "--n", "1", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("render json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var rendered []struct {
+		Row    int    `json:"row"`
+		Format string `json:"format"`
+		Text   string `json:"text"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &rendered); err != nil {
+		t.Fatal(err)
+	}
+	if len(rendered) != 1 || rendered[0].Row != 1 || rendered[0].Format != "chat" || !strings.Contains(rendered[0].Text, "USER: hi") {
+		t.Fatalf("unexpected rendered json: %s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "render", dataPath, "--n", "-1"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "n must be") {
+		t.Fatalf("expected invalid n error, code=%d stderr=%q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
 	code = Run(context.Background(), []string{"dataset", "tokens", dataPath, "--model", modelDir, "--format", "chat", "--max-context", "1", "--json"}, &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("tokens over-limit code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())

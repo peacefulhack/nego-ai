@@ -390,6 +390,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset tokens <file> --model <model-path> [flags]")
+	fmt.Fprintln(w, "  nego dataset render <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
@@ -3432,6 +3433,8 @@ func runDataset(args []string, stdout, stderr io.Writer) int {
 		return runDatasetValidate(args[1:], stdout, stderr)
 	case "tokens":
 		return runDatasetTokens(args[1:], stdout, stderr)
+	case "render":
+		return runDatasetRender(args[1:], stdout, stderr)
 	case "convert":
 		return runDatasetConvert(args[1:], stdout, stderr)
 	case "filter":
@@ -3555,6 +3558,68 @@ func runDatasetTokens(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func runDatasetRender(args []string, stdout, stderr io.Writer) int {
+	var modelPath string
+	var format string
+	var n int
+	var jsonOutput bool
+	fs := flag.NewFlagSet("dataset render", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&modelPath, "model", "", "model directory for chat template rendering")
+	fs.StringVar(&format, "format", "auto", "dataset format: auto, chat, completion, or instruction")
+	fs.IntVar(&n, "n", 3, "number of rows to render, 0 for all")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego dataset render <file> [flags]")
+		return 2
+	}
+	if n < 0 {
+		fmt.Fprintln(stderr, "nego: n must be greater than or equal to 0")
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if n > 0 && n < len(rows) {
+		rows = rows[:n]
+	}
+	rendered, err := datasets.RenderTrainingRows(rows, datasets.RenderOptions{
+		ModelPath: modelPath,
+		Format:    format,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(rendered)
+		return 0
+	}
+	printRenderedDatasetRows(stdout, positionals[0], modelPath, rendered)
+	return 0
+}
+
+func printRenderedDatasetRows(w io.Writer, path, modelPath string, rows []datasets.RenderedTrainingText) {
+	fmt.Fprintln(w, "Rendered dataset")
+	fmt.Fprintf(w, "Path:   %s\n", path)
+	if modelPath != "" {
+		fmt.Fprintf(w, "Model:  %s\n", modelPath)
+	}
+	fmt.Fprintf(w, "Rows:   %d\n", len(rows))
+	for _, row := range rows {
+		fmt.Fprintf(w, "\nRow %d [%s]\n", row.Row, row.Format)
+		fmt.Fprintln(w, "---")
+		fmt.Fprintln(w, row.Text)
+		fmt.Fprintln(w, "---")
+	}
 }
 
 func runDatasetConvert(args []string, stdout, stderr io.Writer) int {
@@ -3724,6 +3789,7 @@ func datasetUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset tokens <file> --model <model-path> [flags]")
+	fmt.Fprintln(w, "  nego dataset render <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
