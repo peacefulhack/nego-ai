@@ -34,4 +34,10 @@ func main() {
 	fmt.Printf("Base model: %s\n", result.BaseModel)
 	fmt.Printf("Train file: %s (%d rows)\n", result.TrainFile, result.TrainRows)
 	fmt.Printf("Adapter: %s\n", result.AdapterPath)
+	if len(result.TopTokens) > 0 {
+		fmt.Println("Top tokens:")
+		for _, token := range result.TopTokens {
+			fmt.Printf("  %d %q count=%d bias=%.4g\n", token.ID, token.Text, token.Count, token.Bias)
+		}
+	}
 }
