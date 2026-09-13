@@ -1761,6 +1761,73 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	}
 }
 
+func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	dir := t.TempDir()
+	trainFile := filepath.Join(dir, "train.jsonl")
+	outputDir := filepath.Join(dir, "adapter")
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--dataset-format",
+		"completion",
+		"--max-context",
+		"16",
+		"--out",
+		outputDir,
+		"--dry-run",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Native training dry run passed") ||
+		!strings.Contains(stdout.String(), "Planned adapter:") ||
+		!strings.Contains(stdout.String(), "Writes:         no") ||
+		strings.Contains(stdout.String(), "Manifest:") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
+		t.Fatalf("adapter should not be written during dry run: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--dataset-format",
+		"completion",
+		"--dry-run",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var body struct {
+		Success bool `json:"success"`
+		Result  struct {
+			DryRun      bool   `json:"dry_run"`
+			AdapterPath string `json:"adapter_path"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Success || !body.Result.DryRun || body.Result.AdapterPath != "" {
+		t.Fatalf("unexpected json: %s", stdout.String())
+	}
+}
+
 func TestNativeTrainingCommandsUseAutoBackendForSafetensors(t *testing.T) {
 	result := training.NativeResult{
 		BaseModel:   "./models/qwen3",

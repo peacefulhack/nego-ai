@@ -328,7 +328,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native", "no-manifest":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native", "no-manifest", "dry-run":
 		return true
 	default:
 		return false
@@ -418,7 +418,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train capabilities <model-path> [flags]")
-	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
+	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> [--out <dir>] [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego share check <model-dir> [flags]")
@@ -962,6 +962,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	var epochs int
 	var maxContext int
 	var jsonOutput bool
+	var dryRun bool
 	fs := flag.NewFlagSet("train native", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&trainFile, "train-file", "", "training dataset file")
@@ -973,12 +974,13 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&epochs, "epochs", 1, "number of passes over the dataset")
 	fs.IntVar(&maxContext, "max-context", 0, "maximum context tokens checked before native training")
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.BoolVar(&dryRun, "dry-run", false, "validate and preview native training without writing output files")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
-	if len(positionals) != 1 || trainFile == "" || outputDir == "" {
-		fmt.Fprintln(stderr, "usage: nego train native <model-path> --train-file <file> --out <dir> [flags]")
+	if len(positionals) != 1 || trainFile == "" || (outputDir == "" && !dryRun) {
+		fmt.Fprintln(stderr, "usage: nego train native <model-path> --train-file <file> [--out <dir>] [flags]")
 		return 2
 	}
 	result, err := training.RunNative(context.Background(), training.NativeOptions{
@@ -991,6 +993,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 		LearningRate:  learningRate,
 		Epochs:        epochs,
 		MaxContext:    maxContext,
+		DryRun:        dryRun,
 	})
 	if jsonOutput {
 		body := map[string]any{
@@ -1013,7 +1016,11 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 }
 
 func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
-	fmt.Fprintln(w, "Native training completed")
+	if result.DryRun {
+		fmt.Fprintln(w, "Native training dry run passed")
+	} else {
+		fmt.Fprintln(w, "Native training completed")
+	}
 	fmt.Fprintf(w, "Base model:     %s\n", result.BaseModel)
 	fmt.Fprintf(w, "Train file:     %s (%d rows)\n", result.TrainFile, result.TrainRows)
 	if result.EvalFile != "" {
@@ -1033,7 +1040,14 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	}
 	fmt.Fprintf(w, "Train tokens:   %d\n", result.TrainTokens)
 	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
-	fmt.Fprintf(w, "Adapter:        %s\n", result.AdapterPath)
+	if result.DryRun {
+		if result.AdapterPath != "" {
+			fmt.Fprintf(w, "Planned adapter: %s\n", result.AdapterPath)
+		}
+		fmt.Fprintln(w, "Writes:         no")
+	} else {
+		fmt.Fprintf(w, "Adapter:        %s\n", result.AdapterPath)
+	}
 	if result.ManifestPath != "" {
 		fmt.Fprintf(w, "Manifest:       %s\n", result.ManifestPath)
 	}
@@ -1229,7 +1243,7 @@ func trainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train capabilities <model-path> [flags]")
-	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
+	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> [--out <dir>] [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
 

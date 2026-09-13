@@ -296,6 +296,62 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	}
 }
 
+func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3-gguf")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	outputDir := filepath.Join(dir, "outputs", "qwen3-adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.gguf"), minimalGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0,"▁world":1},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello world"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		OutputDir:     outputDir,
+		DryRun:        true,
+		MaxContext:    8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DryRun || result.AdapterPath == "" || result.UpdatedTokens != 2 || result.TrainBudget == nil {
+		t.Fatalf("unexpected dry run result: %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
+		t.Fatalf("adapter should not be written during dry run: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "manifest.json")); !os.IsNotExist(err) {
+		t.Fatalf("manifest should not be written during dry run: %v", err)
+	}
+
+	result, err = RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		DryRun:        true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AdapterPath != "" || result.OutputDir != "" {
+		t.Fatalf("dry run without output should not plan files: %#v", result)
+	}
+}
+
 func TestRunNativeRejectsRowsOverTokenBudget(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models", "qwen3")

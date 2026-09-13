@@ -28,6 +28,7 @@ type NativeOptions struct {
 	LearningRate  float64 `json:"learning_rate,omitempty"`
 	Epochs        int     `json:"epochs,omitempty"`
 	MaxContext    int     `json:"max_context,omitempty"`
+	DryRun        bool    `json:"dry_run,omitempty"`
 }
 
 type NativeResult struct {
@@ -42,6 +43,7 @@ type NativeResult struct {
 	Method        string                     `json:"method"`
 	Epochs        int                        `json:"epochs"`
 	MaxContext    int                        `json:"max_context,omitempty"`
+	DryRun        bool                       `json:"dry_run,omitempty"`
 	TrainRows     int                        `json:"train_rows"`
 	EvalRows      int                        `json:"eval_rows,omitempty"`
 	TrainBudget   *TokenBudgetSummary        `json:"train_budget,omitempty"`
@@ -88,6 +90,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 		Method:        opts.Method,
 		Epochs:        opts.Epochs,
 		MaxContext:    opts.MaxContext,
+		DryRun:        opts.DryRun,
 	}
 	normalized, err := normalizeNativeOptions(opts)
 	if err != nil {
@@ -98,6 +101,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.Method = normalized.Method
 	result.Epochs = normalized.Epochs
 	result.MaxContext = normalized.MaxContext
+	result.DryRun = normalized.DryRun
 	artifact, err := modelinfo.Resolve(normalized.BaseModel)
 	if err != nil {
 		return result, fmt.Errorf("resolve base model: %w", err)
@@ -166,13 +170,19 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 		return result, fmt.Errorf("training dataset produced no target tokens")
 	}
 	adapter := adapters.NewTokenBias(normalized.BaseModel, normalized.Method, tok.vocabSize(), counts, normalized.LearningRate)
-	adapterPath := filepath.Join(normalized.OutputDir, "adapter.json")
-	if err := adapters.Save(adapterPath, adapter); err != nil {
-		return result, err
+	if normalized.OutputDir != "" {
+		result.AdapterPath = filepath.Join(normalized.OutputDir, "adapter.json")
 	}
-	result.AdapterPath = adapterPath
 	result.Adapter = adapter
 	result.UpdatedTokens = len(adapter.Bias)
+	if normalized.DryRun {
+		result.Duration = time.Since(start)
+		result.Warnings = nativeTrainingWarnings()
+		return result, nil
+	}
+	if err := adapters.Save(result.AdapterPath, adapter); err != nil {
+		return result, err
+	}
 	manifest, err := buildNativeManifest(normalized, result, artifact)
 	if err != nil {
 		return result, err
@@ -188,11 +198,15 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	}
 	result.ReadmePath = readmePath
 	result.Duration = time.Since(start)
-	result.Warnings = []string{
+	result.Warnings = nativeTrainingWarnings()
+	return result, nil
+}
+
+func nativeTrainingWarnings() []string {
+	return []string{
 		"native training currently writes a token-bias adapter; full LoRA/backprop training is still planned",
 		"load the adapter with native backend option adapter_path when using a compatible runtime vocabulary",
 	}
-	return result, nil
 }
 
 func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *modelinfo.Artifact) (NativeManifest, error) {
@@ -364,7 +378,7 @@ func normalizeNativeOptions(opts NativeOptions) (NativeOptions, error) {
 	if opts.TrainFile == "" {
 		return opts, fmt.Errorf("train file is required")
 	}
-	if opts.OutputDir == "" {
+	if opts.OutputDir == "" && !opts.DryRun {
 		return opts, fmt.Errorf("output dir is required")
 	}
 	if opts.DatasetFormat == "" {
