@@ -95,6 +95,43 @@ func TestLoadModelExpandsNativeTrainingManifest(t *testing.T) {
 	}
 }
 
+func TestLoadModelResolvesRelativeNativeAdapterPath(t *testing.T) {
+	backend := &manifestCaptureBackend{}
+	backendName := testBackendName("manifest-relative")
+	if err := RegisterBackend(backendName, backend); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	outputDir := filepath.Join(dir, "adapter")
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := training.NativeManifest{
+		Version:            1,
+		Type:               "nego-native-adapter",
+		BaseModel:          filepath.Join(dir, "models", "qwen3"),
+		AdapterPath:        "adapter.json",
+		RecommendedBackend: backendName,
+		RuntimeOptions:     map[string]string{"adapter_path": "adapter.json"},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outputDir, "manifest.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	model, err := LoadModel(context.Background(), ModelOptions{Path: outputDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	wantAdapter := filepath.Join(outputDir, "adapter.json")
+	if backend.opts.Options["adapter_path"] != wantAdapter {
+		t.Fatalf("adapter_path = %q, want %q", backend.opts.Options["adapter_path"], wantAdapter)
+	}
+}
+
 type manifestCaptureBackend struct {
 	opts ModelOptions
 }

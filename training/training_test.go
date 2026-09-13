@@ -267,14 +267,14 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.RuntimeOptions["adapter_path"] != result.AdapterPath {
+	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.AdapterPath != "adapter.json" || manifest.RuntimeOptions["adapter_path"] != "adapter.json" {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
 	loaded, err := LoadNativeManifest(outputDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.AdapterPath != result.AdapterPath {
+	if loaded.AdapterPath != "adapter.json" {
 		t.Fatalf("loaded manifest = %#v", loaded)
 	}
 	loaded, err = LoadNativeManifest(result.ManifestPath)
@@ -288,7 +288,7 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(readme), "nego run --backend native") || !strings.Contains(string(readme), "nego chat --backend native") {
+	if !strings.Contains(string(readme), "nego run "+outputDir) || !strings.Contains(string(readme), "nego chat "+outputDir) {
 		t.Fatalf("unexpected README: %s", string(readme))
 	}
 	if result.Adapter.Bias[0] <= 0 || result.Adapter.Bias[1] <= 0 {
@@ -349,6 +349,25 @@ func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
 	}
 	if result.AdapterPath != "" || result.OutputDir != "" {
 		t.Fatalf("dry run without output should not plan files: %#v", result)
+	}
+}
+
+func TestNativeManifestRejectsEscapingAdapterPath(t *testing.T) {
+	manifest := NativeManifest{
+		Version:            1,
+		Type:               "nego-native-adapter",
+		BaseModel:          "./models/qwen3",
+		AdapterPath:        "../adapter.json",
+		RecommendedBackend: "native",
+	}
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "cannot escape") {
+		t.Fatalf("expected escaping adapter path error, got %v", err)
+	}
+
+	manifest.AdapterPath = "adapter.json"
+	manifest.RuntimeOptions = map[string]string{"adapter_path": "../adapter.json"}
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "cannot escape") {
+		t.Fatalf("expected escaping runtime option error, got %v", err)
 	}
 }
 

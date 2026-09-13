@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -317,13 +318,21 @@ func expandNativeManifestOptions(opts ModelOptions) (ModelOptions, error) {
 	if strings.TrimSpace(opts.Path) == "" {
 		return opts, nil
 	}
-	manifest, err := training.LoadNativeManifest(opts.Path)
+	manifestPath, err := training.NativeManifestPath(opts.Path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return opts, nil
 		}
 		return opts, fmt.Errorf("load native training manifest: %w", err)
 	}
+	manifest, err := training.LoadNativeManifest(manifestPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return opts, nil
+		}
+		return opts, fmt.Errorf("load native training manifest: %w", err)
+	}
+	manifestDir := filepath.Dir(manifestPath)
 	if manifest.BaseModel != "" {
 		opts.Path = manifest.BaseModel
 	}
@@ -336,11 +345,23 @@ func expandNativeManifestOptions(opts ModelOptions) (ModelOptions, error) {
 		}
 		for key, value := range manifest.RuntimeOptions {
 			if _, exists := opts.Options[key]; !exists && value != "" {
-				opts.Options[key] = value
+				opts.Options[key] = resolveManifestRuntimeOption(manifestDir, key, value)
 			}
 		}
 	}
 	return opts, nil
+}
+
+func resolveManifestRuntimeOption(manifestDir, key, value string) string {
+	switch key {
+	case "adapter", "adapter_path":
+		if filepath.IsAbs(value) {
+			return value
+		}
+		return filepath.Clean(filepath.Join(manifestDir, filepath.FromSlash(value)))
+	default:
+		return value
+	}
 }
 
 func backendInfo(name string, backend Backend) BackendInfo {

@@ -214,19 +214,20 @@ func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *mode
 	if backend == "" {
 		return NativeManifest{}, fmt.Errorf("native training output has no runnable backend recommendation")
 	}
-	runArgs := []string{"nego", "run", "--backend", backend, opts.BaseModel, "--adapter", result.AdapterPath, "Hello"}
-	chatArgs := []string{"nego", "chat", "--backend", backend, opts.BaseModel, "--adapter", result.AdapterPath, "Hello"}
+	adapterPath := manifestRelativePath(opts.OutputDir, result.AdapterPath)
+	runArgs := []string{"nego", "run", opts.OutputDir, "Hello"}
+	chatArgs := []string{"nego", "chat", opts.OutputDir, "Hello"}
 	return NativeManifest{
 		Version:            1,
 		Type:               "nego-native-adapter",
 		BaseModel:          opts.BaseModel,
-		AdapterPath:        result.AdapterPath,
+		AdapterPath:        adapterPath,
 		Method:             result.Method,
 		DatasetFormat:      result.DatasetFormat,
 		TrainFile:          opts.TrainFile,
 		EvalFile:           opts.EvalFile,
 		RecommendedBackend: backend,
-		RuntimeOptions:     map[string]string{"adapter_path": result.AdapterPath},
+		RuntimeOptions:     map[string]string{"adapter_path": adapterPath},
 		RunArgs:            runArgs,
 		ChatArgs:           chatArgs,
 		VocabSize:          result.VocabSize,
@@ -234,6 +235,25 @@ func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *mode
 		TrainTokens:        result.TrainTokens,
 		CreatedAt:          time.Now().UTC(),
 	}, nil
+}
+
+func manifestRelativePath(baseDir, path string) string {
+	if strings.TrimSpace(baseDir) == "" || strings.TrimSpace(path) == "" {
+		return path
+	}
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return path
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	rel, err := filepath.Rel(absBase, absPath)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return path
+	}
+	return filepath.ToSlash(rel)
 }
 
 func nativeTrainingRuntimeBackend(artifact *modelinfo.Artifact) string {
@@ -310,10 +330,26 @@ func (m NativeManifest) Validate() error {
 	if strings.TrimSpace(m.AdapterPath) == "" {
 		return fmt.Errorf("native training manifest adapter_path is required")
 	}
+	if pathEscapesBase(m.AdapterPath) {
+		return fmt.Errorf("native training manifest adapter_path cannot escape the manifest directory")
+	}
+	for key, value := range m.RuntimeOptions {
+		if (key == "adapter" || key == "adapter_path") && pathEscapesBase(value) {
+			return fmt.Errorf("native training manifest runtime option %q cannot escape the manifest directory", key)
+		}
+	}
 	if strings.TrimSpace(m.RecommendedBackend) == "" {
 		return fmt.Errorf("native training manifest recommended_backend is required")
 	}
 	return nil
+}
+
+func pathEscapesBase(path string) bool {
+	if filepath.IsAbs(path) {
+		return false
+	}
+	clean := filepath.Clean(filepath.FromSlash(path))
+	return clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
 func writeNativeTrainingReadme(path string, manifest NativeManifest) error {
