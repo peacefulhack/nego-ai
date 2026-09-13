@@ -63,3 +63,13 @@ func TestSampleTokenTextRejectsNilVocab(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidateGenerationContext(t *testing.T) {
+	if err := validateGenerationContext("native", 2, 2, 4); err != nil {
+		t.Fatal(err)
+	}
+	err := validateGenerationContext("native", 3, 2, 4)
+	if err == nil || !strings.Contains(err.Error(), "context exceeded") || !strings.Contains(err.Error(), "--max-tokens") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
