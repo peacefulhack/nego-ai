@@ -20,16 +20,26 @@ import (
 const maxNativeManifestBytes = 1 << 20
 
 type NativeOptions struct {
-	BaseModel     string  `json:"base_model"`
-	TrainFile     string  `json:"train_file"`
-	EvalFile      string  `json:"eval_file,omitempty"`
-	DatasetFormat string  `json:"dataset_format,omitempty"`
-	OutputDir     string  `json:"output_dir"`
-	Method        string  `json:"method,omitempty"`
-	LearningRate  float64 `json:"learning_rate,omitempty"`
-	Epochs        int     `json:"epochs,omitempty"`
-	MaxContext    int     `json:"max_context,omitempty"`
-	DryRun        bool    `json:"dry_run,omitempty"`
+	BaseModel     string               `json:"base_model"`
+	TrainFile     string               `json:"train_file"`
+	EvalFile      string               `json:"eval_file,omitempty"`
+	DatasetFormat string               `json:"dataset_format,omitempty"`
+	OutputDir     string               `json:"output_dir"`
+	Method        string               `json:"method,omitempty"`
+	LearningRate  float64              `json:"learning_rate,omitempty"`
+	Epochs        int                  `json:"epochs,omitempty"`
+	MaxContext    int                  `json:"max_context,omitempty"`
+	DryRun        bool                 `json:"dry_run,omitempty"`
+	Progress      func(NativeProgress) `json:"-"`
+}
+
+type NativeProgress struct {
+	Stage     string `json:"stage"`
+	Message   string `json:"message,omitempty"`
+	Epoch     int    `json:"epoch,omitempty"`
+	Epochs    int    `json:"epochs,omitempty"`
+	RowsDone  int    `json:"rows_done,omitempty"`
+	RowsTotal int    `json:"rows_total,omitempty"`
 }
 
 type NativeResult struct {
@@ -112,6 +122,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.Epochs = normalized.Epochs
 	result.MaxContext = normalized.MaxContext
 	result.DryRun = normalized.DryRun
+	reportNativeProgress(normalized, NativeProgress{Stage: "resolve", Message: "resolving base model"})
 	artifact, err := modelinfo.Resolve(normalized.BaseModel)
 	if err != nil {
 		return result, fmt.Errorf("resolve base model: %w", err)
@@ -120,11 +131,13 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	if !nativeTrainingFormat(artifact.Format) {
 		return result, fmt.Errorf("native token-bias training requires GGUF or Hugging Face safetensors weights, got %s", artifact.Format)
 	}
+	reportNativeProgress(normalized, NativeProgress{Stage: "tokenizer", Message: "loading training tokenizer"})
 	tok, err := loadNativeTrainingTokenizer(normalized.BaseModel, artifact)
 	if err != nil {
 		return result, err
 	}
 	result.VocabSize = tok.vocabSize()
+	reportNativeProgress(normalized, NativeProgress{Stage: "read_train", Message: "reading training dataset"})
 	rows, err := datasets.ReadFile(resolvePath("", normalized.TrainFile))
 	if err != nil {
 		return result, fmt.Errorf("train file %q is invalid: %w", normalized.TrainFile, err)
@@ -137,6 +150,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	}
 	result.TrainRows = len(rows)
 	if normalized.MaxContext > 0 {
+		reportNativeProgress(normalized, NativeProgress{Stage: "train_budget", Message: "checking training token budget", RowsTotal: len(rows)})
 		budget, err := nativeRowsTokenBudget(rows, normalized.DatasetFormat, tok, normalized.MaxContext)
 		result.TrainBudget = budget
 		if err != nil {
@@ -144,6 +158,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 		}
 	}
 	if normalized.EvalFile != "" {
+		reportNativeProgress(normalized, NativeProgress{Stage: "read_eval", Message: "reading evaluation dataset"})
 		evalRows, err := datasets.ReadFile(resolvePath("", normalized.EvalFile))
 		if err != nil {
 			return result, fmt.Errorf("eval file %q is invalid: %w", normalized.EvalFile, err)
@@ -153,6 +168,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 		}
 		result.EvalRows = len(evalRows)
 		if normalized.MaxContext > 0 {
+			reportNativeProgress(normalized, NativeProgress{Stage: "eval_budget", Message: "checking evaluation token budget", RowsTotal: len(evalRows)})
 			budget, err := nativeRowsTokenBudget(evalRows, normalized.DatasetFormat, tok, normalized.MaxContext)
 			result.EvalBudget = budget
 			if err != nil {
@@ -162,9 +178,14 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	}
 	counts := make(map[int]int)
 	for epoch := 0; epoch < normalized.Epochs; epoch++ {
-		for _, text := range targetTexts(rows, normalized.DatasetFormat) {
+		reportNativeProgress(normalized, NativeProgress{Stage: "train", Message: "training native adapter", Epoch: epoch + 1, Epochs: normalized.Epochs, RowsTotal: len(rows)})
+		for i, row := range rows {
 			if err := ctx.Err(); err != nil {
 				return result, err
+			}
+			text := targetText(row, normalized.DatasetFormat)
+			if strings.TrimSpace(text) == "" {
+				continue
 			}
 			ids, err := tok.encode(text)
 			if err != nil {
@@ -174,6 +195,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 			for _, id := range ids {
 				counts[id]++
 			}
+			reportNativeProgress(normalized, NativeProgress{Stage: "train", Message: "training native adapter", Epoch: epoch + 1, Epochs: normalized.Epochs, RowsDone: i + 1, RowsTotal: len(rows)})
 		}
 	}
 	if len(counts) == 0 {
@@ -189,8 +211,10 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	if normalized.DryRun {
 		result.Duration = time.Since(start)
 		result.Warnings = nativeTrainingWarnings()
+		reportNativeProgress(normalized, NativeProgress{Stage: "done", Message: "native training dry run completed"})
 		return result, nil
 	}
+	reportNativeProgress(normalized, NativeProgress{Stage: "write_adapter", Message: "writing adapter"})
 	if err := adapters.Save(result.AdapterPath, adapter); err != nil {
 		return result, err
 	}
@@ -199,6 +223,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 		return result, err
 	}
 	manifestPath := filepath.Join(normalized.OutputDir, "manifest.json")
+	reportNativeProgress(normalized, NativeProgress{Stage: "write_manifest", Message: "writing manifest"})
 	if err := writeNativeManifest(manifestPath, manifest); err != nil {
 		return result, err
 	}
@@ -210,7 +235,14 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.ReadmePath = readmePath
 	result.Duration = time.Since(start)
 	result.Warnings = nativeTrainingWarnings()
+	reportNativeProgress(normalized, NativeProgress{Stage: "done", Message: "native training completed"})
 	return result, nil
+}
+
+func reportNativeProgress(opts NativeOptions, event NativeProgress) {
+	if opts.Progress != nil {
+		opts.Progress(event)
+	}
 }
 
 func nativeTrainingWarnings() []string {
@@ -658,17 +690,6 @@ func chatBudgetText(row datasets.Row) string {
 		fmt.Fprintf(&b, "%s: %s\n", strings.ToUpper(role), content)
 	}
 	return b.String()
-}
-
-func targetTexts(rows []datasets.Row, format string) []string {
-	texts := make([]string, 0, len(rows))
-	for _, row := range rows {
-		text := targetText(row, format)
-		if strings.TrimSpace(text) != "" {
-			texts = append(texts, text)
-		}
-	}
-	return texts
 }
 
 func targetText(row datasets.Row, format string) string {

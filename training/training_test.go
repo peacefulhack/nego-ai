@@ -320,6 +320,7 @@ func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var stages []string
 	result, err := RunNative(context.Background(), NativeOptions{
 		BaseModel:     modelDir,
 		TrainFile:     trainFile,
@@ -327,6 +328,9 @@ func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
 		OutputDir:     outputDir,
 		DryRun:        true,
 		MaxContext:    8,
+		Progress: func(event NativeProgress) {
+			stages = append(stages, event.Stage)
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -339,6 +343,11 @@ func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "manifest.json")); !os.IsNotExist(err) {
 		t.Fatalf("manifest should not be written during dry run: %v", err)
+	}
+	for _, want := range []string{"resolve", "tokenizer", "read_train", "train_budget", "train", "done"} {
+		if !containsStage(stages, want) {
+			t.Fatalf("expected progress stage %q in %#v", want, stages)
+		}
 	}
 
 	result, err = RunNative(context.Background(), NativeOptions{
@@ -353,6 +362,15 @@ func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
 	if result.AdapterPath != "" || result.OutputDir != "" {
 		t.Fatalf("dry run without output should not plan files: %#v", result)
 	}
+}
+
+func containsStage(stages []string, want string) bool {
+	for _, stage := range stages {
+		if stage == want {
+			return true
+		}
+	}
+	return false
 }
 
 func TestNativeManifestRejectsEscapingAdapterPath(t *testing.T) {

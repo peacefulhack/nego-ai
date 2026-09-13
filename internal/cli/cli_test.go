@@ -1831,6 +1831,9 @@ func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
+	if !strings.Contains(stderr.String(), "Resolving base model") || !strings.Contains(stderr.String(), "Training native adapter") {
+		t.Fatalf("expected progress output, got stderr=%q", stderr.String())
+	}
 	if !strings.Contains(stdout.String(), "Native training dry run passed") ||
 		!strings.Contains(stdout.String(), "Planned adapter:") ||
 		!strings.Contains(stdout.String(), "Writes:         no") ||
@@ -1857,6 +1860,9 @@ func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
 	}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("json mode should not write progress, got stderr=%q", stderr.String())
 	}
 	var body struct {
 		Success bool `json:"success"`

@@ -995,6 +995,10 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego train native <model-path> --train-file <file> [--out <dir>] [flags]")
 		return 2
 	}
+	var progress func(training.NativeProgress)
+	if !jsonOutput {
+		progress = nativeTrainingProgressPrinter(stderr)
+	}
 	result, err := training.RunNative(context.Background(), training.NativeOptions{
 		BaseModel:     positionals[0],
 		TrainFile:     trainFile,
@@ -1006,6 +1010,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 		Epochs:        epochs,
 		MaxContext:    maxContext,
 		DryRun:        dryRun,
+		Progress:      progress,
 	})
 	if jsonOutput {
 		body := map[string]any{
@@ -1025,6 +1030,47 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func nativeTrainingProgressPrinter(w io.Writer) func(training.NativeProgress) {
+	seen := make(map[string]bool)
+	return func(event training.NativeProgress) {
+		if event.Stage == "" {
+			return
+		}
+		key := event.Stage
+		if event.Stage == "train" {
+			key = fmt.Sprintf("%s:%d:%d", event.Stage, event.Epoch, event.RowsDone)
+			if event.RowsDone > 0 && event.RowsDone < event.RowsTotal && event.RowsDone%100 != 0 {
+				return
+			}
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		message := event.Message
+		if message == "" {
+			message = event.Stage
+		}
+		if event.Stage == "train" && event.RowsTotal > 0 {
+			if event.RowsDone > 0 {
+				fmt.Fprintf(w, "Training native adapter: epoch %d/%d rows %d/%d\n", event.Epoch, event.Epochs, event.RowsDone, event.RowsTotal)
+				return
+			}
+			fmt.Fprintf(w, "Training native adapter: epoch %d/%d rows 0/%d\n", event.Epoch, event.Epochs, event.RowsTotal)
+			return
+		}
+		fmt.Fprintf(w, "%s...\n", sentenceCase(message))
+	}
+}
+
+func sentenceCase(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
+	return strings.ToUpper(value[:1]) + value[1:]
 }
 
 func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
