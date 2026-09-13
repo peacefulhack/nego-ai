@@ -17,6 +17,7 @@ import (
 	"time"
 
 	nego "github.com/gakon/nego-ai"
+	"github.com/gakon/nego-ai/datasets"
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/registry"
 	"github.com/gakon/nego-ai/modelinfo"
@@ -1407,6 +1408,36 @@ func TestDatasetCommands(t *testing.T) {
 	}
 	if strings.Count(strings.TrimSpace(stdout.String()), "\n")+1 != 1 || !strings.Contains(stdout.String(), `"prompt":"hi"`) {
 		t.Fatalf("unexpected filter output: %q", stdout.String())
+	}
+
+	dedupePath := filepath.Join(dir, "dupes.csv")
+	if err := os.WriteFile(dedupePath, []byte("prompt,completion,split\nhi,hello,train\n hi ,HELLO,test\nbye,later,test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dedupeOut := filepath.Join(dir, "deduped.jsonl")
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "dedupe", dedupePath, "--key", "prompt,completion", "--trim-space", "--ignore-case", "--out", dedupeOut, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("dedupe code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var dedupeSummary struct {
+		InputRows  int `json:"input_rows"`
+		OutputRows int `json:"output_rows"`
+		Removed    int `json:"removed"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &dedupeSummary); err != nil {
+		t.Fatal(err)
+	}
+	if dedupeSummary.InputRows != 3 || dedupeSummary.OutputRows != 2 || dedupeSummary.Removed != 1 {
+		t.Fatalf("unexpected dedupe summary: %s", stdout.String())
+	}
+	dedupedRows, err := datasets.ReadFile(dedupeOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dedupedRows) != 2 || dedupedRows[0]["split"] != "train" || dedupedRows[1]["prompt"] != "bye" {
+		t.Fatalf("unexpected deduped rows: %#v", dedupedRows)
 	}
 
 	stdout.Reset()

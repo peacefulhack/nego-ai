@@ -183,22 +183,32 @@ The output JSONL shape is:
 {"prompt":"Explain AI briefly.","completion":"AI is software that performs tasks requiring intelligence."}
 ```
 
+Remove exact duplicate training examples:
+
+```bash
+nego dataset dedupe data/completion.jsonl \
+  --key prompt \
+  --key completion \
+  --trim-space \
+  --out data/completion.deduped.jsonl
+```
+
 Validate the JSONL dataset:
 
 ```bash
-nego dataset validate data/completion.jsonl --format completion
+nego dataset validate data/completion.deduped.jsonl --format completion
 ```
 
 Preview the exact training text Nego will feed into tokenizer and native training:
 
 ```bash
-nego dataset render data/completion.jsonl --model ./models/qwen3 --format completion --n 3
+nego dataset render data/completion.deduped.jsonl --model ./models/qwen3 --format completion --n 3
 ```
 
 Check token length before training:
 
 ```bash
-nego dataset tokens data/completion.jsonl --model ./models/qwen3 --format completion --max-context 4096
+nego dataset tokens data/completion.deduped.jsonl --model ./models/qwen3 --format completion --max-context 4096
 ```
 
 Filter rows for a subset:
@@ -213,7 +223,7 @@ nego dataset filter examples/3.prepare-dataset/completion-data.csv \
 Split train/test:
 
 ```bash
-nego dataset split data/completion.jsonl \
+nego dataset split data/completion.deduped.jsonl \
   --train-out data/train.jsonl \
   --test-out data/test.jsonl \
   --test-size 0.1

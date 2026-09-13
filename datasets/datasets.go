@@ -30,6 +30,17 @@ type Filter struct {
 	Value string
 }
 
+type DedupeOptions struct {
+	Keys       []string
+	TrimSpace  bool
+	IgnoreCase bool
+}
+
+type DedupeResult struct {
+	Rows    []Row
+	Removed int
+}
+
 func ReadJSONL(r io.Reader) ([]Row, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
@@ -194,6 +205,80 @@ func FilterRows(rows []Row, filters []Filter) []Row {
 		}
 	}
 	return filtered
+}
+
+func DedupeRows(rows []Row, opts DedupeOptions) DedupeResult {
+	seen := make(map[string]bool, len(rows))
+	out := make([]Row, 0, len(rows))
+	keys := cleanDedupeKeys(opts.Keys)
+	for _, row := range rows {
+		key := dedupeRowKey(row, keys, opts)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, row)
+	}
+	return DedupeResult{Rows: out, Removed: len(rows) - len(out)}
+}
+
+func cleanDedupeKeys(keys []string) []string {
+	out := make([]string, 0, len(keys))
+	seen := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out
+}
+
+func dedupeRowKey(row Row, keys []string, opts DedupeOptions) string {
+	var value any
+	if len(keys) == 0 {
+		value = normalizeDedupeValue(row, opts)
+	} else {
+		values := make([]any, len(keys))
+		for i, key := range keys {
+			values[i] = normalizeDedupeValue(row[key], opts)
+		}
+		value = values
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprint(value)
+	}
+	return string(data)
+}
+
+func normalizeDedupeValue(value any, opts DedupeOptions) any {
+	switch typed := value.(type) {
+	case string:
+		if opts.TrimSpace {
+			typed = strings.TrimSpace(typed)
+		}
+		if opts.IgnoreCase {
+			typed = strings.ToLower(typed)
+		}
+		return typed
+	case []any:
+		out := make([]any, len(typed))
+		for i, item := range typed {
+			out[i] = normalizeDedupeValue(item, opts)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(typed))
+		for key, item := range typed {
+			out[key] = normalizeDedupeValue(item, opts)
+		}
+		return out
+	default:
+		return typed
+	}
 }
 
 func ValidateRequiredFields(rows []Row, fields ...string) error {

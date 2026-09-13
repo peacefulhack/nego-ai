@@ -283,6 +283,7 @@ nego dataset tokens data.jsonl --model ./models/qwen3 --format chat --max-contex
 nego dataset render data.jsonl --model ./models/qwen3 --format chat --n 3
 nego dataset convert data.csv --out data.jsonl --select prompt,completion --require prompt,completion
 nego dataset filter data.jsonl --where split=train --out train-only.jsonl
+nego dataset dedupe data.jsonl --key prompt --key completion --trim-space --out data.deduped.jsonl
 nego dataset sample data.jsonl --n 5
 nego dataset split data.jsonl --train-out train.jsonl --test-out test.jsonl --test-size 0.1
 ```

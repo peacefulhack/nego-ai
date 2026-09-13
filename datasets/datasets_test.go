@@ -78,6 +78,33 @@ func TestParseAndFilterRows(t *testing.T) {
 	}
 }
 
+func TestDedupeRowsByKeys(t *testing.T) {
+	rows := []Row{
+		{"prompt": "Hello", "completion": "World", "source": "a"},
+		{"prompt": " hello ", "completion": "world", "source": "b"},
+		{"prompt": "Hello", "completion": "Again", "source": "c"},
+	}
+	result := DedupeRows(rows, DedupeOptions{Keys: []string{"prompt", "completion"}, TrimSpace: true, IgnoreCase: true})
+	if len(result.Rows) != 2 || result.Removed != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.Rows[0]["source"] != "a" || result.Rows[1]["source"] != "c" {
+		t.Fatalf("dedupe should keep first occurrence order: %#v", result.Rows)
+	}
+}
+
+func TestDedupeRowsWholeRow(t *testing.T) {
+	rows := []Row{
+		{"prompt": "hi", "completion": "hello"},
+		{"completion": "hello", "prompt": "hi"},
+		{"prompt": "hi", "completion": "bye"},
+	}
+	result := DedupeRows(rows, DedupeOptions{})
+	if len(result.Rows) != 2 || result.Removed != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
 func TestValidateRequiredFields(t *testing.T) {
 	if err := ValidateRequiredFields([]Row{{"prompt": "hi"}}, "prompt"); err != nil {
 		t.Fatal(err)
