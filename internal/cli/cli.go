@@ -4358,11 +4358,13 @@ func runModelsInfo(args []string, stdout, stderr io.Writer) int {
 func runModelsList(args []string, stdout, stderr io.Writer) int {
 	var cacheDir string
 	var jsonOutput bool
+	var withStatus bool
 
 	fs := flag.NewFlagSet("models list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.BoolVar(&withStatus, "status", false, "include local artifact format and run/train readiness")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -4391,16 +4393,58 @@ func runModelsList(args []string, stdout, stderr io.Writer) int {
 	}
 
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "REPO\tREVISION\tSIZE\tFILES\tLOCAL PATH")
+	if withStatus {
+		fmt.Fprintln(tw, "REPO\tREVISION\tFORMAT\tRUN\tTRAIN\tSIZE\tFILES\tLOCAL PATH")
+	} else {
+		fmt.Fprintln(tw, "REPO\tREVISION\tSIZE\tFILES\tLOCAL PATH")
+	}
 	for _, entry := range entries {
-		localPath := entry.LocalDir
-		if localPath == "" {
-			localPath = entry.SnapshotPath
+		localPath := modelEntryLocalPath(entry)
+		if withStatus {
+			status := modelEntryStatus(localPath)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n", entry.RepoID, entry.Revision, status.format, status.run, status.train, humanBytes(entry.TotalSize), entry.FileCount, localPath)
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", entry.RepoID, entry.Revision, humanBytes(entry.TotalSize), entry.FileCount, localPath)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", entry.RepoID, entry.Revision, humanBytes(entry.TotalSize), entry.FileCount, localPath)
 	}
 	_ = tw.Flush()
 	return 0
+}
+
+type modelEntryStatusResult struct {
+	format string
+	run    string
+	train  string
+}
+
+func modelEntryLocalPath(entry registry.Entry) string {
+	if entry.LocalDir != "" {
+		return entry.LocalDir
+	}
+	return entry.SnapshotPath
+}
+
+func modelEntryStatus(path string) modelEntryStatusResult {
+	if strings.TrimSpace(path) == "" {
+		return modelEntryStatusResult{format: "missing", run: "not ready", train: "not ready"}
+	}
+	artifact, err := modelinfo.Resolve(path)
+	if err != nil {
+		return modelEntryStatusResult{format: "missing", run: "not ready", train: "not ready"}
+	}
+	run := artifact.RecommendedRunBackend
+	if run == "" {
+		run = "not ready"
+	}
+	train := artifact.RecommendedTrainBackend
+	if train == "" {
+		train = "not ready"
+	}
+	format := string(artifact.Format)
+	if format == "" {
+		format = "unknown"
+	}
+	return modelEntryStatusResult{format: format, run: run, train: train}
 }
 
 func modelsUsage(w io.Writer) {

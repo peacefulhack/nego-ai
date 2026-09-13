@@ -217,6 +217,49 @@ func TestModelsListJSON(t *testing.T) {
 	}
 }
 
+func TestModelsListStatus(t *testing.T) {
+	cacheDir := t.TempDir()
+	modelDir := filepath.Join(t.TempDir(), "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"num_hidden_layers":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), cliSafetensorsFixture(t, `{
+		"model.embed_tokens.weight":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}
+	}`, 4), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := registry.NewStore(cacheDir).Upsert(registry.Entry{
+		RepoID:    "Qwen/Qwen3-0.6B",
+		RepoType:  "model",
+		Revision:  "main",
+		Commit:    "abc123",
+		LocalDir:  modelDir,
+		FileCount: 3,
+		TotalSize: 1024,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"models", "list", "--cache-dir", cacheDir, "--status"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"FORMAT", "RUN", "TRAIN", "hf-safetensors", "not ready", "native-token-bias"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestModelsListEmpty(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := Run(context.Background(), []string{"models", "list", "--cache-dir", t.TempDir()}, &stdout, &stderr)
