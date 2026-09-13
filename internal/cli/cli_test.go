@@ -1538,6 +1538,66 @@ func TestChatCommandUsesConfigFile(t *testing.T) {
 	}
 }
 
+func TestConfigRunCommandWritesRuntimeConfig(t *testing.T) {
+	dir := t.TempDir()
+	baseDir := filepath.Join(dir, "models", "qwen3")
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, "generation_config.json"), []byte(`{"max_new_tokens":7,"temperature":0.5,"top_k":12,"stop_strings":["END"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	adapterDir := filepath.Join(dir, "outputs", "qwen3-token-bias")
+	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"version":1,"type":"nego-native-adapter","base_model":` + strconv.Quote(baseDir) + `,"adapter_path":"adapter.json","recommended_backend":"native-hf","method":"token-bias","runtime_options":{"adapter_path":"adapter.json"},"updated_tokens":1}`
+	if err := os.WriteFile(filepath.Join(adapterDir, "manifest.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(adapterDir, "adapter.json"), []byte(`{"version":1,"type":"token_bias","vocab_size":2,"bias":{"1":0.1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "configs", "run.json")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"config",
+		"run",
+		adapterDir,
+		"--out",
+		configPath,
+		"--prompt",
+		"hello",
+		"--system",
+		"Helpful",
+		"--log",
+		"runs.jsonl",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Runtime config:") || !strings.Contains(stdout.String(), "nego run -f") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg runtimeConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Backend != "native-hf" || cfg.Path != adapterDir || cfg.Prompt != "hello" || cfg.System != "Helpful" || cfg.Log != "runs.jsonl" {
+		t.Fatalf("unexpected config: %#v", cfg)
+	}
+	if cfg.MaxTokens != 7 || cfg.Temperature != 0.5 || cfg.TopK != 12 || len(cfg.Stop) != 1 || cfg.Stop[0] != "END" {
+		t.Fatalf("generation defaults were not applied: %#v", cfg)
+	}
+	if len(cfg.Options) != 0 {
+		t.Fatalf("adapter manifest options should be resolved by loader, got %#v", cfg.Options)
+	}
+}
+
 func TestEmbedCommand(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/embeddings" {

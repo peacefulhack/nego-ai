@@ -345,6 +345,9 @@ dataset row contents.
 ```bash
 nego inspect ./outputs/qwen3-token-bias
 nego check ./outputs/qwen3-token-bias
+nego config run ./outputs/qwen3-token-bias --out configs/qwen3-token-bias.json --prompt "Hello" --log runs.jsonl
+nego run -f configs/qwen3-token-bias.json
+nego chat -f configs/qwen3-token-bias.json
 nego run ./outputs/qwen3-token-bias "Hello"
 nego chat ./outputs/qwen3-token-bias "Hello"
 nego serve ./outputs/qwen3-token-bias

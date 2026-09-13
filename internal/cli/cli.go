@@ -84,6 +84,8 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runModel(args[1:], stdout, stderr)
 	case "chat":
 		return runChat(args[1:], stdin, stdout, stderr)
+	case "config":
+		return runConfig(args[1:], stdout, stderr)
 	case "serve":
 		return runServe(args[1:], stdout, stderr)
 	case "embed":
@@ -407,6 +409,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego memory <model-path> [flags]")
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
+	fmt.Fprintln(w, "  nego config run <model-path> --out <config.json> [flags]")
 	fmt.Fprintln(w, "  nego serve <model-path> [flags]")
 	fmt.Fprintln(w, "  nego embed <text> --endpoint <url> --model <name> [flags]")
 	fmt.Fprintln(w, "  nego eval <suite.json> [flags]")
@@ -448,6 +451,105 @@ func runShare(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		shareUsage(stderr)
 		return 2
 	}
+}
+
+func runConfig(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		configUsage(stderr)
+		return 2
+	}
+	switch args[0] {
+	case "run":
+		return runConfigRun(args[1:], stdout, stderr)
+	case "help", "-h", "--help":
+		configUsage(stdout)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown config command %q\n", args[0])
+		configUsage(stderr)
+		return 2
+	}
+}
+
+func runConfigRun(args []string, stdout, stderr io.Writer) int {
+	var out string
+	var prompt string
+	var system string
+	var logPath string
+	var maxTokens int
+	var temperature float64
+	var topK int
+	var topP float64
+	var repeatPenalty float64
+	var seed int64
+	var jsonOutput bool
+	fs := flag.NewFlagSet("config run", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&out, "out", "", "runtime config output path")
+	fs.StringVar(&prompt, "prompt", "Hello", "default prompt for nego run/chat")
+	fs.StringVar(&system, "system", "", "default system message for nego chat")
+	fs.StringVar(&logPath, "log", "", "default JSONL run log path")
+	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
+	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
+	fs.IntVar(&topK, "top-k", 0, "keep only the top k tokens during sampling")
+	fs.Float64Var(&topP, "top-p", 0, "nucleus sampling probability")
+	fs.Float64Var(&repeatPenalty, "repeat-penalty", 0, "penalty for repeated tokens, >= 1")
+	fs.Int64Var(&seed, "seed", 0, "random seed")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON config to stdout")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || (out == "" && !jsonOutput) {
+		fmt.Fprintln(stderr, "usage: nego config run <model-path> --out <config.json> [flags]")
+		return 2
+	}
+	if err := validateTopK(topK); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
+	if err := validateRepeatPenalty(repeatPenalty); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
+	cfg, err := buildRuntimeConfig(positionals[0], runtimeConfigOverrides{
+		prompt:        prompt,
+		system:        system,
+		logPath:       logPath,
+		maxTokens:     maxTokens,
+		temperature:   temperature,
+		topK:          topK,
+		topP:          topP,
+		repeatPenalty: repeatPenalty,
+		seed:          seed,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if out != "" {
+		if err := writeRuntimeConfig(out, cfg); err != nil {
+			fmt.Fprintf(stderr, "nego: write config: %v\n", err)
+			return 1
+		}
+	}
+	if jsonOutput {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		_ = encoder.Encode(cfg)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Runtime config: %s\n", out)
+	fmt.Fprintf(stdout, "Backend:        %s\n", cfg.Backend)
+	fmt.Fprintf(stdout, "Model path:     %s\n", cfg.Path)
+	fmt.Fprintf(stdout, "Run:            nego run -f %s\n", out)
+	fmt.Fprintf(stdout, "Chat:           nego chat -f %s\n", out)
+	return 0
+}
+
+func configUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage:")
+	fmt.Fprintln(w, "  nego config run <model-path> --out <config.json> [flags]")
 }
 
 func runShareManifest(args []string, stdout, stderr io.Writer) int {
@@ -2954,6 +3056,92 @@ type runtimeConfig struct {
 	Log           string            `json:"log"`
 	Session       string            `json:"session"`
 	Save          string            `json:"save"`
+}
+
+type runtimeConfigOverrides struct {
+	prompt        string
+	system        string
+	logPath       string
+	maxTokens     int
+	temperature   float64
+	topK          int
+	topP          float64
+	repeatPenalty float64
+	seed          int64
+}
+
+func buildRuntimeConfig(path string, overrides runtimeConfigOverrides) (runtimeConfig, error) {
+	artifact, err := modelinfo.Resolve(path)
+	if err != nil {
+		return runtimeConfig{}, err
+	}
+	if artifact.RecommendedRunBackend == "" {
+		return runtimeConfig{}, modelinfo.FormatResolveError(path, artifact)
+	}
+	cfg := runtimeConfig{
+		Backend:       artifact.RecommendedRunBackend,
+		Path:          path,
+		Prompt:        overrides.prompt,
+		System:        overrides.system,
+		Log:           overrides.logPath,
+		MaxTokens:     overrides.maxTokens,
+		Temperature:   overrides.temperature,
+		TopK:          overrides.topK,
+		TopP:          overrides.topP,
+		RepeatPenalty: overrides.repeatPenalty,
+		Seed:          overrides.seed,
+	}
+	applyRuntimeConfigGenerationDefaults(&cfg, path, artifact)
+	return cfg, nil
+}
+
+func applyRuntimeConfigGenerationDefaults(cfg *runtimeConfig, path string, artifact *modelinfo.Artifact) {
+	paths := []string{path}
+	if artifact != nil && artifact.NativeAdapter != nil && artifact.NativeAdapter.BaseModel != "" {
+		paths = append(paths, artifact.NativeAdapter.BaseModel)
+	}
+	for _, candidate := range paths {
+		gen, err := modelinfo.LoadGenerationConfig(candidate)
+		if err != nil || gen == nil {
+			continue
+		}
+		if cfg.MaxTokens == 0 && gen.MaxNewTokens != nil {
+			cfg.MaxTokens = *gen.MaxNewTokens
+		}
+		if cfg.Temperature == 0 && gen.Temperature != nil {
+			cfg.Temperature = *gen.Temperature
+		}
+		if cfg.TopK == 0 && gen.TopK != nil {
+			cfg.TopK = *gen.TopK
+		}
+		if cfg.TopP == 0 && gen.TopP != nil {
+			cfg.TopP = *gen.TopP
+		}
+		if cfg.RepeatPenalty == 0 && gen.RepetitionPenalty != nil {
+			cfg.RepeatPenalty = *gen.RepetitionPenalty
+		}
+		if len(cfg.Stop) == 0 && len(gen.StopStrings) > 0 {
+			cfg.Stop = append([]string(nil), gen.StopStrings...)
+		}
+		return
+	}
+}
+
+func writeRuntimeConfig(path string, cfg runtimeConfig) error {
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(cfg)
 }
 
 type chatSession struct {
