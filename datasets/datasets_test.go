@@ -105,6 +105,25 @@ func TestDedupeRowsWholeRow(t *testing.T) {
 	}
 }
 
+func TestAnalyzeQuality(t *testing.T) {
+	rows := []Row{
+		{"prompt": "hi", "completion": "hello"},
+		{"prompt": " hi ", "completion": "hello"},
+		{"prompt": "bye", "completion": ""},
+	}
+	report := AnalyzeQuality(rows, QualityOptions{
+		Format:     "completion",
+		DedupeKeys: []string{"prompt", "completion"},
+		TrimSpace:  true,
+	})
+	if report.Valid || report.Rows != 3 || report.Duplicates != 1 || report.Error == "" {
+		t.Fatalf("unexpected report: %#v", report)
+	}
+	if len(report.Fields) != 2 || report.Fields[1].Empty != 1 {
+		t.Fatalf("unexpected fields: %#v", report.Fields)
+	}
+}
+
 func TestValidateRequiredFields(t *testing.T) {
 	if err := ValidateRequiredFields([]Row{{"prompt": "hi"}}, "prompt"); err != nil {
 		t.Fatal(err)

@@ -391,6 +391,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego backends list [flags]")
 	fmt.Fprintln(w, "  nego backends info <name> [flags]")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset quality <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset tokens <file> --model <model-path> [flags]")
 	fmt.Fprintln(w, "  nego dataset render <file> [flags]")
@@ -3785,6 +3786,8 @@ func runDataset(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "inspect":
 		return runDatasetInspect(args[1:], stdout, stderr)
+	case "quality":
+		return runDatasetQuality(args[1:], stdout, stderr)
 	case "validate":
 		return runDatasetValidate(args[1:], stdout, stderr)
 	case "tokens":
@@ -3844,6 +3847,77 @@ func runDatasetInspect(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	return 0
+}
+
+func runDatasetQuality(args []string, stdout, stderr io.Writer) int {
+	var format string
+	var requireFields string
+	var keys repeatedFlag
+	var trimSpace bool
+	var ignoreCase bool
+	var jsonOutput bool
+	fs := flag.NewFlagSet("dataset quality", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&format, "format", "auto", "dataset format: auto, chat, completion, or instruction")
+	fs.StringVar(&requireFields, "require", "", "comma-separated fields that must be present and non-empty")
+	fs.Var(&keys, "key", "field used to count duplicates, repeatable")
+	fs.BoolVar(&trimSpace, "trim-space", false, "trim string fields before duplicate checks")
+	fs.BoolVar(&ignoreCase, "ignore-case", false, "case-fold string fields before duplicate checks")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego dataset quality <file> [flags]")
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	report := datasets.AnalyzeQuality(rows, datasets.QualityOptions{
+		Format:     format,
+		Required:   splitCommaFields(requireFields),
+		DedupeKeys: expandRepeatedCommaFields(keys),
+		TrimSpace:  trimSpace,
+		IgnoreCase: ignoreCase,
+	})
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(report)
+	} else {
+		writeDatasetQuality(stdout, report)
+	}
+	if !report.Valid {
+		return 1
+	}
+	return 0
+}
+
+func writeDatasetQuality(w io.Writer, report datasets.QualityReport) {
+	status := "ok"
+	if !report.Valid {
+		status = "invalid"
+	}
+	fmt.Fprintln(w, "Dataset quality")
+	fmt.Fprintf(w, "Rows:       %d\n", report.Rows)
+	fmt.Fprintf(w, "Format:     %s\n", report.Format)
+	fmt.Fprintf(w, "Status:     %s\n", status)
+	if report.Duplicates > 0 {
+		fmt.Fprintf(w, "Duplicates: %d\n", report.Duplicates)
+	}
+	if report.Error != "" {
+		fmt.Fprintf(w, "Error:      %s\n", report.Error)
+	}
+	if len(report.Fields) > 0 {
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "FIELD\tPRESENT\tMISSING\tEMPTY")
+		for _, field := range report.Fields {
+			fmt.Fprintf(tw, "%s\t%d\t%d\t%d\n", field.Field, field.Present, field.Missing, field.Empty)
+		}
+		_ = tw.Flush()
+	}
 }
 
 func runDatasetValidate(args []string, stdout, stderr io.Writer) int {
@@ -4200,6 +4274,7 @@ func runDatasetSample(args []string, stdout, stderr io.Writer) int {
 func datasetUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset quality <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset tokens <file> --model <model-path> [flags]")
 	fmt.Fprintln(w, "  nego dataset render <file> [flags]")

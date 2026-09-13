@@ -41,6 +41,30 @@ type DedupeResult struct {
 	Removed int
 }
 
+type QualityOptions struct {
+	Format     string
+	Required   []string
+	DedupeKeys []string
+	TrimSpace  bool
+	IgnoreCase bool
+}
+
+type QualityReport struct {
+	Rows       int            `json:"rows"`
+	Format     string         `json:"format"`
+	Valid      bool           `json:"valid"`
+	Error      string         `json:"error,omitempty"`
+	Fields     []FieldQuality `json:"fields,omitempty"`
+	Duplicates int            `json:"duplicates,omitempty"`
+}
+
+type FieldQuality struct {
+	Field   string `json:"field"`
+	Present int    `json:"present"`
+	Missing int    `json:"missing"`
+	Empty   int    `json:"empty"`
+}
+
 func ReadJSONL(r io.Reader) ([]Row, error) {
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
@@ -220,6 +244,76 @@ func DedupeRows(rows []Row, opts DedupeOptions) DedupeResult {
 		out = append(out, row)
 	}
 	return DedupeResult{Rows: out, Removed: len(rows) - len(out)}
+}
+
+func AnalyzeQuality(rows []Row, opts QualityOptions) QualityReport {
+	format := strings.ToLower(strings.TrimSpace(opts.Format))
+	if format == "" {
+		format = "auto"
+	}
+	required := cleanDedupeKeys(opts.Required)
+	if len(required) == 0 {
+		required = defaultRequiredFields(format)
+	}
+	report := QualityReport{
+		Rows:   len(rows),
+		Format: format,
+		Valid:  true,
+		Fields: analyzeFieldQuality(rows, required),
+	}
+	if len(opts.DedupeKeys) > 0 {
+		report.Duplicates = DedupeRows(rows, DedupeOptions{
+			Keys:       opts.DedupeKeys,
+			TrimSpace:  opts.TrimSpace,
+			IgnoreCase: opts.IgnoreCase,
+		}).Removed
+	}
+	if err := ValidateFormat(rows, format); err != nil {
+		report.Valid = false
+		report.Error = err.Error()
+		return report
+	}
+	for _, field := range report.Fields {
+		if field.Missing > 0 || field.Empty > 0 {
+			report.Valid = false
+			report.Error = fmt.Sprintf("field %q has missing=%d empty=%d", field.Field, field.Missing, field.Empty)
+			return report
+		}
+	}
+	return report
+}
+
+func analyzeFieldQuality(rows []Row, fields []string) []FieldQuality {
+	out := make([]FieldQuality, 0, len(fields))
+	for _, field := range fields {
+		quality := FieldQuality{Field: field}
+		for _, row := range rows {
+			value, ok := row[field]
+			if !ok {
+				quality.Missing++
+				continue
+			}
+			quality.Present++
+			if strings.TrimSpace(valueString(value)) == "" {
+				quality.Empty++
+			}
+		}
+		out = append(out, quality)
+	}
+	return out
+}
+
+func defaultRequiredFields(format string) []string {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "completion":
+		return []string{"prompt", "completion"}
+	case "instruction":
+		return []string{"instruction", "output"}
+	case "chat":
+		return []string{"messages"}
+	default:
+		return nil
+	}
 }
 
 func cleanDedupeKeys(keys []string) []string {

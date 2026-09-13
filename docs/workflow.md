@@ -196,6 +196,7 @@ nego dataset dedupe data/completion.jsonl \
 Validate the JSONL dataset:
 
 ```bash
+nego dataset quality data/completion.deduped.jsonl --format completion --key prompt --key completion
 nego dataset validate data/completion.deduped.jsonl --format completion
 ```
 

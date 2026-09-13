@@ -1311,6 +1311,16 @@ func TestDatasetCommands(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "quality", dataPath, "--format", "chat", "--key", "messages"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("quality code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Dataset quality") || !strings.Contains(stdout.String(), "Status:     ok") {
+		t.Fatalf("unexpected quality output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
 	code = Run(context.Background(), []string{"dataset", "validate", dataPath, "--format", "chat"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("validate code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
@@ -1413,6 +1423,19 @@ func TestDatasetCommands(t *testing.T) {
 	dedupePath := filepath.Join(dir, "dupes.csv")
 	if err := os.WriteFile(dedupePath, []byte("prompt,completion,split\nhi,hello,train\n hi ,HELLO,test\nbye,later,test\n"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "quality", dedupePath, "--format", "completion", "--key", "prompt,completion", "--trim-space", "--ignore-case", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("quality json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var qualityReport datasets.QualityReport
+	if err := json.Unmarshal(stdout.Bytes(), &qualityReport); err != nil {
+		t.Fatal(err)
+	}
+	if !qualityReport.Valid || qualityReport.Duplicates != 1 || qualityReport.Rows != 3 {
+		t.Fatalf("unexpected quality report: %#v", qualityReport)
 	}
 	dedupeOut := filepath.Join(dir, "deduped.jsonl")
 	stdout.Reset()
