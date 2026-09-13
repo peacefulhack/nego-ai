@@ -1971,6 +1971,36 @@ func TestShareManifestCommand(t *testing.T) {
 	}
 }
 
+func TestShareManifestCommandDetectsNativeAdapter(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "manifest.json"), []byte(`{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "adapter.json"), []byte(`{"version":1,"type":"token_bias","vocab_size":10,"bias":{"1":0.1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "share-manifest.json")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "manifest", modelDir, "--out", outPath, "--repo", "user/qwen3-adapter"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Artifact:       native-adapter") || !strings.Contains(stdout.String(), "Base model:     ./models/qwen3") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"artifact_type": "native-adapter"`) || !strings.Contains(string(data), `"native_adapter"`) {
+		t.Fatalf("unexpected manifest: %s", string(data))
+	}
+}
+
 func TestSharePackageCommand(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "model")

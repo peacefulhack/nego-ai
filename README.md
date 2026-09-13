@@ -356,6 +356,9 @@ nego share package ./outputs/qwen3-lora --out ./outputs/qwen3-lora.tar.gz --repo
 nego share upload username/qwen3-lora ./outputs/qwen3-lora README.md --token $HF_TOKEN
 ```
 
+When the path is a Nego native adapter output, share manifests automatically
+include adapter metadata from `manifest.json`.
+
 `nego share check` reports files that are too large for inline uploads. `nego share upload` currently supports regular inline Hub commit uploads. Large model files that require Hugging Face LFS/Xet upload are still planned.
 
 ## Eval

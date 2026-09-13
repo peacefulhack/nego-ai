@@ -646,6 +646,9 @@ nego share manifest ./outputs/qwen3-sft \
   --base-model Qwen/Qwen3-0.6B
 ```
 
+If the path is a Nego native adapter output, `nego share manifest` reads
+`manifest.json` and includes native adapter metadata automatically.
+
 Check whether the output can be uploaded through the current inline uploader:
 
 ```bash

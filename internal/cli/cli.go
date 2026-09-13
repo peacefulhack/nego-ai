@@ -490,6 +490,12 @@ func runShareManifest(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	fmt.Fprintf(stdout, "Share manifest: %s\n", out)
+	if manifest.ArtifactType != "" {
+		fmt.Fprintf(stdout, "Artifact:       %s\n", manifest.ArtifactType)
+	}
+	if manifest.BaseModel != "" {
+		fmt.Fprintf(stdout, "Base model:     %s\n", manifest.BaseModel)
+	}
 	fmt.Fprintf(stdout, "Files:          %d\n", len(manifest.Files))
 	fmt.Fprintf(stdout, "Size:           %s\n", humanBytes(manifest.TotalSize))
 	return 0
@@ -576,6 +582,12 @@ func printShareCheck(w io.Writer, report *share.CheckReport) {
 	fmt.Fprintf(w, "Path:          %s\n", report.Path)
 	if report.RepoID != "" {
 		fmt.Fprintf(w, "Repo:          %s\n", report.RepoID)
+	}
+	if report.BaseModel != "" {
+		fmt.Fprintf(w, "Base model:    %s\n", report.BaseModel)
+	}
+	if report.ArtifactType != "" {
+		fmt.Fprintf(w, "Artifact:      %s\n", report.ArtifactType)
 	}
 	fmt.Fprintf(w, "Files:         %d\n", report.Files)
 	fmt.Fprintf(w, "Size:          %s\n", humanBytes(report.TotalSize))
