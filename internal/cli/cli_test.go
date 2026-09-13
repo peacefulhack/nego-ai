@@ -1463,6 +1463,21 @@ func TestDatasetCommands(t *testing.T) {
 		t.Fatalf("unexpected deduped rows: %#v", dedupedRows)
 	}
 
+	shuffleOut := filepath.Join(dir, "shuffled.jsonl")
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "shuffle", dataPath, "--seed", "7", "--out", shuffleOut}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("shuffle code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	shuffledRows, err := datasets.ReadFile(shuffleOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shuffledRows) != 3 || !strings.Contains(stdout.String(), "Shuffled: 3 rows") {
+		t.Fatalf("unexpected shuffled rows: rows=%#v stdout=%q", shuffledRows, stdout.String())
+	}
+
 	stdout.Reset()
 	stderr.Reset()
 	code = Run(context.Background(), []string{"dataset", "sample", dataPath, "--n", "2"}, &stdout, &stderr)

@@ -398,6 +398,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset dedupe <file> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset shuffle <file> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset sample <file> [flags]")
 	fmt.Fprintln(w, "  nego cache usage [flags]")
@@ -3840,6 +3841,8 @@ func runDataset(args []string, stdout, stderr io.Writer) int {
 		return runDatasetFilter(args[1:], stdout, stderr)
 	case "dedupe":
 		return runDatasetDedupe(args[1:], stdout, stderr)
+	case "shuffle":
+		return runDatasetShuffle(args[1:], stdout, stderr)
 	case "split":
 		return runDatasetSplit(args[1:], stdout, stderr)
 	case "sample":
@@ -4231,6 +4234,37 @@ func runDatasetDedupe(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runDatasetShuffle(args []string, stdout, stderr io.Writer) int {
+	var output string
+	var seed int64
+	fs := flag.NewFlagSet("dataset shuffle", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&output, "out", "", "output JSONL file, or - for stdout")
+	fs.Int64Var(&seed, "seed", 42, "shuffle seed")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || output == "" {
+		fmt.Fprintln(stderr, "usage: nego dataset shuffle <file> --out <file> [flags]")
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	shuffled := datasets.Shuffle(rows, seed)
+	if err := writeDatasetRows(output, shuffled, stdout); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if output != "-" {
+		fmt.Fprintf(stdout, "Shuffled: %d rows -> %s\n", len(shuffled), output)
+	}
+	return 0
+}
+
 func runDatasetSplit(args []string, stdout, stderr io.Writer) int {
 	var trainOut string
 	var testOut string
@@ -4321,6 +4355,7 @@ func datasetUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset dedupe <file> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset shuffle <file> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset sample <file> [flags]")
 }

@@ -36,6 +36,18 @@ func TestSplit(t *testing.T) {
 	}
 }
 
+func TestShuffle(t *testing.T) {
+	rows := []Row{{"id": 1}, {"id": 2}, {"id": 3}, {"id": 4}}
+	first := Shuffle(rows, 42)
+	second := Shuffle(rows, 42)
+	if len(first) != len(rows) || first[0]["id"] != second[0]["id"] {
+		t.Fatalf("shuffle should be deterministic: %#v %#v", first, second)
+	}
+	if rows[0]["id"] != 1 {
+		t.Fatalf("shuffle should not mutate input: %#v", rows)
+	}
+}
+
 func TestSelectAndRequireFields(t *testing.T) {
 	rows := []Row{
 		{"prompt": "hi", "completion": "hello", "meta": "keep out"},

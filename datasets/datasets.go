@@ -162,6 +162,15 @@ func Split(rows []Row, testRatio float64, seed int64) ([]Row, []Row) {
 	return train, test
 }
 
+func Shuffle(rows []Row, seed int64) []Row {
+	copied := append([]Row(nil), rows...)
+	rng := rand.New(rand.NewSource(seed))
+	rng.Shuffle(len(copied), func(i, j int) {
+		copied[i], copied[j] = copied[j], copied[i]
+	})
+	return copied
+}
+
 func SelectFields(rows []Row, fields []string) []Row {
 	if len(fields) == 0 {
 		return append([]Row(nil), rows...)
