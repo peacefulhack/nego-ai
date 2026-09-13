@@ -52,6 +52,7 @@ type NativeResult struct {
 	ManifestPath  string                     `json:"manifest_path,omitempty"`
 	ReadmePath    string                     `json:"readme_path,omitempty"`
 	Method        string                     `json:"method"`
+	LearningRate  float64                    `json:"learning_rate,omitempty"`
 	Epochs        int                        `json:"epochs"`
 	MaxContext    int                        `json:"max_context,omitempty"`
 	DryRun        bool                       `json:"dry_run,omitempty"`
@@ -119,6 +120,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.DatasetFormat = normalized.DatasetFormat
 	result.OutputDir = normalized.OutputDir
 	result.Method = normalized.Method
+	result.LearningRate = normalized.LearningRate
 	result.Epochs = normalized.Epochs
 	result.MaxContext = normalized.MaxContext
 	result.DryRun = normalized.DryRun

@@ -36,6 +36,26 @@ type Entry struct {
 	Stop          []string          `json:"stop,omitempty"`
 	Seed          int64             `json:"seed,omitempty"`
 	Options       map[string]string `json:"options,omitempty"`
+	Training      *Training         `json:"training,omitempty"`
+}
+
+type Training struct {
+	Method        string  `json:"method,omitempty"`
+	TrainFile     string  `json:"train_file,omitempty"`
+	EvalFile      string  `json:"eval_file,omitempty"`
+	DatasetFormat string  `json:"dataset_format,omitempty"`
+	OutputDir     string  `json:"output_dir,omitempty"`
+	AdapterPath   string  `json:"adapter_path,omitempty"`
+	ManifestPath  string  `json:"manifest_path,omitempty"`
+	Artifact      string  `json:"artifact,omitempty"`
+	DryRun        bool    `json:"dry_run,omitempty"`
+	LearningRate  float64 `json:"learning_rate,omitempty"`
+	Epochs        int     `json:"epochs,omitempty"`
+	MaxContext    int     `json:"max_context,omitempty"`
+	TrainRows     int     `json:"train_rows,omitempty"`
+	EvalRows      int     `json:"eval_rows,omitempty"`
+	VocabSize     int     `json:"vocab_size,omitempty"`
+	TopTokenIDs   []int   `json:"top_token_ids,omitempty"`
 }
 
 func NewID() string {

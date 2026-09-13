@@ -975,6 +975,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	var maxContext int
 	var jsonOutput bool
 	var dryRun bool
+	var logPath string
 	fs := flag.NewFlagSet("train native", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&trainFile, "train-file", "", "training dataset file")
@@ -987,6 +988,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&maxContext, "max-context", 0, "maximum context tokens checked before native training")
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
 	fs.BoolVar(&dryRun, "dry-run", false, "validate and preview native training without writing output files")
+	fs.StringVar(&logPath, "log", "", "append training result to JSONL run log")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -999,6 +1001,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	if !jsonOutput {
 		progress = nativeTrainingProgressPrinter(stderr)
 	}
+	started := time.Now().UTC()
 	result, err := training.RunNative(context.Background(), training.NativeOptions{
 		BaseModel:     positionals[0],
 		TrainFile:     trainFile,
@@ -1012,6 +1015,15 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 		DryRun:        dryRun,
 		Progress:      progress,
 	})
+	if logPath != "" {
+		entry := nativeTrainingLogEntry(result, positionals[0], trainFile, evalFile, datasetFormat, outputDir, method, learningRate, epochs, maxContext, dryRun, started, err)
+		if logErr := appendRuntimeLog(logPath, entry); logErr != nil {
+			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
+			if err == nil {
+				return 1
+			}
+		}
+	}
 	if jsonOutput {
 		body := map[string]any{
 			"success": err == nil,
@@ -1028,6 +1040,56 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	}
 	if err != nil {
 		return 1
+	}
+	return 0
+}
+
+func nativeTrainingLogEntry(result training.NativeResult, baseModel, trainFile, evalFile, datasetFormat, outputDir, method string, learningRate float64, epochs, maxContext int, dryRun bool, started time.Time, trainErr error) runs.Entry {
+	artifact := ""
+	if result.Artifact != nil {
+		artifact = string(result.Artifact.Format)
+	}
+	topTokenIDs := make([]int, 0, len(result.TopTokens))
+	for _, token := range result.TopTokens {
+		topTokenIDs = append(topTokenIDs, token.ID)
+	}
+	entry := runs.Entry{
+		ID:         runs.NewID(),
+		Command:    "train native",
+		Backend:    "native",
+		Path:       baseModel,
+		StartedAt:  started,
+		DurationMS: time.Since(started).Milliseconds(),
+		Training: &runs.Training{
+			Method:        firstNonEmptyString(result.Method, method),
+			TrainFile:     trainFile,
+			EvalFile:      evalFile,
+			DatasetFormat: firstNonEmptyString(result.DatasetFormat, datasetFormat),
+			OutputDir:     firstNonEmptyString(result.OutputDir, outputDir),
+			AdapterPath:   result.AdapterPath,
+			ManifestPath:  result.ManifestPath,
+			Artifact:      artifact,
+			DryRun:        dryRun || result.DryRun,
+			LearningRate:  result.LearningRate,
+			Epochs:        firstPositive(result.Epochs, epochs),
+			MaxContext:    firstPositive(result.MaxContext, maxContext),
+			TrainRows:     result.TrainRows,
+			EvalRows:      result.EvalRows,
+			VocabSize:     result.VocabSize,
+			TopTokenIDs:   topTokenIDs,
+		},
+	}
+	if trainErr != nil {
+		entry.Error = trainErr.Error()
+	}
+	return entry
+}
+
+func firstPositive(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
 	}
 	return 0
 }
@@ -4139,6 +4201,61 @@ func writeRunInfo(w io.Writer, entry runs.Entry) {
 	}
 	if entry.Output != "" {
 		fmt.Fprintf(w, "Output:\n%s\n", entry.Output)
+	}
+	if entry.Training != nil {
+		writeTrainingRunInfo(w, *entry.Training)
+	}
+}
+
+func writeTrainingRunInfo(w io.Writer, info runs.Training) {
+	fmt.Fprintln(w, "Training:")
+	if info.Method != "" {
+		fmt.Fprintf(w, "  Method:        %s\n", info.Method)
+	}
+	if info.Artifact != "" {
+		fmt.Fprintf(w, "  Artifact:      %s\n", info.Artifact)
+	}
+	if info.DatasetFormat != "" {
+		fmt.Fprintf(w, "  Dataset:       %s\n", info.DatasetFormat)
+	}
+	if info.TrainFile != "" {
+		fmt.Fprintf(w, "  Train file:    %s\n", info.TrainFile)
+	}
+	if info.EvalFile != "" {
+		fmt.Fprintf(w, "  Eval file:     %s\n", info.EvalFile)
+	}
+	if info.OutputDir != "" {
+		fmt.Fprintf(w, "  Output dir:    %s\n", info.OutputDir)
+	}
+	if info.AdapterPath != "" {
+		fmt.Fprintf(w, "  Adapter:       %s\n", info.AdapterPath)
+	}
+	if info.ManifestPath != "" {
+		fmt.Fprintf(w, "  Manifest:      %s\n", info.ManifestPath)
+	}
+	if info.DryRun {
+		fmt.Fprintln(w, "  Dry run:       yes")
+	}
+	if info.LearningRate > 0 {
+		fmt.Fprintf(w, "  Learning rate: %.6g\n", info.LearningRate)
+	}
+	if info.Epochs > 0 {
+		fmt.Fprintf(w, "  Epochs:        %d\n", info.Epochs)
+	}
+	if info.MaxContext > 0 {
+		fmt.Fprintf(w, "  Max context:   %d\n", info.MaxContext)
+	}
+	if info.TrainRows > 0 {
+		fmt.Fprintf(w, "  Train rows:    %d\n", info.TrainRows)
+	}
+	if info.EvalRows > 0 {
+		fmt.Fprintf(w, "  Eval rows:     %d\n", info.EvalRows)
+	}
+	if info.VocabSize > 0 {
+		fmt.Fprintf(w, "  Vocab size:    %d\n", info.VocabSize)
+	}
+	if len(info.TopTokenIDs) > 0 {
+		fmt.Fprintf(w, "  Top token IDs: %s\n", joinInts(info.TopTokenIDs))
 	}
 }
 

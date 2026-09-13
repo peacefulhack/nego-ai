@@ -20,6 +20,7 @@ import (
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/registry"
 	"github.com/gakon/nego-ai/modelinfo"
+	"github.com/gakon/nego-ai/runs"
 	"github.com/gakon/nego-ai/share"
 	"github.com/gakon/nego-ai/training"
 )
@@ -1802,6 +1803,64 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTrainNativeCommandWritesRunLog(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	dir := t.TempDir()
+	trainFile := filepath.Join(dir, "train.jsonl")
+	outputDir := filepath.Join(dir, "adapter")
+	logPath := filepath.Join(dir, "runs.jsonl")
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"secret completion"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--dataset-format",
+		"completion",
+		"--max-context",
+		"64",
+		"--out",
+		outputDir,
+		"--log",
+		logPath,
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	entries, err := runs.Read(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Command != "train native" || entries[0].Training == nil {
+		t.Fatalf("unexpected entries: %#v", entries)
+	}
+	info := entries[0].Training
+	if info.Method != "token-bias" || info.DatasetFormat != "completion" || info.TrainRows != 1 || info.AdapterPath == "" {
+		t.Fatalf("unexpected training info: %#v", info)
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "secret") {
+		t.Fatalf("run log should not include dataset contents: %s", string(raw))
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"runs", "show", logPath, entries[0].ID}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("show code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Training:") || !strings.Contains(stdout.String(), "Train rows:    1") {
+		t.Fatalf("unexpected runs show output: %q", stdout.String())
 	}
 }
 

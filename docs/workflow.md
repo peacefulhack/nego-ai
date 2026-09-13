@@ -491,7 +491,8 @@ nego train native ./models/qwen3 \
   --train-file examples/5.train/train.jsonl \
   --dataset-format completion \
   --max-context 4096 \
-  --out ./outputs/qwen3-token-bias
+  --out ./outputs/qwen3-token-bias \
+  --log runs.jsonl
 
 nego train native ./models/qwen3-gguf \
   --train-file examples/5.train/train.jsonl \
@@ -512,6 +513,9 @@ README.md
 runtime options, and reusable `run_args` / `chat_args`. `README.md` gives the
 same next-step commands for humans. Native training also records top updated
 tokens so you can catch dataset formatting mistakes before reusing the adapter.
+Use `--log runs.jsonl` when you want the training result to appear in
+`nego runs list runs.jsonl` and `nego runs show runs.jsonl <id>`. The training
+log stores dataset paths and summary counts, not dataset row contents.
 
 Load the adapter for native generation:
 

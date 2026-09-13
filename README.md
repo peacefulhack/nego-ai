@@ -319,7 +319,7 @@ Native token-bias adapter training is available as an early pure-Go path for GGU
 ```bash
 nego train capabilities ./models/qwen3
 nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --dry-run
-nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --out ./outputs/qwen3-token-bias
+nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --out ./outputs/qwen3-token-bias --log runs.jsonl
 nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --out ./outputs/qwen3-token-bias
 nego run --native ./models/qwen3-gguf "Hello" --adapter ./outputs/qwen3-token-bias/adapter.json --max-tokens 16
 ```
@@ -339,6 +339,8 @@ The output directory also includes `manifest.json` and `README.md` so the
 trained adapter can be inspected or reused by local tooling. You can run a
 native training output directory directly. Native training output includes
 top updated tokens so you can sanity-check what the dataset reinforced.
+Pass `--log runs.jsonl` to record a training experiment summary without storing
+dataset row contents.
 
 ```bash
 nego inspect ./outputs/qwen3-token-bias
