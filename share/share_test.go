@@ -66,6 +66,9 @@ func TestBuildManifestDetectsNativeAdapter(t *testing.T) {
 	if manifest.NativeAdapter.UpdatedTokens != 1 || len(manifest.NativeAdapter.TopTokens) != 1 {
 		t.Fatalf("unexpected native adapter summary: %#v", manifest.NativeAdapter)
 	}
+	if manifest.NativeAdapter.TopTokens[0].Text != "" {
+		t.Fatalf("share manifest should not include token text: %#v", manifest.NativeAdapter.TopTokens)
+	}
 	if !hasFileKind(manifest.Files, "manifest.json", "native_manifest") || !hasFileKind(manifest.Files, "adapter.json", "native_adapter") {
 		t.Fatalf("unexpected file kinds: %#v", manifest.Files)
 	}

@@ -258,8 +258,20 @@ func shareNativeAdapterInfo(info *modelinfo.NativeAdapterInfo) *NativeAdapterInf
 		VocabSize:          info.VocabSize,
 		UpdatedTokens:      info.UpdatedTokens,
 		TrainTokens:        info.TrainTokens,
-		TopTokens:          append([]modelinfo.NativeAdapterToken(nil), info.TopTokens...),
+		TopTokens:          shareNativeAdapterTokens(info.TopTokens),
 	}
+}
+
+func shareNativeAdapterTokens(tokens []modelinfo.NativeAdapterToken) []modelinfo.NativeAdapterToken {
+	if len(tokens) == 0 {
+		return nil
+	}
+	out := make([]modelinfo.NativeAdapterToken, 0, len(tokens))
+	for _, token := range tokens {
+		token.Text = ""
+		out = append(out, token)
+	}
+	return out
 }
 
 func fileSHA256(path string) (string, error) {
