@@ -13,6 +13,7 @@ const (
 	ArtifactFormatHFSafetensors ArtifactFormat = "hf-safetensors"
 	ArtifactFormatONNX          ArtifactFormat = "onnx"
 	ArtifactFormatMixed         ArtifactFormat = "mixed"
+	ArtifactFormatNativeAdapter ArtifactFormat = "native-adapter"
 	ArtifactFormatMetadataOnly  ArtifactFormat = "metadata-only"
 )
 
@@ -41,6 +42,7 @@ type Artifact struct {
 	RecommendedTrainBackend string               `json:"recommended_train_backend,omitempty"`
 	RunBackends             []ArtifactCapability `json:"run_backends,omitempty"`
 	TrainBackends           []ArtifactCapability `json:"train_backends,omitempty"`
+	NativeAdapter           *NativeAdapterInfo   `json:"native_adapter,omitempty"`
 	Warnings                []string             `json:"warnings,omitempty"`
 }
 
@@ -69,6 +71,7 @@ func resolveArtifact(info *Info, report *CheckReport) *Artifact {
 		ModelType:     info.ModelType,
 		Architectures: append([]string(nil), info.Architectures...),
 		ChatTemplate:  hasChatTemplate(info),
+		NativeAdapter: info.NativeAdapter,
 	}
 	if report != nil {
 		artifact.RuntimeFile = report.RuntimeFile
@@ -94,6 +97,9 @@ func artifactFormat(info *Info) ArtifactFormat {
 	hasGGUF := info.GGUF != nil || hasFileKindValue(info.Files, "gguf")
 	hasSafetensors := info.Safetensors != nil || hasFileKindValue(info.Files, "safetensors")
 	hasONNX := hasFileKindValue(info.Files, "onnx")
+	if info.NativeAdapter != nil {
+		return ArtifactFormatNativeAdapter
+	}
 	count := boolCount(hasGGUF, hasSafetensors, hasONNX)
 	if count > 1 {
 		return ArtifactFormatMixed
@@ -115,6 +121,17 @@ func artifactFormat(info *Info) ArtifactFormat {
 func runCapabilities(artifact *Artifact, report *CheckReport) []ArtifactCapability {
 	var out []ArtifactCapability
 	switch artifact.Format {
+	case ArtifactFormatNativeAdapter:
+		name := "native"
+		reason := "native training output can be loaded through its manifest"
+		if artifact.NativeAdapter != nil && artifact.NativeAdapter.RecommendedBackend != "" {
+			name = artifact.NativeAdapter.RecommendedBackend
+		}
+		out = append(out, ArtifactCapability{
+			Name:   name,
+			Status: CapabilityExperimental,
+			Reason: reason,
+		})
 	case ArtifactFormatGGUF, ArtifactFormatMixed:
 		native := backendCompatibilityByName(report, "native")
 		if native.Compatible {
@@ -136,10 +153,17 @@ func runCapabilities(artifact *Artifact, report *CheckReport) []ArtifactCapabili
 			Reason: "GGUF runtime file can be run through the optional llama.cpp backend",
 		})
 	case ArtifactFormatHFSafetensors:
+		nativeHF := backendCompatibilityByName(report, "native-hf")
+		status := CapabilityUnsupported
+		reason := firstNonEmpty(nativeHF.Reason, "native-hf cannot run this safetensors artifact yet")
+		if nativeHF.Compatible {
+			status = CapabilityExperimental
+			reason = "native-hf can run safetensors models through the experimental pure-Go path; production-quality generation is still in progress"
+		}
 		out = append(out, ArtifactCapability{
 			Name:   "native-hf",
-			Status: CapabilityExperimental,
-			Reason: "native-hf can run safetensors models through the experimental pure-Go path; production-quality generation is still in progress",
+			Status: status,
+			Reason: reason,
 		})
 	case ArtifactFormatONNX:
 		out = append(out, ArtifactCapability{
@@ -159,6 +183,14 @@ func runCapabilities(artifact *Artifact, report *CheckReport) []ArtifactCapabili
 
 func trainCapabilities(artifact *Artifact) []ArtifactCapability {
 	switch artifact.Format {
+	case ArtifactFormatNativeAdapter:
+		return []ArtifactCapability{
+			{
+				Name:   "native-token-bias",
+				Status: CapabilityExperimental,
+				Reason: "artifact is already a native token-bias adapter output",
+			},
+		}
 	case ArtifactFormatHFSafetensors, ArtifactFormatMixed:
 		return []ArtifactCapability{
 			{
@@ -239,7 +271,7 @@ func artifactWarnings(artifact *Artifact, report *CheckReport) []string {
 	if artifact.RecommendedTrainBackend == "" {
 		add("no training backend is ready for this artifact yet")
 	}
-	if artifact.Format == ArtifactFormatHFSafetensors {
+	if artifact.Format == ArtifactFormatHFSafetensors && artifact.RecommendedRunBackend != "" {
 		add("downloaded Hugging Face safetensors can run through the experimental native-hf backend; production-quality native chat is still in progress")
 	}
 	return warnings

@@ -10,7 +10,7 @@ import (
 func TestInspectParsesMetadataAndDetectsFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "config.json", `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`)
-	writeFile(t, dir, "generation_config.json", `{"temperature":0.7}`)
+	writeFile(t, dir, "generation_config.json", `{"temperature":0.7,"top_p":0.8,"eos_token_id":[151645,151643]}`)
 	writeFile(t, dir, "tokenizer.json", `{}`)
 	writeFile(t, dir, "model.safetensors", "weights")
 	writeFile(t, dir, "README.md", strings.Join([]string{
@@ -58,6 +58,12 @@ func TestInspectParsesMetadataAndDetectsFiles(t *testing.T) {
 	if len(info.Card.Tags) != 2 || info.Card.Tags[0] != "qwen" || len(info.Card.Languages) != 2 {
 		t.Fatalf("Card lists = %#v", info.Card)
 	}
+	if info.Generation == nil || info.Generation.Temperature == nil || *info.Generation.Temperature != 0.7 {
+		t.Fatalf("Generation = %#v", info.Generation)
+	}
+	if len(info.Generation.EOSTokenIDs) != 2 || info.Generation.EOSTokenIDs[0] != 151645 {
+		t.Fatalf("EOSTokenIDs = %#v", info.Generation.EOSTokenIDs)
+	}
 }
 
 func TestInspectAllowsMissingOptionalJSON(t *testing.T) {
@@ -84,6 +90,25 @@ func TestInspectModelCardFile(t *testing.T) {
 		t.Fatalf("Card = %#v", info.Card)
 	}
 	if !hasFileKind(info.Files, "README.md", "model_card") {
+		t.Fatalf("Files = %#v", info.Files)
+	}
+}
+
+func TestInspectNativeAdapterManifest(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "manifest.json", `{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2}`)
+	writeFile(t, dir, "adapter.json", `{"version":1,"type":"token_bias","bias":{"1":0.1}}`)
+	info, err := Inspect(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.NativeAdapter == nil {
+		t.Fatalf("NativeAdapter = nil")
+	}
+	if info.NativeAdapter.BaseModel != "./models/qwen3" || info.NativeAdapter.RecommendedBackend != "native-hf" || info.NativeAdapter.UpdatedTokens != 2 {
+		t.Fatalf("NativeAdapter = %#v", info.NativeAdapter)
+	}
+	if !hasFileKind(info.Files, "manifest.json", "native_manifest") || !hasFileKind(info.Files, "adapter.json", "native_adapter") {
 		t.Fatalf("Files = %#v", info.Files)
 	}
 }

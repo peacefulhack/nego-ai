@@ -23,6 +23,7 @@ type JobSpec struct {
 	EvalFile      string            `json:"eval_file,omitempty"`
 	DatasetFormat string            `json:"dataset_format,omitempty"`
 	OutputDir     string            `json:"output_dir,omitempty"`
+	MaxContext    int               `json:"max_context,omitempty"`
 	Command       string            `json:"command"`
 	Args          []string          `json:"args,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
@@ -38,20 +39,23 @@ type Result struct {
 }
 
 type PreflightReport struct {
-	Name          string   `json:"name,omitempty"`
-	Method        string   `json:"method,omitempty"`
-	BaseModel     string   `json:"base_model,omitempty"`
-	ModelType     string   `json:"model_type,omitempty"`
-	Architectures []string `json:"architectures,omitempty"`
-	TrainFile     string   `json:"train_file,omitempty"`
-	TrainRows     int      `json:"train_rows,omitempty"`
-	EvalFile      string   `json:"eval_file,omitempty"`
-	EvalRows      int      `json:"eval_rows,omitempty"`
-	DatasetFormat string   `json:"dataset_format,omitempty"`
-	OutputDir     string   `json:"output_dir,omitempty"`
-	Command       string   `json:"command,omitempty"`
-	Args          []string `json:"args,omitempty"`
-	Warnings      []string `json:"warnings,omitempty"`
+	Name          string              `json:"name,omitempty"`
+	Method        string              `json:"method,omitempty"`
+	BaseModel     string              `json:"base_model,omitempty"`
+	ModelType     string              `json:"model_type,omitempty"`
+	Architectures []string            `json:"architectures,omitempty"`
+	TrainFile     string              `json:"train_file,omitempty"`
+	TrainRows     int                 `json:"train_rows,omitempty"`
+	EvalFile      string              `json:"eval_file,omitempty"`
+	EvalRows      int                 `json:"eval_rows,omitempty"`
+	DatasetFormat string              `json:"dataset_format,omitempty"`
+	OutputDir     string              `json:"output_dir,omitempty"`
+	MaxContext    int                 `json:"max_context,omitempty"`
+	TrainTokens   *TokenBudgetSummary `json:"train_tokens,omitempty"`
+	EvalTokens    *TokenBudgetSummary `json:"eval_tokens,omitempty"`
+	Command       string              `json:"command,omitempty"`
+	Args          []string            `json:"args,omitempty"`
+	Warnings      []string            `json:"warnings,omitempty"`
 }
 
 type InitOptions struct {
@@ -62,6 +66,7 @@ type InitOptions struct {
 	EvalFile      string
 	DatasetFormat string
 	OutputDir     string
+	MaxContext    int
 	Command       string
 	Script        string
 	WorkDir       string
@@ -95,6 +100,7 @@ func NewLoRAJob(opts InitOptions) (JobSpec, error) {
 		EvalFile:      opts.EvalFile,
 		DatasetFormat: opts.DatasetFormat,
 		OutputDir:     opts.OutputDir,
+		MaxContext:    opts.MaxContext,
 		Command:       opts.Command,
 		Args: []string{
 			opts.Script,
@@ -117,6 +123,12 @@ func NewLoRAJob(opts InitOptions) (JobSpec, error) {
 func Validate(spec JobSpec) error {
 	if spec.Command == "" {
 		return fmt.Errorf("training command is required")
+	}
+	if spec.MaxContext < 0 {
+		return fmt.Errorf("max context must be greater than or equal to 0")
+	}
+	if spec.MaxContext > 0 && spec.BaseModel == "" {
+		return fmt.Errorf("base model is required when max context is set")
 	}
 	if spec.WorkDir != "" {
 		if err := requireDir("", spec.WorkDir, "work dir"); err != nil {
@@ -174,6 +186,7 @@ func Preflight(spec JobSpec) (PreflightReport, error) {
 		EvalFile:      spec.EvalFile,
 		DatasetFormat: spec.DatasetFormat,
 		OutputDir:     spec.OutputDir,
+		MaxContext:    spec.MaxContext,
 		Command:       spec.Command,
 		Args:          append([]string(nil), spec.Args...),
 	}
@@ -198,6 +211,13 @@ func Preflight(spec JobSpec) (PreflightReport, error) {
 			return report, err
 		}
 		report.TrainRows = rows
+		if spec.MaxContext > 0 {
+			budget, err := analyzeDatasetTokenBudget(spec.WorkDir, spec.TrainFile, "train file", report.DatasetFormat, spec.BaseModel, spec.MaxContext)
+			report.TrainTokens = budget
+			if err != nil {
+				return report, err
+			}
+		}
 	}
 	if spec.EvalFile != "" {
 		rows, err := validateDatasetFile(spec.WorkDir, spec.EvalFile, "eval file", report.DatasetFormat)
@@ -205,6 +225,13 @@ func Preflight(spec JobSpec) (PreflightReport, error) {
 			return report, err
 		}
 		report.EvalRows = rows
+		if spec.MaxContext > 0 {
+			budget, err := analyzeDatasetTokenBudget(spec.WorkDir, spec.EvalFile, "eval file", report.DatasetFormat, spec.BaseModel, spec.MaxContext)
+			report.EvalTokens = budget
+			if err != nil {
+				return report, err
+			}
+		}
 	}
 	return report, nil
 }
@@ -320,6 +347,59 @@ func validateDatasetFile(workDir, path, label, format string) (int, error) {
 		return 0, fmt.Errorf("%s %q does not match %s format: %w", label, path, format, err)
 	}
 	return len(rows), nil
+}
+
+type TokenBudgetSummary struct {
+	Rows          int                       `json:"rows"`
+	CountedRows   int                       `json:"counted_rows"`
+	MaxContext    int                       `json:"max_context"`
+	TotalTokens   int                       `json:"total_tokens"`
+	MinTokens     int                       `json:"min_tokens"`
+	MaxTokens     int                       `json:"max_tokens"`
+	AverageTokens float64                   `json:"average_tokens"`
+	OverLimit     int                       `json:"over_limit"`
+	InvalidRows   int                       `json:"invalid_rows"`
+	LongestRows   []datasets.TokenBudgetRow `json:"longest_rows,omitempty"`
+}
+
+func analyzeDatasetTokenBudget(workDir, path, label, format, baseModel string, maxContext int) (*TokenBudgetSummary, error) {
+	rows, err := datasets.ReadFile(resolvePath(workDir, path))
+	if err != nil {
+		return nil, fmt.Errorf("%s %q is invalid: %w", label, path, err)
+	}
+	report, err := datasets.AnalyzeTokenBudget(rows, datasets.TokenBudgetOptions{
+		ModelPath:  resolvePath(workDir, baseModel),
+		Format:     format,
+		MaxContext: maxContext,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("%s %q token budget failed: %w", label, path, err)
+	}
+	summary := summarizeTokenBudget(report)
+	if !report.Valid {
+		return summary, fmt.Errorf("%s %q exceeds token budget: over_limit=%d invalid_rows=%d max_context=%d", label, path, summary.OverLimit, summary.InvalidRows, maxContext)
+	}
+	return summary, nil
+}
+
+func summarizeTokenBudget(report datasets.TokenBudgetReport) *TokenBudgetSummary {
+	summary := &TokenBudgetSummary{
+		Rows:          report.Rows,
+		CountedRows:   report.CountedRows,
+		MaxContext:    report.MaxContext,
+		TotalTokens:   report.TotalTokens,
+		MinTokens:     report.MinTokens,
+		MaxTokens:     report.MaxTokens,
+		AverageTokens: report.AverageTokens,
+		OverLimit:     report.OverLimit,
+	}
+	for _, row := range report.RowsDetail {
+		if row.Error != "" {
+			summary.InvalidRows++
+		}
+	}
+	summary.LongestRows = datasets.LongestTokenRows(report.RowsDetail, 5)
+	return summary
 }
 
 func trainingModelWarnings(info *modelinfo.Info) []string {

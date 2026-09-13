@@ -76,6 +76,25 @@ func TestGenerateTinyHFModelWhenExplicitlyEnabled(t *testing.T) {
 	}
 }
 
+func TestGenerateTinyHFModelStopsOnGenerationEOS(t *testing.T) {
+	dir := writeTinyForwardModel(t)
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"eos_token_id":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: "a", MaxTokens: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Text != "" {
+		t.Fatalf("generated text = %q, want empty EOS-trimmed output", out.Text)
+	}
+}
+
 func TestGenerateTinyHFModelAppliesAdapter(t *testing.T) {
 	dir := writeTinyForwardModel(t)
 	adapterPath := filepath.Join(t.TempDir(), "adapter.json")
@@ -133,10 +152,20 @@ func TestStreamChatEmitsTokens(t *testing.T) {
 	}
 }
 
+func TestValidateGenerationContext(t *testing.T) {
+	if err := validateGenerationContext("native-hf", 2, 2, 4); err != nil {
+		t.Fatal(err)
+	}
+	err := validateGenerationContext("native-hf", 3, 2, 4)
+	if err == nil || !strings.Contains(err.Error(), "context exceeded") || !strings.Contains(err.Error(), "--max-tokens") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func writeTinyForwardModel(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":2,"max_position_embeddings":8,"hidden_size":2,"num_hidden_layers":1,"intermediate_size":2,"num_attention_heads":1,"num_key_value_heads":1,"head_dim":2,"rms_norm_eps":0}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":2,"max_position_embeddings":64,"hidden_size":2,"num_hidden_layers":1,"intermediate_size":2,"num_attention_heads":1,"num_key_value_heads":1,"head_dim":2,"rms_norm_eps":0}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"a":0,"b":1},"unk_token":"a"}}`), 0o644); err != nil {

@@ -58,7 +58,7 @@ nego download Qwen/Qwen3-0.6B --gguf --local-dir ./models/qwen3-gguf
 nego download Qwen/Qwen3-0.6B --gguf --gguf-repo unsloth/Qwen3-0.6B-GGUF --quant Q4_K_M --local-dir ./models/qwen3-gguf
 ```
 
-Regular Hugging Face downloads are useful for inspection, tokenization, and training jobs. Local chat through llama.cpp needs GGUF, so Nego warns when a downloaded model only contains safetensors.
+Regular Hugging Face downloads are useful for inspection, tokenization, native-HF experiments, and training jobs. After a model download, Nego prints a compatibility summary with the detected format and recommended run/train backend.
 
 ## Go API
 
@@ -90,6 +90,7 @@ path, err := hub.DownloadFile(ctx, hub.DownloadFileOptions{
 
 ```go
 info, err := modelinfo.Inspect("./models/qwen3")
+generation := info.Generation
 artifact, err := modelinfo.Resolve("./models/qwen3")
 ```
 
@@ -97,8 +98,14 @@ artifact, err := modelinfo.Resolve("./models/qwen3")
 nego inspect ./models/qwen3
 nego inspect ./models/qwen3-gguf --json
 nego check ./models/qwen3-gguf
+nego status ./models/qwen3-gguf
+nego models list --status
 nego memory ./models/qwen3 --context 4096
 ```
+
+`nego run`, `nego chat`, and `nego serve` automatically use local `generation_config.json`
+defaults for `max_new_tokens`, `temperature`, `top_k`, `top_p`, `repetition_penalty`,
+and stop strings unless explicit CLI flags or config-file values are provided.
 
 ## Tokenizer
 
@@ -151,6 +158,7 @@ nego backends info native
 nego backends info native-hf
 nego run ./models/qwen3-gguf "Hello"
 nego chat ./models/qwen3-gguf "Hello"
+nego serve ./models/qwen3 --addr :8080
 nego run --backend llama.cpp ./models/qwen3-gguf "Hello"
 nego run ./models/qwen3 "Hello"
 ```
@@ -213,7 +221,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 })
 ```
 
-Current status: it loads safetensors metadata, tensor readers, selected F32/F16/BF16 tensors as float32, HF Qwen/Llama weight manifests, tokenizer.json, native adapters, early float32 math primitives, prompt decode state, KV cache history, repeat-penalty/top-p/temperature sampling, experimental generation, and streaming chat. Full production-quality autoregressive generation for Qwen/Llama models is still in progress.
+Current status: it loads safetensors metadata, tensor readers, selected F32/F16/BF16 tensors as float32, HF Qwen/Llama weight manifests, tokenizer.json, native adapters, early float32 math primitives, prompt decode state, KV cache history, repeat-penalty/top-k/top-p/temperature sampling, experimental generation, and streaming chat. Full production-quality autoregressive generation for Qwen/Llama models is still in progress.
 
 ## Local llama.cpp runtime
 
@@ -245,6 +253,8 @@ nego runs show runs.jsonl <id>
 nego embed "hello world" --endpoint http://localhost:8080 --model text-embedding-model
 ```
 
+The local server supports OpenAI-compatible non-streaming and streaming responses on `/v1/completions` and `/v1/chat/completions`.
+
 ```go
 resp, err := nego.Embed(ctx, model, nego.EmbeddingRequest{
     Input: []string{"hello world"},
@@ -268,6 +278,8 @@ train, test := datasets.Split(rows, 0.2, 42)
 ```bash
 nego dataset inspect data.jsonl
 nego dataset validate data.jsonl --format chat
+nego dataset tokens data.jsonl --model ./models/qwen3 --format chat --max-context 4096
+nego dataset render data.jsonl --model ./models/qwen3 --format chat --n 3
 nego dataset convert data.csv --out data.jsonl --select prompt,completion --require prompt,completion
 nego dataset filter data.jsonl --where split=train --out train-only.jsonl
 nego dataset sample data.jsonl --n 5
@@ -296,7 +308,7 @@ Use the Hugging Face-style model directory (`./models/qwen3`) for fine-tuning jo
 
 ```bash
 nego train capabilities ./models/qwen3
-nego train init --base-model ./models/qwen3 --train-file examples/5.train/train.jsonl --eval-file examples/5.train/test.jsonl --dataset-format completion --output-dir ./outputs/qwen3-lora --out examples/5.train/train-job.json
+nego train init --base-model ./models/qwen3 --train-file examples/5.train/train.jsonl --eval-file examples/5.train/test.jsonl --dataset-format completion --max-context 4096 --output-dir ./outputs/qwen3-lora --out examples/5.train/train-job.json
 nego train check examples/5.train/train-job.json
 nego train validate examples/5.train/train-job.json
 nego train job.json
@@ -306,8 +318,9 @@ Native token-bias adapter training is available as an early pure-Go path for GGU
 
 ```bash
 nego train capabilities ./models/qwen3
-nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --out ./outputs/qwen3-token-bias
-nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --out ./outputs/qwen3-token-bias
+nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --dry-run
+nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --out ./outputs/qwen3-token-bias
+nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --out ./outputs/qwen3-token-bias
 nego run --native ./models/qwen3-gguf "Hello" --adapter ./outputs/qwen3-token-bias/adapter.json --max-tokens 16
 ```
 
@@ -322,16 +335,32 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 ```
 
 This writes a small token-bias adapter from the dataset. Full LoRA/backprop training remains planned.
+The output directory also includes `manifest.json` and `README.md` so the
+trained adapter can be inspected or reused by local tooling. You can run a
+native training output directory directly. Native training output includes
+top updated tokens so you can sanity-check what the dataset reinforced.
+
+```bash
+nego inspect ./outputs/qwen3-token-bias
+nego check ./outputs/qwen3-token-bias
+nego run ./outputs/qwen3-token-bias "Hello"
+nego chat ./outputs/qwen3-token-bias "Hello"
+nego serve ./outputs/qwen3-token-bias
+```
 
 ## Share Preparation
 
 ```bash
 nego share manifest ./outputs/qwen3-lora --out ./outputs/qwen3-lora/share-manifest.json --repo username/qwen3-lora --base-model Qwen/Qwen3-0.6B
+nego share check ./outputs/qwen3-lora
 nego share package ./outputs/qwen3-lora --out ./outputs/qwen3-lora.tar.gz --repo username/qwen3-lora --base-model Qwen/Qwen3-0.6B
 nego share upload username/qwen3-lora ./outputs/qwen3-lora README.md --token $HF_TOKEN
 ```
 
-`nego share upload` currently supports regular inline Hub commit uploads. Large model files that require Hugging Face LFS/Xet upload are still planned.
+When the path is a Nego native adapter output, share manifests automatically
+include adapter metadata from `manifest.json`.
+
+`nego share check` reports files that are too large for inline uploads. `nego share upload` currently supports regular inline Hub commit uploads. Large model files that require Hugging Face LFS/Xet upload are still planned.
 
 ## Eval
 

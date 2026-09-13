@@ -104,6 +104,9 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 	if len(plan.PromptTokenIDs) == 0 {
 		return nil, m.inferenceError()
 	}
+	if err := validateGenerationContext("native", len(plan.PromptTokenIDs), plan.Options.MaxTokens, m.spec.ContextLength); err != nil {
+		return nil, err
+	}
 	if !m.manifest.Ready() {
 		return nil, m.inferenceError()
 	}
@@ -158,6 +161,20 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 		}
 	}
 	return &nego.GenerateOutput{Text: b.String()}, nil
+}
+
+func validateGenerationContext(backend string, promptTokens, maxTokens int, contextLength uint64) error {
+	if contextLength == 0 {
+		return nil
+	}
+	if promptTokens < 0 || maxTokens < 0 {
+		return fmt.Errorf("%s generation token counts must be non-negative", backend)
+	}
+	total := uint64(promptTokens) + uint64(maxTokens)
+	if total <= contextLength {
+		return nil
+	}
+	return fmt.Errorf("%s generation context exceeded: prompt_tokens=%d max_tokens=%d context=%d; reduce the prompt or --max-tokens", backend, promptTokens, maxTokens, contextLength)
 }
 
 func emitDelta(emit func(string) error, text string, emittedLen *int) error {

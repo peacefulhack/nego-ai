@@ -9,6 +9,7 @@ import (
 
 type SamplingOptions struct {
 	Temperature   float32
+	TopK          int
 	TopP          float32
 	RepeatPenalty float32
 	Seed          int64
@@ -55,7 +56,13 @@ func (s *Sampler) SampleWithHistory(logits []float32, history []int) (int, error
 	if math.IsNaN(topP) || math.IsInf(topP, 0) {
 		return 0, fmt.Errorf("top-p must be finite")
 	}
+	if s.options.TopK < 0 {
+		return 0, fmt.Errorf("top-k must be >= 0")
+	}
 	candidates := sortedCandidates(adjusted)
+	if s.options.TopK > 0 && s.options.TopK < len(candidates) {
+		candidates = candidates[:s.options.TopK]
+	}
 	probs := softmaxCandidates(candidates, temperature)
 	if topP > 0 && topP < 1 {
 		candidates, probs = applyTopP(candidates, probs, topP)

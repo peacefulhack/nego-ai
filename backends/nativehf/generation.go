@@ -36,12 +36,16 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 	if m.spec == nil {
 		return nil, fmt.Errorf("native-hf model spec is not loaded")
 	}
+	if err := validateGenerationContext("native-hf", len(ids), maxTokens, m.spec.ContextLength); err != nil {
+		return nil, err
+	}
 	state, err := NewDecodeState(*m.spec)
 	if err != nil {
 		return nil, err
 	}
 	sampler := NewSampler(SamplingOptions{
 		Temperature:   float32(req.Temperature),
+		TopK:          req.TopK,
 		TopP:          float32(req.TopP),
 		RepeatPenalty: float32(req.RepeatPenalty),
 		Seed:          req.Seed,
@@ -68,6 +72,9 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 			return nil, err
 		}
 		history = append(history, nextID)
+		if m.isGenerationEOSToken(nextID) {
+			return &nego.GenerateOutput{Text: b.String()}, nil
+		}
 		text, err := m.tokenizer.Decode([]int{nextID})
 		if err != nil {
 			return nil, err
@@ -93,6 +100,32 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 		}
 	}
 	return &nego.GenerateOutput{Text: b.String()}, nil
+}
+
+func validateGenerationContext(backend string, promptTokens, maxTokens int, contextLength uint64) error {
+	if contextLength == 0 {
+		return nil
+	}
+	if promptTokens < 0 || maxTokens < 0 {
+		return fmt.Errorf("%s generation token counts must be non-negative", backend)
+	}
+	total := uint64(promptTokens) + uint64(maxTokens)
+	if total <= contextLength {
+		return nil
+	}
+	return fmt.Errorf("%s generation context exceeded: prompt_tokens=%d max_tokens=%d context=%d; reduce the prompt or --max-tokens", backend, promptTokens, maxTokens, contextLength)
+}
+
+func (m *Model) isGenerationEOSToken(id int) bool {
+	if m == nil || m.info == nil || m.info.Generation == nil {
+		return false
+	}
+	for _, eosID := range m.info.Generation.EOSTokenIDs {
+		if id == eosID {
+			return true
+		}
+	}
+	return false
 }
 
 func emitDelta(emit func(string) error, text string, emittedLen *int) error {

@@ -22,12 +22,13 @@ func TestChatGenerationOptions(t *testing.T) {
 	opts := chatGenerationOptions(nego.ChatRequest{
 		MaxTokens:     4,
 		Temperature:   0.5,
+		TopK:          20,
 		TopP:          0.9,
 		RepeatPenalty: 1.1,
 		Stop:          []string{"</s>"},
 		Seed:          7,
 	})
-	if opts.MaxTokens != 4 || opts.Sampling.Temperature != 0.5 || opts.Sampling.TopP != 0.9 || opts.Sampling.RepeatPenalty != 1.1 || opts.Sampling.Seed != 7 {
+	if opts.MaxTokens != 4 || opts.Sampling.Temperature != 0.5 || opts.Sampling.TopK != 20 || opts.Sampling.TopP != 0.9 || opts.Sampling.RepeatPenalty != 1.1 || opts.Sampling.Seed != 7 {
 		t.Fatalf("unexpected options: %#v", opts)
 	}
 	if len(opts.Stop) != 1 || opts.Stop[0] != "</s>" {
@@ -59,6 +60,16 @@ func TestSampleTokenText(t *testing.T) {
 func TestSampleTokenTextRejectsNilVocab(t *testing.T) {
 	_, _, err := sampleTokenText([]float32{1}, nil, SamplingOptions{})
 	if err == nil || !strings.Contains(err.Error(), "nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateGenerationContext(t *testing.T) {
+	if err := validateGenerationContext("native", 2, 2, 4); err != nil {
+		t.Fatal(err)
+	}
+	err := validateGenerationContext("native", 3, 2, 4)
+	if err == nil || !strings.Contains(err.Error(), "context exceeded") || !strings.Contains(err.Error(), "--max-tokens") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

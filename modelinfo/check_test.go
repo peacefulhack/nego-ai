@@ -75,6 +75,8 @@ func TestCheckReportsNativeKQuantCompatibility(t *testing.T) {
 func TestCheckReportsNativeHFCompatibility(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "config.json", `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":4,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`)
+	writeFile(t, dir, "generation_config.json", `{"max_new_tokens":64,"temperature":0.6}`)
+	writeFile(t, dir, "tokenizer.json", `{}`)
 	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), safetensorsShapeFixture(t, hfShapeFixtureTensors(nil)), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -88,6 +90,30 @@ func TestCheckReportsNativeHFCompatibility(t *testing.T) {
 	}
 	if !nativeHF.Compatible {
 		t.Fatalf("expected native-hf compatibility: %#v", nativeHF)
+	}
+	if report.Generation == nil || report.Generation.MaxNewTokens == nil || *report.Generation.MaxNewTokens != 64 {
+		t.Fatalf("Generation = %#v", report.Generation)
+	}
+}
+
+func TestCheckReportsNativeAdapterArtifact(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "manifest.json", `{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2}`)
+	report, err := Check(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.NativeAdapter == nil || report.NativeAdapter.RecommendedBackend != "native-hf" {
+		t.Fatalf("NativeAdapter = %#v", report.NativeAdapter)
+	}
+	if report.Artifact == nil || report.Artifact.Format != ArtifactFormatNativeAdapter || report.Artifact.RecommendedRunBackend != "native-hf" {
+		t.Fatalf("Artifact = %#v", report.Artifact)
+	}
+	if !backendCompatible(report.Backends, "native-hf") {
+		t.Fatalf("Backends = %#v", report.Backends)
+	}
+	if len(report.Warnings) != 0 {
+		t.Fatalf("Warnings = %#v", report.Warnings)
 	}
 }
 

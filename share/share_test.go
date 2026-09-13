@@ -35,6 +35,42 @@ func TestBuildManifest(t *testing.T) {
 	}
 }
 
+func TestBuildManifestDetectsNativeAdapter(t *testing.T) {
+	dir := t.TempDir()
+	manifestJSON := `{
+		"version":1,
+		"type":"nego-native-adapter",
+		"base_model":"./models/qwen3",
+		"adapter_path":"adapter.json",
+		"recommended_backend":"native-hf",
+		"method":"token-bias",
+		"dataset_format":"completion",
+		"vocab_size":10,
+		"updated_tokens":1,
+		"train_tokens":3,
+		"top_tokens":[{"id":1,"text":"hello","count":3,"bias":0.1}]
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(manifestJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "adapter.json"), []byte(`{"version":1,"type":"token_bias","vocab_size":10,"bias":{"1":0.1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := BuildManifest(ManifestOptions{Path: dir, RepoID: "user/qwen3-adapter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.ArtifactType != "native-adapter" || manifest.BaseModel != "./models/qwen3" || manifest.NativeAdapter == nil {
+		t.Fatalf("unexpected adapter metadata: %#v", manifest)
+	}
+	if manifest.NativeAdapter.UpdatedTokens != 1 || len(manifest.NativeAdapter.TopTokens) != 1 {
+		t.Fatalf("unexpected native adapter summary: %#v", manifest.NativeAdapter)
+	}
+	if !hasFileKind(manifest.Files, "manifest.json", "native_manifest") || !hasFileKind(manifest.Files, "adapter.json", "native_adapter") {
+		t.Fatalf("unexpected file kinds: %#v", manifest.Files)
+	}
+}
+
 func TestWriteManifest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "share-manifest.json")
 	manifest := &Manifest{Path: "model", Files: []File{{Path: "README.md", Size: 1, SHA256: "abc"}}}
@@ -52,6 +88,15 @@ func TestWriteManifest(t *testing.T) {
 	if len(got.Files) != 1 || got.Files[0].Path != "README.md" {
 		t.Fatalf("unexpected manifest: %#v", got)
 	}
+}
+
+func hasFileKind(files []File, path, kind string) bool {
+	for _, file := range files {
+		if file.Path == path && file.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func TestBuildManifestExcludesPaths(t *testing.T) {
@@ -79,6 +124,23 @@ func TestBuildManifestRejectsFilePath(t *testing.T) {
 	}
 	if _, err := BuildManifest(ManifestOptions{Path: path}); err == nil {
 		t.Fatal("expected file path error")
+	}
+}
+
+func TestCheckReportsLargeFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("model card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("large model"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Check(CheckOptions{Path: dir, RepoID: "user/model", MaxInlineSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Valid || len(report.LargeFiles) != 1 || report.LargeFiles[0].Path != "model.safetensors" || report.MaxInlineSize != 10 {
+		t.Fatalf("unexpected report: %#v", report)
 	}
 }
 

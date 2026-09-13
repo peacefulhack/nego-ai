@@ -2,11 +2,13 @@ package nego
 
 import (
 	"context"
+	"strconv"
+	"sync/atomic"
 	"testing"
 )
 
 func TestLoadModelUsesRegisteredBackend(t *testing.T) {
-	name := "mock-test-backend"
+	name := testBackendName("mock")
 	if err := RegisterBackend(name, mockBackend{}); err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +63,23 @@ func TestEmbedUsesOptionalCapability(t *testing.T) {
 	}
 }
 
+func TestStreamGenerateFallsBackToGenerate(t *testing.T) {
+	stream, err := StreamGenerate(context.Background(), mockModel{}, GenerateRequest{Prompt: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for token := range stream.Tokens() {
+		text += token.Text
+	}
+	if err := stream.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if text != "generated: hello" {
+		t.Fatalf("stream text = %q", text)
+	}
+}
+
 func TestLoadModelRequiresRegisteredBackend(t *testing.T) {
 	if _, err := LoadModel(context.Background(), ModelOptions{Backend: "missing"}); err == nil {
 		t.Fatal("expected missing backend error")
@@ -91,7 +110,7 @@ func TestResolveBackendRequiresLocalOrRemoteTarget(t *testing.T) {
 }
 
 func TestBackendInfoDiscovery(t *testing.T) {
-	name := "described-test-backend"
+	name := testBackendName("described")
 	if err := RegisterBackend(name, describedBackend{}); err != nil {
 		t.Fatal(err)
 	}
@@ -111,6 +130,12 @@ func TestBackendInfoDiscovery(t *testing.T) {
 	if !found {
 		t.Fatalf("backend %q not found in list", name)
 	}
+}
+
+var testBackendCounter int64
+
+func testBackendName(prefix string) string {
+	return prefix + "-test-backend-" + strconv.FormatInt(atomic.AddInt64(&testBackendCounter, 1), 10)
 }
 
 type mockBackend struct{}

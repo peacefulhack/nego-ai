@@ -149,6 +149,44 @@ func TestPreflightReportsModelAndDataset(t *testing.T) {
 	}
 }
 
+func TestPreflightChecksTokenBudget(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","unk_token":"[UNK]","vocab":{"[UNK]":0,"hello":1,"world":2,"Ġhello":3,"Ġworld":4,"Ċ":5}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hello hello hello","completion":"world"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Preflight(JobSpec{
+		Name:          "qwen3-lora",
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		MaxContext:    3,
+		Command:       fakeTrainingCommand(t),
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds token budget") {
+		t.Fatalf("expected token budget error, got report=%#v err=%v", report, err)
+	}
+	if report.TrainTokens == nil || report.TrainTokens.OverLimit != 1 || report.TrainTokens.MaxTokens <= 3 {
+		t.Fatalf("unexpected token summary: %#v", report.TrainTokens)
+	}
+}
+
 func TestPreflightWarnsForGGUFTrainingArtifact(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models", "qwen3-gguf")
@@ -207,18 +245,191 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 		OutputDir:     outputDir,
 		Epochs:        2,
 		LearningRate:  0.2,
+		MaxContext:    8,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.AdapterPath == "" || result.TrainRows != 1 || result.TrainTokens != 4 || result.UpdatedTokens != 2 {
+	if result.AdapterPath == "" || result.TrainRows != 1 || result.TrainTokens != 4 || result.UpdatedTokens != 2 || result.TrainBudget == nil || len(result.TopTokens) != 2 {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.TopTokens[0].Text != "hello" || result.TopTokens[0].Count != 2 {
+		t.Fatalf("unexpected top tokens: %#v", result.TopTokens)
 	}
 	if _, err := os.Stat(result.AdapterPath); err != nil {
 		t.Fatal(err)
 	}
+	if result.ManifestPath == "" || result.ReadmePath == "" {
+		t.Fatalf("missing output metadata: %#v", result)
+	}
+	data, err := os.ReadFile(result.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest NativeManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.AdapterPath != "adapter.json" || manifest.RuntimeOptions["adapter_path"] != "adapter.json" || len(manifest.TopTokens) != 2 {
+		t.Fatalf("unexpected manifest: %#v", manifest)
+	}
+	loaded, err := LoadNativeManifest(outputDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.AdapterPath != "adapter.json" {
+		t.Fatalf("loaded manifest = %#v", loaded)
+	}
+	loaded, err = LoadNativeManifest(result.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.BaseModel != modelDir {
+		t.Fatalf("loaded manifest = %#v", loaded)
+	}
+	readme, err := os.ReadFile(result.ReadmePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(readme), "nego run "+outputDir) || !strings.Contains(string(readme), "nego chat "+outputDir) {
+		t.Fatalf("unexpected README: %s", string(readme))
+	}
 	if result.Adapter.Bias[0] <= 0 || result.Adapter.Bias[1] <= 0 {
 		t.Fatalf("unexpected adapter bias: %#v", result.Adapter.Bias)
+	}
+}
+
+func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3-gguf")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	outputDir := filepath.Join(dir, "outputs", "qwen3-adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.gguf"), minimalGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0,"▁world":1},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello world"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stages []string
+	result, err := RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		OutputDir:     outputDir,
+		DryRun:        true,
+		MaxContext:    8,
+		Progress: func(event NativeProgress) {
+			stages = append(stages, event.Stage)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DryRun || result.AdapterPath == "" || result.UpdatedTokens != 2 || result.TrainBudget == nil || len(result.TopTokens) != 2 {
+		t.Fatalf("unexpected dry run result: %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
+		t.Fatalf("adapter should not be written during dry run: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "manifest.json")); !os.IsNotExist(err) {
+		t.Fatalf("manifest should not be written during dry run: %v", err)
+	}
+	for _, want := range []string{"resolve", "tokenizer", "read_train", "train_budget", "train", "done"} {
+		if !containsStage(stages, want) {
+			t.Fatalf("expected progress stage %q in %#v", want, stages)
+		}
+	}
+
+	result, err = RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		DryRun:        true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.AdapterPath != "" || result.OutputDir != "" {
+		t.Fatalf("dry run without output should not plan files: %#v", result)
+	}
+}
+
+func containsStage(stages []string, want string) bool {
+	for _, stage := range stages {
+		if stage == want {
+			return true
+		}
+	}
+	return false
+}
+
+func TestNativeManifestRejectsEscapingAdapterPath(t *testing.T) {
+	manifest := NativeManifest{
+		Version:            1,
+		Type:               "nego-native-adapter",
+		BaseModel:          "./models/qwen3",
+		AdapterPath:        "../adapter.json",
+		RecommendedBackend: "native",
+	}
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "cannot escape") {
+		t.Fatalf("expected escaping adapter path error, got %v", err)
+	}
+
+	manifest.AdapterPath = "adapter.json"
+	manifest.RuntimeOptions = map[string]string{"adapter_path": "../adapter.json"}
+	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "cannot escape") {
+		t.Fatalf("expected escaping runtime option error, got %v", err)
+	}
+}
+
+func TestRunNativeRejectsRowsOverTokenBudget(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	outputDir := filepath.Join(dir, "outputs", "qwen3-adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"num_hidden_layers":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0,"▁hello":1,"world":2,"Ċ":3},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), minimalSafetensors(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hello hello hello","completion":"world"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		OutputDir:     outputDir,
+		MaxContext:    2,
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds token budget") {
+		t.Fatalf("expected token budget error, got result=%#v err=%v", result, err)
+	}
+	if result.TrainBudget == nil || result.TrainBudget.OverLimit != 1 {
+		t.Fatalf("unexpected budget: %#v", result.TrainBudget)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
+		t.Fatalf("adapter should not be written when budget fails: %v", err)
 	}
 }
 

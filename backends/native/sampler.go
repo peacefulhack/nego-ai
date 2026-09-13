@@ -60,6 +60,9 @@ func (s *Sampler) SampleWithHistory(logits []float32, history []int) (int, error
 	if math.IsNaN(topP) || math.IsInf(topP, 0) {
 		return 0, fmt.Errorf("top-p must be finite")
 	}
+	if s.options.TopK < 0 {
+		return 0, fmt.Errorf("top-k must be >= 0")
+	}
 	if s.rng == nil {
 		s.rng = rand.New(rand.NewSource(1))
 	}

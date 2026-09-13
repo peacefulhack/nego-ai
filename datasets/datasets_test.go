@@ -2,6 +2,8 @@ package datasets
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -115,5 +117,82 @@ func TestValidateFormat(t *testing.T) {
 	}
 	if err := ValidateFormat([]Row{{"messages": []any{map[string]any{"role": "tool", "content": "bad"}}}}, "chat"); err == nil {
 		t.Fatal("expected invalid role error")
+	}
+}
+
+func TestAnalyzeTokenBudget(t *testing.T) {
+	dir := t.TempDir()
+	writeDatasetTokenizer(t, dir)
+	rows := []Row{
+		{"prompt": "hello", "completion": "world"},
+		{"prompt": "hello hello hello", "completion": "world"},
+	}
+	report, err := AnalyzeTokenBudget(rows, TokenBudgetOptions{
+		ModelPath:  dir,
+		Format:     "completion",
+		MaxContext: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Valid || report.OverLimit != 1 || report.MaxTokens <= report.MinTokens {
+		t.Fatalf("unexpected report: %#v", report)
+	}
+	longest := LongestTokenRows(report.RowsDetail, 1)
+	if len(longest) != 1 || longest[0].Row != 2 {
+		t.Fatalf("unexpected longest rows: %#v", longest)
+	}
+}
+
+func TestAnalyzeTokenBudgetChatRows(t *testing.T) {
+	dir := t.TempDir()
+	writeDatasetTokenizer(t, dir)
+	rows := []Row{{"messages": []any{
+		map[string]any{"role": "user", "content": "hello"},
+		map[string]any{"role": "assistant", "content": "world"},
+	}}}
+	report, err := AnalyzeTokenBudget(rows, TokenBudgetOptions{ModelPath: dir, Format: "chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.Valid || report.RowsDetail[0].Format != "chat" || report.RowsDetail[0].Tokens == 0 {
+		t.Fatalf("unexpected report: %#v", report)
+	}
+}
+
+func TestRenderTrainingRowsCompletion(t *testing.T) {
+	rendered, err := RenderTrainingRows([]Row{{"prompt": "hi", "completion": "hello"}}, RenderOptions{Format: "auto"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rendered) != 1 || rendered[0].Row != 1 || rendered[0].Format != "completion" || rendered[0].Text != "hi\nhello" {
+		t.Fatalf("unexpected rendered rows: %#v", rendered)
+	}
+}
+
+func TestRenderTrainingRowsChatUsesModelTemplate(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "chat_template.jinja"), []byte("<|im_start|>{{ message }}<|im_end|>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rows := []Row{{"messages": []any{
+		map[string]any{"role": "user", "content": "hello"},
+		map[string]any{"role": "assistant", "content": "world"},
+	}}}
+	rendered, err := RenderTrainingRows(rows, RenderOptions{ModelPath: dir, Format: "chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "<|im_start|>user\nhello<|im_end|>\n<|im_start|>assistant\nworld<|im_end|>\n"
+	if len(rendered) != 1 || rendered[0].Format != "chat" || rendered[0].Text != want {
+		t.Fatalf("unexpected rendered rows: %#v", rendered)
+	}
+}
+
+func writeDatasetTokenizer(t *testing.T, dir string) {
+	t.Helper()
+	body := `{"model":{"type":"WordLevel","unk_token":"[UNK]","vocab":{"[UNK]":0,"hello":1,"world":2,"Ġhello":3,"Ġworld":4,"Instruction":5,"Output":6,":":7,"Ċ":8}}}`
+	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

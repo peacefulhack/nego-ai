@@ -20,6 +20,7 @@ import (
 	"github.com/gakon/nego-ai/hub"
 	"github.com/gakon/nego-ai/internal/registry"
 	"github.com/gakon/nego-ai/modelinfo"
+	"github.com/gakon/nego-ai/share"
 	"github.com/gakon/nego-ai/training"
 )
 
@@ -137,20 +138,27 @@ func TestRenderProgressEntryShowsMaterializing(t *testing.T) {
 	}
 }
 
-func TestDownloadRuntimeWarningForSafetensorsOnly(t *testing.T) {
+func TestDownloadCompatibilitySummaryForSafetensorsOnly(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":1,"max_position_embeddings":8,"hidden_size":1,"num_hidden_layers":1,"intermediate_size":1,"num_attention_heads":1,"head_dim":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), []byte("weights"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	warning := downloadRuntimeWarning(dir)
-	if !strings.Contains(warning, "cannot run this directly") || !strings.Contains(warning, "--gguf") {
-		t.Fatalf("unexpected warning: %q", warning)
+	summary := downloadCompatibilitySummary(dir)
+	if !strings.Contains(summary, "format=hf-safetensors") || !strings.Contains(summary, "run=not ready") || !strings.Contains(summary, "train=native-token-bias") {
+		t.Fatalf("unexpected summary: %q", summary)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "model.gguf"), []byte("gguf"), 0o644); err != nil {
+	ggufData, err := os.ReadFile(fakeInspectGGUF(t))
+	if err != nil {
 		t.Fatal(err)
 	}
-	if warning := downloadRuntimeWarning(dir); warning != "" {
-		t.Fatalf("unexpected warning with GGUF present: %q", warning)
+	if err := os.WriteFile(filepath.Join(dir, "model.gguf"), ggufData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if summary := downloadCompatibilitySummary(dir); !strings.Contains(summary, "format=mixed") {
+		t.Fatalf("unexpected summary with GGUF present: %q", summary)
 	}
 }
 
@@ -206,6 +214,49 @@ func TestModelsListJSON(t *testing.T) {
 	}
 	if len(entries) != 1 || entries[0].RepoID != "Qwen/Qwen3-0.6B" {
 		t.Fatalf("unexpected entries: %#v", entries)
+	}
+}
+
+func TestModelsListStatus(t *testing.T) {
+	cacheDir := t.TempDir()
+	modelDir := filepath.Join(t.TempDir(), "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"num_hidden_layers":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), cliSafetensorsFixture(t, `{
+		"model.embed_tokens.weight":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}
+	}`, 4), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := registry.NewStore(cacheDir).Upsert(registry.Entry{
+		RepoID:    "Qwen/Qwen3-0.6B",
+		RepoType:  "model",
+		Revision:  "main",
+		Commit:    "abc123",
+		LocalDir:  modelDir,
+		FileCount: 3,
+		TotalSize: 1024,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"models", "list", "--cache-dir", cacheDir, "--status"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"FORMAT", "RUN", "TRAIN", "hf-safetensors", "not ready", "native-token-bias"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
 	}
 }
 
@@ -545,6 +596,45 @@ func TestInspectCommandShowsModelCard(t *testing.T) {
 	}
 }
 
+func TestInspectCommandShowsGenerationConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":128,"temperature":0.7,"top_p":0.8,"eos_token_id":[151645,151643]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"inspect", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Generation:", "Max new:      128", "Temperature:  0.7", "Top-p:        0.8", "EOS tokens:   151645, 151643"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestInspectCommandShowsNativeAdapter(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2,"top_tokens":[{"id":1,"text":"hello","count":3,"bias":0.1}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"inspect", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Native adapter:", "Base model:   ./models/qwen3", "Adapter:      ./outputs/qwen3/adapter.json", "Backend:      native-hf", "Top tokens:", `"hello"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestInspectCommandShowsSafetensorsMetadata(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), cliSafetensorsFixture(t, `{
@@ -633,6 +723,45 @@ func TestCheckCommandReportsCompatibility(t *testing.T) {
 	}
 }
 
+func TestCheckCommandShowsGenerationConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":64,"temperature":0.6}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"check", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Generation:", "Max new:      64", "Temperature:  0.6"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestCheckCommandShowsNativeAdapter(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2,"top_tokens":[{"id":1,"text":"hello","count":3,"bias":0.1}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"check", dir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Native adapter:", "Backend:      native-hf", "Top tokens:", "Artifact:", "Format:       native-adapter", "Run:          native-hf", "native-hf: yes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestCheckCommandJSON(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	var stdout, stderr bytes.Buffer
@@ -656,6 +785,40 @@ func TestCheckCommandJSON(t *testing.T) {
 	}
 	if !body.ChatTemplate || body.Artifact.Format != "gguf" || body.Artifact.RecommendedRunBackend == "" || len(body.Backends) == 0 {
 		t.Fatalf("unexpected check json: %s", stdout.String())
+	}
+}
+
+func TestStatusCommandSummarizesArtifact(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"status", modelPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Format:        gguf", "Run:           native", "Train:         native-token-bias", "Run backends:", "Train backends:", "Chat template: yes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestStatusCommandJSON(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"status", modelPath, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var body struct {
+		Format                string `json:"format"`
+		RecommendedRunBackend string `json:"recommended_run_backend"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Format != "gguf" || body.RecommendedRunBackend == "" {
+		t.Fatalf("unexpected status json: %s", stdout.String())
 	}
 }
 
@@ -686,6 +849,8 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 		"8",
 		"--temperature",
 		"0.7",
+		"--top-k",
+		"20",
 		"--top-p",
 		"0.9",
 		"--repeat-penalty",
@@ -713,10 +878,80 @@ func TestRunCommandPassesRuntimeFlags(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	for _, want := range []string{"-n 8", "--temp 0.7", "--top-p 0.9", "--repeat-penalty 1.2", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
+	for _, want := range []string{"-n 8", "--temp 0.7", "--top-k 20", "--top-p 0.9", "--repeat-penalty 1.2", "--seed 42", "--reverse-prompt END", "-t 4", "-c 2048", "-ngl 20", "--main-gpu 1", "--tensor-split 3,1", "--split-mode layer", "-fa"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected %q in output: %q", want, stdout.String())
 		}
+	}
+}
+
+func TestRunCommandUsesGenerationConfigDefaults(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":6,"temperature":0.4,"top_k":12,"top_p":0.75,"repetition_penalty":1.15,"stop_strings":["END"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"-n 6", "--temp 0.4", "--top-k 12", "--top-p 0.75", "--repeat-penalty 1.15", "--reverse-prompt END"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in output: %q", want, stdout.String())
+		}
+	}
+}
+
+func TestRunCommandFlagsOverrideGenerationConfigDefaults(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"max_new_tokens":6,"temperature":0.4,"top_k":12,"stop_strings":["END"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp", "--max-tokens", "2", "--temperature", "0.9", "--top-k", "4", "--stop", "DONE"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"-n 2", "--temp 0.9", "--top-k 4", "--reverse-prompt DONE"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output: %q", want, out)
+		}
+	}
+	for _, unwanted := range []string{"-n 6", "--temp 0.4", "--top-k 12", "--reverse-prompt END"} {
+		if strings.Contains(out, unwanted) {
+			t.Fatalf("did not expect %q in output: %q", unwanted, out)
+		}
+	}
+}
+
+func TestRunCommandRejectsInvalidGenerationConfigRepeatPenalty(t *testing.T) {
+	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("gguf"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "generation_config.json"), []byte(`{"repetition_penalty":0.5}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--backend", "llama.cpp"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "repeat-penalty") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
 
@@ -744,6 +979,30 @@ func TestRunCommandRejectsNativeAndBackendTogether(t *testing.T) {
 	}
 }
 
+func TestServeCommandDefaultsToAutoBackend(t *testing.T) {
+	modelPath := filepath.Join(t.TempDir(), "missing-model")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"serve", modelPath, "--addr", "127.0.0.1:0"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "llama.cpp") {
+		t.Fatalf("serve default should use auto backend resolution, got stderr %q", stderr.String())
+	}
+}
+
+func TestServeCommandAcceptsAdapterFlag(t *testing.T) {
+	modelPath := filepath.Join(t.TempDir(), "missing-model")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"serve", modelPath, "--addr", "127.0.0.1:0", "--adapter", "adapter.json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stderr.String(), "flag provided but not defined") {
+		t.Fatalf("serve should accept --adapter, got stderr %q", stderr.String())
+	}
+}
+
 func TestRunCommandRejectsInvalidGPUMode(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
@@ -765,6 +1024,18 @@ func TestRunCommandRejectsInvalidRepeatPenalty(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "repeat-penalty") {
+		t.Fatalf("unexpected stderr: %q", stderr.String())
+	}
+}
+
+func TestRunCommandRejectsInvalidTopK(t *testing.T) {
+	modelPath := fakeCLIGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"run", modelPath, "hello", "--top-k", "-1"}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "top-k") {
 		t.Fatalf("unexpected stderr: %q", stderr.String())
 	}
 }
@@ -1009,6 +1280,70 @@ func TestDatasetCommands(t *testing.T) {
 		t.Fatalf("validate code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 
+	modelDir := t.TempDir()
+	writeCLITokenizer(t, modelDir)
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "tokens", dataPath, "--model", modelDir, "--format", "chat"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("tokens code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Dataset token budget") || !strings.Contains(stdout.String(), "Longest rows:") {
+		t.Fatalf("unexpected tokens output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "render", dataPath, "--model", modelDir, "--format", "chat", "--n", "1"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("render code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Rendered dataset") || !strings.Contains(stdout.String(), "Row 1 [chat]") || !strings.Contains(stdout.String(), "USER: hi") {
+		t.Fatalf("unexpected render output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "render", dataPath, "--model", modelDir, "--format", "chat", "--n", "1", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("render json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var rendered []struct {
+		Row    int    `json:"row"`
+		Format string `json:"format"`
+		Text   string `json:"text"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &rendered); err != nil {
+		t.Fatal(err)
+	}
+	if len(rendered) != 1 || rendered[0].Row != 1 || rendered[0].Format != "chat" || !strings.Contains(rendered[0].Text, "USER: hi") {
+		t.Fatalf("unexpected rendered json: %s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "render", dataPath, "--n", "-1"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "n must be") {
+		t.Fatalf("expected invalid n error, code=%d stderr=%q", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"dataset", "tokens", dataPath, "--model", modelDir, "--format", "chat", "--max-context", "1", "--json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("tokens over-limit code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var tokenReport struct {
+		Valid     bool `json:"valid"`
+		OverLimit int  `json:"over_limit"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &tokenReport); err != nil {
+		t.Fatal(err)
+	}
+	if tokenReport.Valid || tokenReport.OverLimit == 0 {
+		t.Fatalf("unexpected token report: %s", stdout.String())
+	}
+
 	csvPath := filepath.Join(dir, "data.csv")
 	if err := os.WriteFile(csvPath, []byte("prompt,completion,split\nhi,hello,train\nbye,later,test\n,missing,train\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -1139,14 +1474,14 @@ func TestValidateRuntimeOptions(t *testing.T) {
 }
 
 func TestRuntimeLogEntrySanitizesEndpoint(t *testing.T) {
-	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, 0, nil, 0, nil, nil)
+	entry := runtimeLogEntry("run", "openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", "hello", nil, "world", time.Now(), 0, 0, 0, 0, 0, nil, 0, nil, nil)
 	if entry.Endpoint != "https://example.com/v1" {
 		t.Fatalf("Endpoint = %q", entry.Endpoint)
 	}
 }
 
 func TestRuntimeLogEntryRedactsSensitiveOptions(t *testing.T) {
-	entry := runtimeLogEntry("run", "native", "model.gguf", "", "", "hello", nil, "world", time.Now(), 0, 0, 0, 0, nil, 0, map[string]string{
+	entry := runtimeLogEntry("run", "native", "model.gguf", "", "", "hello", nil, "world", time.Now(), 0, 0, 0, 0, 0, nil, 0, map[string]string{
 		"api_key":                 "secret",
 		"hf_token":                "token",
 		"experimental_generation": "true",
@@ -1446,6 +1781,8 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 		trainFile,
 		"--dataset-format",
 		"completion",
+		"--max-context",
+		"16",
 		"--out",
 		outputDir,
 	}, &stdout, &stderr)
@@ -1454,12 +1791,91 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Native training completed") ||
 		!strings.Contains(stdout.String(), "Adapter:") ||
-		!strings.Contains(stdout.String(), "Run:            nego run --native") ||
-		!strings.Contains(stdout.String(), "Chat:           nego chat --native") {
+		!strings.Contains(stdout.String(), "Manifest:") ||
+		!strings.Contains(stdout.String(), "Guide:") ||
+		!strings.Contains(stdout.String(), "Train budget:") ||
+		!strings.Contains(stdout.String(), "Top tokens:") ||
+		!strings.Contains(stdout.String(), "Run:            nego run") ||
+		!strings.Contains(stdout.String(), outputDir) ||
+		!strings.Contains(stdout.String(), "Chat:           nego chat") {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	dir := t.TempDir()
+	trainFile := filepath.Join(dir, "train.jsonl")
+	outputDir := filepath.Join(dir, "adapter")
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--dataset-format",
+		"completion",
+		"--max-context",
+		"16",
+		"--out",
+		outputDir,
+		"--dry-run",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Resolving base model") || !strings.Contains(stderr.String(), "Training native adapter") {
+		t.Fatalf("expected progress output, got stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Native training dry run passed") ||
+		!strings.Contains(stdout.String(), "Planned adapter:") ||
+		!strings.Contains(stdout.String(), "Writes:         no") ||
+		!strings.Contains(stdout.String(), "Top tokens:") ||
+		strings.Contains(stdout.String(), "Manifest:") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
+		t.Fatalf("adapter should not be written during dry run: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--dataset-format",
+		"completion",
+		"--dry-run",
+		"--json",
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("json mode should not write progress, got stderr=%q", stderr.String())
+	}
+	var body struct {
+		Success bool `json:"success"`
+		Result  struct {
+			DryRun      bool   `json:"dry_run"`
+			AdapterPath string `json:"adapter_path"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Success || !body.Result.DryRun || body.Result.AdapterPath != "" {
+		t.Fatalf("unexpected json: %s", stdout.String())
 	}
 }
 
@@ -1545,6 +1961,8 @@ func TestTrainInitCommand(t *testing.T) {
 		trainFile,
 		"--eval-file",
 		evalFile,
+		"--max-context",
+		"128",
 		"--output-dir",
 		filepath.Join(dir, "outputs", "qwen3-lora"),
 		"--out",
@@ -1561,7 +1979,7 @@ func TestTrainInitCommand(t *testing.T) {
 	if err := json.Unmarshal(data, &spec); err != nil {
 		t.Fatal(err)
 	}
-	if spec.BaseModel != modelDir || spec.TrainFile != trainFile || spec.OutputDir == "" {
+	if spec.BaseModel != modelDir || spec.TrainFile != trainFile || spec.OutputDir == "" || spec.MaxContext != 128 {
 		t.Fatalf("unexpected spec: %#v", spec)
 	}
 	if spec.DatasetFormat != "auto" {
@@ -1602,6 +2020,36 @@ func TestShareManifestCommand(t *testing.T) {
 	}
 }
 
+func TestShareManifestCommandDetectsNativeAdapter(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "manifest.json"), []byte(`{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "adapter.json"), []byte(`{"version":1,"type":"token_bias","vocab_size":10,"bias":{"1":0.1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outPath := filepath.Join(dir, "share-manifest.json")
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "manifest", modelDir, "--out", outPath, "--repo", "user/qwen3-adapter"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Artifact:       native-adapter") || !strings.Contains(stdout.String(), "Base model:     ./models/qwen3") {
+		t.Fatalf("unexpected stdout: %q", stdout.String())
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"artifact_type": "native-adapter"`) || !strings.Contains(string(data), `"native_adapter"`) {
+		t.Fatalf("unexpected manifest: %s", string(data))
+	}
+}
+
 func TestSharePackageCommand(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "model")
@@ -1622,6 +2070,45 @@ func TestSharePackageCommand(t *testing.T) {
 	}
 	if info, err := os.Stat(outPath); err != nil || info.Size() == 0 {
 		t.Fatalf("archive was not written: info=%#v err=%v", info, err)
+	}
+}
+
+func TestShareCheckCommandReportsLargeFiles(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "README.md"), []byte("model card"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), []byte("large model"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "check", modelDir, "--max-inline-size", "10"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Large files:") || !strings.Contains(stdout.String(), "requires LFS/Xet") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"share", "check", modelDir, "--max-inline-size", "10", "--json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var report struct {
+		Valid      bool         `json:"valid"`
+		LargeFiles []share.File `json:"large_files"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Valid || len(report.LargeFiles) != 1 {
+		t.Fatalf("unexpected report: %s", stdout.String())
 	}
 }
 

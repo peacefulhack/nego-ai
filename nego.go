@@ -2,13 +2,17 @@ package nego
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/modelinfo"
+	"github.com/gakon/nego-ai/training"
 )
 
 type Role = chattemplate.Role
@@ -33,6 +37,7 @@ type GenerateRequest struct {
 	Prompt        string
 	MaxTokens     int
 	Temperature   float64
+	TopK          int
 	TopP          float64
 	RepeatPenalty float64
 	Stop          []string
@@ -47,6 +52,7 @@ type ChatRequest struct {
 	Messages      []Message
 	MaxTokens     int
 	Temperature   float64
+	TopK          int
 	TopP          float64
 	RepeatPenalty float64
 	Stop          []string
@@ -82,6 +88,10 @@ type Model interface {
 	Close() error
 }
 
+type StreamingGenerator interface {
+	StreamGenerate(ctx context.Context, req GenerateRequest) (Stream, error)
+}
+
 type Backend interface {
 	Load(ctx context.Context, opts ModelOptions) (Model, error)
 }
@@ -113,6 +123,104 @@ func Embed(ctx context.Context, model Model, req EmbeddingRequest) (*EmbeddingRe
 		return nil, fmt.Errorf("model does not support embeddings")
 	}
 	return embedder.Embed(ctx, req)
+}
+
+func StreamGenerate(ctx context.Context, model Model, req GenerateRequest) (Stream, error) {
+	if model == nil {
+		return nil, fmt.Errorf("model is required")
+	}
+	streamer, ok := model.(StreamingGenerator)
+	if ok {
+		return streamer.StreamGenerate(ctx, req)
+	}
+	out, err := model.Generate(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	tokens := make(chan Token, 1)
+	if out != nil && out.Text != "" {
+		tokens <- Token{Text: out.Text}
+	}
+	close(tokens)
+	return staticStream{tokens: tokens}, nil
+}
+
+func ApplyGenerationDefaults(path string, req *GenerateRequest) error {
+	if req == nil {
+		return fmt.Errorf("generate request is nil")
+	}
+	cfg, err := modelinfo.LoadGenerationConfig(path)
+	if err != nil || cfg == nil {
+		return err
+	}
+	applyGenerationConfigToGenerateRequest(cfg, req)
+	return nil
+}
+
+func ApplyChatGenerationDefaults(path string, req *ChatRequest) error {
+	if req == nil {
+		return fmt.Errorf("chat request is nil")
+	}
+	cfg, err := modelinfo.LoadGenerationConfig(path)
+	if err != nil || cfg == nil {
+		return err
+	}
+	if req.MaxTokens == 0 && cfg.MaxNewTokens != nil {
+		req.MaxTokens = *cfg.MaxNewTokens
+	}
+	if req.Temperature == 0 && cfg.Temperature != nil {
+		req.Temperature = *cfg.Temperature
+	}
+	if req.TopK == 0 && cfg.TopK != nil {
+		req.TopK = *cfg.TopK
+	}
+	if req.TopP == 0 && cfg.TopP != nil {
+		req.TopP = *cfg.TopP
+	}
+	if req.RepeatPenalty == 0 && cfg.RepetitionPenalty != nil {
+		req.RepeatPenalty = *cfg.RepetitionPenalty
+	}
+	if len(req.Stop) == 0 && len(cfg.StopStrings) > 0 {
+		req.Stop = append([]string(nil), cfg.StopStrings...)
+	}
+	return nil
+}
+
+func applyGenerationConfigToGenerateRequest(cfg *modelinfo.GenerationConfig, req *GenerateRequest) {
+	if req.MaxTokens == 0 && cfg.MaxNewTokens != nil {
+		req.MaxTokens = *cfg.MaxNewTokens
+	}
+	if req.Temperature == 0 && cfg.Temperature != nil {
+		req.Temperature = *cfg.Temperature
+	}
+	if req.TopK == 0 && cfg.TopK != nil {
+		req.TopK = *cfg.TopK
+	}
+	if req.TopP == 0 && cfg.TopP != nil {
+		req.TopP = *cfg.TopP
+	}
+	if req.RepeatPenalty == 0 && cfg.RepetitionPenalty != nil {
+		req.RepeatPenalty = *cfg.RepetitionPenalty
+	}
+	if len(req.Stop) == 0 && len(cfg.StopStrings) > 0 {
+		req.Stop = append([]string(nil), cfg.StopStrings...)
+	}
+}
+
+type staticStream struct {
+	tokens <-chan Token
+}
+
+func (s staticStream) Tokens() <-chan Token {
+	return s.tokens
+}
+
+func (staticStream) Err() error {
+	return nil
+}
+
+func (staticStream) Close() error {
+	return nil
 }
 
 var backendRegistry = struct {
@@ -160,6 +268,11 @@ func BackendInfoByName(name string) (BackendInfo, bool) {
 }
 
 func LoadModel(ctx context.Context, opts ModelOptions) (Model, error) {
+	expanded, err := expandNativeManifestOptions(opts)
+	if err != nil {
+		return nil, err
+	}
+	opts = expanded
 	if opts.Backend == "" {
 		backend, err := ResolveBackend(opts)
 		if err != nil {
@@ -177,6 +290,11 @@ func LoadModel(ctx context.Context, opts ModelOptions) (Model, error) {
 }
 
 func ResolveBackend(opts ModelOptions) (string, error) {
+	expanded, err := expandNativeManifestOptions(opts)
+	if err != nil {
+		return "", err
+	}
+	opts = expanded
 	if opts.Backend != "" {
 		return opts.Backend, nil
 	}
@@ -194,6 +312,56 @@ func ResolveBackend(opts ModelOptions) (string, error) {
 		return artifact.RecommendedRunBackend, nil
 	}
 	return "", modelinfo.FormatResolveError(opts.Path, artifact)
+}
+
+func expandNativeManifestOptions(opts ModelOptions) (ModelOptions, error) {
+	if strings.TrimSpace(opts.Path) == "" {
+		return opts, nil
+	}
+	manifestPath, err := training.NativeManifestPath(opts.Path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return opts, nil
+		}
+		return opts, fmt.Errorf("load native training manifest: %w", err)
+	}
+	manifest, err := training.LoadNativeManifest(manifestPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return opts, nil
+		}
+		return opts, fmt.Errorf("load native training manifest: %w", err)
+	}
+	manifestDir := filepath.Dir(manifestPath)
+	if manifest.BaseModel != "" {
+		opts.Path = manifest.BaseModel
+	}
+	if opts.Backend == "" {
+		opts.Backend = manifest.RecommendedBackend
+	}
+	if len(manifest.RuntimeOptions) > 0 {
+		if opts.Options == nil {
+			opts.Options = make(map[string]string, len(manifest.RuntimeOptions))
+		}
+		for key, value := range manifest.RuntimeOptions {
+			if _, exists := opts.Options[key]; !exists && value != "" {
+				opts.Options[key] = resolveManifestRuntimeOption(manifestDir, key, value)
+			}
+		}
+	}
+	return opts, nil
+}
+
+func resolveManifestRuntimeOption(manifestDir, key, value string) string {
+	switch key {
+	case "adapter", "adapter_path":
+		if filepath.IsAbs(value) {
+			return value
+		}
+		return filepath.Clean(filepath.Join(manifestDir, filepath.FromSlash(value)))
+	default:
+		return value
+	}
 }
 
 func backendInfo(name string, backend Backend) BackendInfo {

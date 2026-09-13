@@ -8,6 +8,8 @@ import (
 
 	nego "github.com/gakon/nego-ai"
 	_ "github.com/gakon/nego-ai/backends/llama"
+	_ "github.com/gakon/nego-ai/backends/native"
+	_ "github.com/gakon/nego-ai/backends/nativehf"
 	"github.com/gakon/nego-ai/server"
 )
 
@@ -16,12 +18,7 @@ func main() {
 		log.Fatal("usage: go run ./examples/6.serve <model-path>")
 	}
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
-		Backend: "llama.cpp",
-		Path:    os.Args[1],
-		Options: map[string]string{
-			"gpu":        "full",
-			"flash_attn": "true",
-		},
+		Path: os.Args[1],
 	})
 	if err != nil {
 		log.Fatal(err)

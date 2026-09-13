@@ -76,6 +76,8 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 		return runInspect(args[1:], stdout, stderr)
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
+	case "status":
+		return runStatus(args[1:], stdout, stderr)
 	case "memory":
 		return runMemory(args[1:], stdout, stderr)
 	case "run":
@@ -251,9 +253,9 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		printError(stderr, err)
 		return exitCode(err)
 	}
-	warning := ""
-	if !gguf && commonRepoType == hub.RepoTypeModel {
-		warning = downloadRuntimeWarning(path)
+	compatibility := ""
+	if commonRepoType == hub.RepoTypeModel {
+		compatibility = downloadCompatibilitySummary(path)
 	}
 	if jsonOutput {
 		result := map[string]string{"path": path}
@@ -261,8 +263,8 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 			result["repo"] = resolvedGGUF.RepoID
 			result["file"] = resolvedGGUF.Filename
 		}
-		if warning != "" {
-			result["warning"] = warning
+		if compatibility != "" {
+			result["compatibility"] = compatibility
 		}
 		_ = json.NewEncoder(stdout).Encode(result)
 	} else if quiet {
@@ -272,45 +274,30 @@ func runDownload(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		if resolvedGGUF != nil {
 			fmt.Fprintf(stdout, "Runtime file: %s/%s\n", resolvedGGUF.RepoID, resolvedGGUF.Filename)
 		}
-		if warning != "" {
-			fmt.Fprintf(stderr, "nego: %s\n", warning)
+		if compatibility != "" {
+			fmt.Fprintf(stdout, "Compatibility: %s\n", compatibility)
 		}
 	}
 	return 0
 }
 
-func downloadRuntimeWarning(path string) string {
-	hasSafeTensors, hasGGUF := pathHasRuntimeExtension(path, ".safetensors"), pathHasRuntimeExtension(path, ".gguf")
-	if !hasSafeTensors || hasGGUF {
+func downloadCompatibilitySummary(path string) string {
+	report, err := modelinfo.Check(path)
+	if err != nil || report.Artifact == nil {
 		return ""
 	}
-	return "downloaded Hugging Face safetensors; Nego cannot run this directly with the local llama.cpp backend. Use `nego download <repo-id> --gguf --local-dir <dir>` for chat/runtime, or `nego convert gguf <model-dir> --out <file>` with a llama.cpp converter."
+	run := firstNonEmptyString(report.Artifact.RecommendedRunBackend, "not ready")
+	train := firstNonEmptyString(report.Artifact.RecommendedTrainBackend, "not ready")
+	return fmt.Sprintf("format=%s run=%s train=%s", report.Artifact.Format, run, train)
 }
 
-func pathHasRuntimeExtension(root, ext string) bool {
-	if root == "" {
-		return false
-	}
-	info, err := os.Stat(root)
-	if err != nil {
-		return false
-	}
-	ext = strings.ToLower(ext)
-	if !info.IsDir() {
-		return strings.HasSuffix(strings.ToLower(root), ext)
-	}
-	found := false
-	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil || entry.IsDir() {
-			return nil
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
 		}
-		if strings.HasSuffix(strings.ToLower(entry.Name()), ext) {
-			found = true
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return found
+	}
+	return ""
 }
 
 func splitFlags(args []string) ([]string, []string) {
@@ -341,7 +328,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native", "no-manifest":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native", "no-manifest", "dry-run":
 		return true
 	default:
 		return false
@@ -402,6 +389,8 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego backends info <name> [flags]")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset tokens <file> --model <model-path> [flags]")
+	fmt.Fprintln(w, "  nego dataset render <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
@@ -414,6 +403,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
 	fmt.Fprintln(w, "  nego inspect <model-path> [flags]")
 	fmt.Fprintln(w, "  nego check <model-path> [flags]")
+	fmt.Fprintln(w, "  nego status <model-path> [flags]")
 	fmt.Fprintln(w, "  nego memory <model-path> [flags]")
 	fmt.Fprintln(w, "  nego run <model-path> <prompt> [flags]")
 	fmt.Fprintln(w, "  nego chat <model-path> <message> [flags]")
@@ -428,9 +418,10 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train capabilities <model-path> [flags]")
-	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
+	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> [--out <dir>] [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego share check <model-dir> [flags]")
 	fmt.Fprintln(w, "  nego share package <model-dir> --out <archive.tar.gz> [flags]")
 	fmt.Fprintln(w, "  nego share upload <repo-id> <local-path> [path-in-repo] [flags]")
 }
@@ -443,6 +434,8 @@ func runShare(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	switch args[0] {
 	case "manifest":
 		return runShareManifest(args[1:], stdout, stderr)
+	case "check":
+		return runShareCheck(args[1:], stdout, stderr)
 	case "package":
 		return runSharePackage(args[1:], stdout, stderr)
 	case "upload":
@@ -497,8 +490,54 @@ func runShareManifest(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	fmt.Fprintf(stdout, "Share manifest: %s\n", out)
+	if manifest.ArtifactType != "" {
+		fmt.Fprintf(stdout, "Artifact:       %s\n", manifest.ArtifactType)
+	}
+	if manifest.BaseModel != "" {
+		fmt.Fprintf(stdout, "Base model:     %s\n", manifest.BaseModel)
+	}
 	fmt.Fprintf(stdout, "Files:          %d\n", len(manifest.Files))
 	fmt.Fprintf(stdout, "Size:           %s\n", humanBytes(manifest.TotalSize))
+	return 0
+}
+
+func runShareCheck(args []string, stdout, stderr io.Writer) int {
+	var repo string
+	var baseModel string
+	var maxInlineSize int64
+	var jsonOutput bool
+	fs := flag.NewFlagSet("share check", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&repo, "repo", "", "target repository id")
+	fs.StringVar(&baseModel, "base-model", "", "base model id")
+	fs.Int64Var(&maxInlineSize, "max-inline-size", 0, "maximum inline file size in bytes")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON report")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego share check <model-dir> [flags]")
+		return 2
+	}
+	report, err := share.Check(share.CheckOptions{
+		Path:          positionals[0],
+		RepoID:        repo,
+		BaseModel:     baseModel,
+		MaxInlineSize: maxInlineSize,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(report)
+	} else {
+		printShareCheck(stdout, report)
+	}
+	if !report.Valid {
+		return 1
+	}
 	return 0
 }
 
@@ -536,6 +575,31 @@ func runSharePackage(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Files:          %d\n", len(manifest.Files))
 	fmt.Fprintf(stdout, "Size:           %s\n", humanBytes(manifest.TotalSize))
 	return 0
+}
+
+func printShareCheck(w io.Writer, report *share.CheckReport) {
+	fmt.Fprintln(w, "Share check")
+	fmt.Fprintf(w, "Path:          %s\n", report.Path)
+	if report.RepoID != "" {
+		fmt.Fprintf(w, "Repo:          %s\n", report.RepoID)
+	}
+	if report.BaseModel != "" {
+		fmt.Fprintf(w, "Base model:    %s\n", report.BaseModel)
+	}
+	if report.ArtifactType != "" {
+		fmt.Fprintf(w, "Artifact:      %s\n", report.ArtifactType)
+	}
+	fmt.Fprintf(w, "Files:         %d\n", report.Files)
+	fmt.Fprintf(w, "Size:          %s\n", humanBytes(report.TotalSize))
+	fmt.Fprintf(w, "Inline limit:  %s\n", humanBytes(report.MaxInlineSize))
+	fmt.Fprintf(w, "Inline files:  %d\n", report.InlineFiles)
+	fmt.Fprintf(w, "Large files:   %d\n", len(report.LargeFiles))
+	for _, file := range report.LargeFiles {
+		fmt.Fprintf(w, "  - %s %s requires LFS/Xet\n", file.Path, humanBytes(file.Size))
+	}
+	for _, warning := range report.Warnings {
+		fmt.Fprintf(w, "Warning:       %s\n", warning)
+	}
 }
 
 func runShareUpload(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -643,6 +707,7 @@ func runShareUpload(ctx context.Context, args []string, stdout, stderr io.Writer
 func shareUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego share manifest <model-dir> --out <file> [flags]")
+	fmt.Fprintln(w, "  nego share check <model-dir> [flags]")
 	fmt.Fprintln(w, "  nego share package <model-dir> --out <archive.tar.gz> [flags]")
 	fmt.Fprintln(w, "  nego share upload <repo-id> <local-path> [path-in-repo] [flags]")
 }
@@ -721,6 +786,7 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 
 func runTrainInit(args []string, stdout, stderr io.Writer) int {
 	var name, method, baseModel, trainFile, evalFile, datasetFormat, outputDir, command, script, workDir, out string
+	var maxContext int
 	fs := flag.NewFlagSet("train init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&name, "name", "qwen3-lora", "training job name")
@@ -733,6 +799,7 @@ func runTrainInit(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&command, "command", "python", "training command")
 	fs.StringVar(&script, "script", "scripts/train_lora.py", "training script passed as first argument")
 	fs.StringVar(&workDir, "work-dir", ".", "training working directory")
+	fs.IntVar(&maxContext, "max-context", 0, "maximum context tokens checked during preflight")
 	fs.StringVar(&out, "out", "train-job.json", "output job JSON file")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
@@ -750,6 +817,7 @@ func runTrainInit(args []string, stdout, stderr io.Writer) int {
 		EvalFile:      evalFile,
 		DatasetFormat: datasetFormat,
 		OutputDir:     outputDir,
+		MaxContext:    maxContext,
 		Command:       command,
 		Script:        script,
 		WorkDir:       workDir,
@@ -904,7 +972,9 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	var method string
 	var learningRate float64
 	var epochs int
+	var maxContext int
 	var jsonOutput bool
+	var dryRun bool
 	fs := flag.NewFlagSet("train native", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&trainFile, "train-file", "", "training dataset file")
@@ -914,14 +984,20 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&method, "method", "token-bias", "native training method")
 	fs.Float64Var(&learningRate, "learning-rate", 0.1, "adapter learning-rate scale")
 	fs.IntVar(&epochs, "epochs", 1, "number of passes over the dataset")
+	fs.IntVar(&maxContext, "max-context", 0, "maximum context tokens checked before native training")
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.BoolVar(&dryRun, "dry-run", false, "validate and preview native training without writing output files")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
 	}
-	if len(positionals) != 1 || trainFile == "" || outputDir == "" {
-		fmt.Fprintln(stderr, "usage: nego train native <model-path> --train-file <file> --out <dir> [flags]")
+	if len(positionals) != 1 || trainFile == "" || (outputDir == "" && !dryRun) {
+		fmt.Fprintln(stderr, "usage: nego train native <model-path> --train-file <file> [--out <dir>] [flags]")
 		return 2
+	}
+	var progress func(training.NativeProgress)
+	if !jsonOutput {
+		progress = nativeTrainingProgressPrinter(stderr)
 	}
 	result, err := training.RunNative(context.Background(), training.NativeOptions{
 		BaseModel:     positionals[0],
@@ -932,6 +1008,9 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 		Method:        method,
 		LearningRate:  learningRate,
 		Epochs:        epochs,
+		MaxContext:    maxContext,
+		DryRun:        dryRun,
+		Progress:      progress,
 	})
 	if jsonOutput {
 		body := map[string]any{
@@ -953,8 +1032,53 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func nativeTrainingProgressPrinter(w io.Writer) func(training.NativeProgress) {
+	seen := make(map[string]bool)
+	return func(event training.NativeProgress) {
+		if event.Stage == "" {
+			return
+		}
+		key := event.Stage
+		if event.Stage == "train" {
+			key = fmt.Sprintf("%s:%d:%d", event.Stage, event.Epoch, event.RowsDone)
+			if event.RowsDone > 0 && event.RowsDone < event.RowsTotal && event.RowsDone%100 != 0 {
+				return
+			}
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		message := event.Message
+		if message == "" {
+			message = event.Stage
+		}
+		if event.Stage == "train" && event.RowsTotal > 0 {
+			if event.RowsDone > 0 {
+				fmt.Fprintf(w, "Training native adapter: epoch %d/%d rows %d/%d\n", event.Epoch, event.Epochs, event.RowsDone, event.RowsTotal)
+				return
+			}
+			fmt.Fprintf(w, "Training native adapter: epoch %d/%d rows 0/%d\n", event.Epoch, event.Epochs, event.RowsTotal)
+			return
+		}
+		fmt.Fprintf(w, "%s...\n", sentenceCase(message))
+	}
+}
+
+func sentenceCase(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return value
+	}
+	return strings.ToUpper(value[:1]) + value[1:]
+}
+
 func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
-	fmt.Fprintln(w, "Native training completed")
+	if result.DryRun {
+		fmt.Fprintln(w, "Native training dry run passed")
+	} else {
+		fmt.Fprintln(w, "Native training completed")
+	}
 	fmt.Fprintf(w, "Base model:     %s\n", result.BaseModel)
 	fmt.Fprintf(w, "Train file:     %s (%d rows)\n", result.TrainFile, result.TrainRows)
 	if result.EvalFile != "" {
@@ -963,9 +1087,32 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	fmt.Fprintf(w, "Dataset format: %s\n", result.DatasetFormat)
 	fmt.Fprintf(w, "Method:         %s\n", result.Method)
 	fmt.Fprintf(w, "Epochs:         %d\n", result.Epochs)
+	if result.MaxContext > 0 {
+		fmt.Fprintf(w, "Max context:    %d\n", result.MaxContext)
+	}
+	if result.TrainBudget != nil {
+		printTrainingTokenBudget(w, "Train budget", result.TrainBudget)
+	}
+	if result.EvalBudget != nil {
+		printTrainingTokenBudget(w, "Eval budget", result.EvalBudget)
+	}
 	fmt.Fprintf(w, "Train tokens:   %d\n", result.TrainTokens)
 	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
-	fmt.Fprintf(w, "Adapter:        %s\n", result.AdapterPath)
+	printNativeTrainingTopTokens(w, result.TopTokens)
+	if result.DryRun {
+		if result.AdapterPath != "" {
+			fmt.Fprintf(w, "Planned adapter: %s\n", result.AdapterPath)
+		}
+		fmt.Fprintln(w, "Writes:         no")
+	} else {
+		fmt.Fprintf(w, "Adapter:        %s\n", result.AdapterPath)
+	}
+	if result.ManifestPath != "" {
+		fmt.Fprintf(w, "Manifest:       %s\n", result.ManifestPath)
+	}
+	if result.ReadmePath != "" {
+		fmt.Fprintf(w, "Guide:          %s\n", result.ReadmePath)
+	}
 	if runCommand := nativeTrainingRunCommand(result); runCommand != "" {
 		fmt.Fprintf(w, "Run:            %s\n", runCommand)
 	}
@@ -998,6 +1145,9 @@ func nativeTrainingChatCommand(result training.NativeResult) string {
 func nativeTrainingRuntimeArgs(command string, result training.NativeResult) []string {
 	if result.BaseModel == "" || result.AdapterPath == "" {
 		return nil
+	}
+	if result.OutputDir != "" && result.ManifestPath != "" {
+		return []string{"nego", command, result.OutputDir}
 	}
 	args := []string{"nego", command}
 	switch {
@@ -1086,6 +1236,15 @@ func printTrainingPreflight(w io.Writer, report training.PreflightReport) {
 	if report.OutputDir != "" {
 		fmt.Fprintf(w, "Output dir:     %s\n", report.OutputDir)
 	}
+	if report.MaxContext > 0 {
+		fmt.Fprintf(w, "Max context:    %d\n", report.MaxContext)
+	}
+	if report.TrainTokens != nil {
+		printTrainingTokenBudget(w, "Train tokens", report.TrainTokens)
+	}
+	if report.EvalTokens != nil {
+		printTrainingTokenBudget(w, "Eval tokens", report.EvalTokens)
+	}
 	if report.Command != "" {
 		command := strings.TrimSpace(strings.Join(append([]string{report.Command}, redactTrainingArgs(report.Args)...), " "))
 		fmt.Fprintf(w, "Command:        %s\n", command)
@@ -1093,6 +1252,14 @@ func printTrainingPreflight(w io.Writer, report training.PreflightReport) {
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(w, "Warning:        %s\n", warning)
 	}
+}
+
+func printTrainingTokenBudget(w io.Writer, label string, summary *training.TokenBudgetSummary) {
+	fmt.Fprintf(w, "%s:   min %d / avg %.1f / max %d / total %d", label, summary.MinTokens, summary.AverageTokens, summary.MaxTokens, summary.TotalTokens)
+	if summary.MaxContext > 0 {
+		fmt.Fprintf(w, " / over %d", summary.OverLimit)
+	}
+	fmt.Fprintln(w)
 }
 
 func redactTrainingArgs(args []string) []string {
@@ -1135,7 +1302,7 @@ func trainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train check <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train capabilities <model-path> [flags]")
-	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> --out <dir> [flags]")
+	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> [--out <dir>] [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
 
@@ -1676,6 +1843,12 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 	if len(info.Architectures) > 0 {
 		fmt.Fprintf(w, "Architecture:%s\n", " "+strings.Join(info.Architectures, ", "))
 	}
+	if info.Generation != nil {
+		writeGenerationConfig(w, info.Generation)
+	}
+	if info.NativeAdapter != nil {
+		writeNativeAdapterInfo(w, info.NativeAdapter)
+	}
 	if info.HFSpec != nil {
 		fmt.Fprintln(w, "HF spec:")
 		fmt.Fprintf(w, "  Ready:        %v\n", info.HFSpec.Ready)
@@ -1829,6 +2002,113 @@ func writeInspectInfo(w io.Writer, info *modelinfo.Info) {
 	}
 }
 
+func writeGenerationConfig(w io.Writer, cfg *modelinfo.GenerationConfig) {
+	if cfg == nil {
+		return
+	}
+	fmt.Fprintln(w, "Generation:")
+	if cfg.MaxNewTokens != nil {
+		fmt.Fprintf(w, "  Max new:      %d\n", *cfg.MaxNewTokens)
+	} else if cfg.MaxLength != nil {
+		fmt.Fprintf(w, "  Max length:   %d\n", *cfg.MaxLength)
+	}
+	if cfg.MinNewTokens != nil {
+		fmt.Fprintf(w, "  Min new:      %d\n", *cfg.MinNewTokens)
+	}
+	if cfg.DoSample != nil {
+		fmt.Fprintf(w, "  Sample:       %v\n", *cfg.DoSample)
+	}
+	if cfg.Temperature != nil {
+		fmt.Fprintf(w, "  Temperature:  %g\n", *cfg.Temperature)
+	}
+	if cfg.TopP != nil {
+		fmt.Fprintf(w, "  Top-p:        %g\n", *cfg.TopP)
+	}
+	if cfg.TopK != nil {
+		fmt.Fprintf(w, "  Top-k:        %d\n", *cfg.TopK)
+	}
+	if cfg.TypicalP != nil {
+		fmt.Fprintf(w, "  Typical-p:    %g\n", *cfg.TypicalP)
+	}
+	if cfg.RepetitionPenalty != nil {
+		fmt.Fprintf(w, "  Repeat:       %g\n", *cfg.RepetitionPenalty)
+	}
+	if cfg.NoRepeatNGramSize != nil {
+		fmt.Fprintf(w, "  No repeat n:  %d\n", *cfg.NoRepeatNGramSize)
+	}
+	if cfg.BOSTokenID != nil {
+		fmt.Fprintf(w, "  BOS token:    %d\n", *cfg.BOSTokenID)
+	}
+	if cfg.PadTokenID != nil {
+		fmt.Fprintf(w, "  PAD token:    %d\n", *cfg.PadTokenID)
+	}
+	if len(cfg.EOSTokenIDs) > 0 {
+		fmt.Fprintf(w, "  EOS tokens:   %s\n", joinInts(cfg.EOSTokenIDs))
+	}
+	if len(cfg.StopStrings) > 0 {
+		fmt.Fprintf(w, "  Stop:         %s\n", strings.Join(cfg.StopStrings, ", "))
+	}
+}
+
+func joinInts(values []int) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, strconv.Itoa(value))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func writeNativeAdapterInfo(w io.Writer, info *modelinfo.NativeAdapterInfo) {
+	if info == nil {
+		return
+	}
+	fmt.Fprintln(w, "Native adapter:")
+	if info.BaseModel != "" {
+		fmt.Fprintf(w, "  Base model:   %s\n", info.BaseModel)
+	}
+	if info.AdapterPath != "" {
+		fmt.Fprintf(w, "  Adapter:      %s\n", info.AdapterPath)
+	}
+	if info.RecommendedBackend != "" {
+		fmt.Fprintf(w, "  Backend:      %s\n", info.RecommendedBackend)
+	}
+	if info.Method != "" {
+		fmt.Fprintf(w, "  Method:       %s\n", info.Method)
+	}
+	if info.UpdatedTokens > 0 {
+		fmt.Fprintf(w, "  Tokens:       %d updated\n", info.UpdatedTokens)
+	}
+	printNativeAdapterTopTokens(w, info.TopTokens)
+}
+
+func printNativeTrainingTopTokens(w io.Writer, tokens []training.NativeTokenSummary) {
+	if len(tokens) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "Top tokens:")
+	for _, token := range tokens {
+		fmt.Fprintf(w, "  - %d", token.ID)
+		if token.Text != "" {
+			fmt.Fprintf(w, " %s", strconv.Quote(token.Text))
+		}
+		fmt.Fprintf(w, " count=%d bias=%.4g\n", token.Count, token.Bias)
+	}
+}
+
+func printNativeAdapterTopTokens(w io.Writer, tokens []modelinfo.NativeAdapterToken) {
+	if len(tokens) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "  Top tokens:")
+	for _, token := range tokens {
+		fmt.Fprintf(w, "    - %d", token.ID)
+		if token.Text != "" {
+			fmt.Fprintf(w, " %s", strconv.Quote(token.Text))
+		}
+		fmt.Fprintf(w, " count=%d bias=%.4g\n", token.Count, token.Bias)
+	}
+}
+
 func printMemoryEstimate(w io.Writer, estimate *modelinfo.MemoryEstimate) {
 	fmt.Fprintln(w, "Memory estimate")
 	fmt.Fprintf(w, "Path:          %s\n", estimate.Path)
@@ -1907,6 +2187,84 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+func runStatus(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego status <model-path> [flags]")
+		return 2
+	}
+	artifact, err := modelinfo.Resolve(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(artifact)
+		return 0
+	}
+	writeArtifactStatus(stdout, artifact)
+	return 0
+}
+
+func writeArtifactStatus(w io.Writer, artifact *modelinfo.Artifact) {
+	fmt.Fprintf(w, "Path:          %s\n", artifact.Path)
+	fmt.Fprintf(w, "Format:        %s\n", artifact.Format)
+	fmt.Fprintf(w, "Run:           %s\n", firstNonEmptyString(artifact.RecommendedRunBackend, "not ready"))
+	fmt.Fprintf(w, "Train:         %s\n", firstNonEmptyString(artifact.RecommendedTrainBackend, "not ready"))
+	if artifact.RuntimeFile != nil {
+		fmt.Fprintf(w, "Runtime file:  %s [%s]\n", artifact.RuntimeFile.Path, artifact.RuntimeFile.Kind)
+	}
+	if artifact.ModelType != "" {
+		fmt.Fprintf(w, "Model type:    %s\n", artifact.ModelType)
+	}
+	if artifact.ContextLength > 0 {
+		fmt.Fprintf(w, "Context:       %d\n", artifact.ContextLength)
+	}
+	if artifact.Quantization != "" {
+		fmt.Fprintf(w, "Quantization:  %s\n", artifact.Quantization)
+	}
+	if artifact.ParameterCount > 0 {
+		fmt.Fprintf(w, "Parameters:    %d\n", artifact.ParameterCount)
+	}
+	fmt.Fprintf(w, "Chat template: %s\n", yesNo(artifact.ChatTemplate))
+	writeArtifactCapabilities(w, "Run backends:", artifact.RunBackends)
+	writeArtifactCapabilities(w, "Train backends:", artifact.TrainBackends)
+	if len(artifact.Warnings) > 0 {
+		fmt.Fprintln(w, "Warnings:")
+		for _, warning := range artifact.Warnings {
+			fmt.Fprintf(w, "  - %s\n", warning)
+		}
+	}
+}
+
+func writeArtifactCapabilities(w io.Writer, label string, capabilities []modelinfo.ArtifactCapability) {
+	if len(capabilities) == 0 {
+		return
+	}
+	fmt.Fprintln(w, label)
+	for _, capability := range capabilities {
+		fmt.Fprintf(w, "  - %s: %s", capability.Name, capability.Status)
+		if capability.Reason != "" {
+			fmt.Fprintf(w, " (%s)", capability.Reason)
+		}
+		fmt.Fprintln(w)
+	}
+}
+
+func yesNo(value bool) string {
+	if value {
+		return "yes"
+	}
+	return "no"
+}
+
 func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 	fmt.Fprintf(w, "Path:          %s\n", report.Path)
 	if report.ModelType != "" {
@@ -1924,10 +2282,16 @@ func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 	if report.Quantization != "" {
 		fmt.Fprintf(w, "Quantization:  %s\n", report.Quantization)
 	}
+	if report.Generation != nil {
+		writeGenerationConfig(w, report.Generation)
+	}
 	if report.ChatTemplate {
 		fmt.Fprintln(w, "Chat template: yes")
 	} else {
 		fmt.Fprintln(w, "Chat template: no")
+	}
+	if report.NativeAdapter != nil {
+		writeNativeAdapterInfo(w, report.NativeAdapter)
 	}
 	if report.Artifact != nil {
 		fmt.Fprintln(w, "Artifact:")
@@ -1970,6 +2334,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var backend string
 	var maxTokens int
 	var temperature float64
+	var topK int
 	var topP float64
 	var repeatPenalty float64
 	var seed int64
@@ -1993,6 +2358,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&native, "native", false, "use the experimental pure-Go native backend")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
 	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
+	fs.IntVar(&topK, "top-k", 0, "keep only the top k tokens during sampling")
 	fs.Float64Var(&topP, "top-p", 0, "nucleus sampling probability")
 	fs.Float64Var(&repeatPenalty, "repeat-penalty", 0, "penalty for repeated tokens, >= 1")
 	fs.Int64Var(&seed, "seed", 0, "random seed")
@@ -2036,11 +2402,18 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	if cfg.Temperature > 0 && temperature == 0 {
 		temperature = cfg.Temperature
 	}
+	if cfg.TopK != 0 && topK == 0 {
+		topK = cfg.TopK
+	}
 	if cfg.TopP > 0 && topP == 0 {
 		topP = cfg.TopP
 	}
 	if cfg.RepeatPenalty > 0 && repeatPenalty == 0 {
 		repeatPenalty = cfg.RepeatPenalty
+	}
+	if err := validateTopK(topK); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
 	}
 	if err := validateRepeatPenalty(repeatPenalty); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2051,6 +2424,14 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(stop) == 0 {
 		stop = append(stop, cfg.Stop...)
+	}
+	defaults := generationDefaultOverrides{
+		maxTokens:     flagWasSet(fs, "max-tokens") || cfg.MaxTokens > 0,
+		temperature:   flagWasSet(fs, "temperature") || cfg.Temperature > 0,
+		topK:          flagWasSet(fs, "top-k") || cfg.TopK > 0,
+		topP:          flagWasSet(fs, "top-p") || cfg.TopP > 0,
+		repeatPenalty: flagWasSet(fs, "repeat-penalty") || cfg.RepeatPenalty > 0,
+		stop:          flagWasSet(fs, "stop") || len(cfg.Stop) > 0,
 	}
 	if cfg.Log != "" && logPath == "" {
 		logPath = cfg.Log
@@ -2065,6 +2446,18 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	}
 	if path == "" || prompt == "" {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
+		return 2
+	}
+	if err := applyCLIGenerationDefaults(path, defaults, &maxTokens, &temperature, &topK, &topP, &repeatPenalty, &stop); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := validateTopK(topK); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
+	if err := validateRepeatPenalty(repeatPenalty); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
 	}
 	options, err := runtimeOptions(cfg.Options, runtimeFlagOptions{
@@ -2092,22 +2485,22 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
-		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
 	}
 	defer model.Close()
-	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: prompt, MaxTokens: maxTokens, Temperature: temperature, TopP: topP, RepeatPenalty: repeatPenalty, Stop: stop, Seed: seed})
+	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: prompt, MaxTokens: maxTokens, Temperature: temperature, TopK: topK, TopP: topP, RepeatPenalty: repeatPenalty, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
-		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
 	}
 	fmt.Fprint(stdout, out.Text)
-	if err := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, out.Text, started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, nil)); err != nil {
+	if err := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, out.Text, started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, nil)); err != nil {
 		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 		return 1
 	}
@@ -2119,6 +2512,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var system string
 	var maxTokens int
 	var temperature float64
+	var topK int
 	var topP float64
 	var repeatPenalty float64
 	var seed int64
@@ -2146,6 +2540,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&system, "system", "", "system message")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
 	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
+	fs.IntVar(&topK, "top-k", 0, "keep only the top k tokens during sampling")
 	fs.Float64Var(&topP, "top-p", 0, "nucleus sampling probability")
 	fs.Float64Var(&repeatPenalty, "repeat-penalty", 0, "penalty for repeated tokens, >= 1")
 	fs.Int64Var(&seed, "seed", 0, "random seed")
@@ -2192,11 +2587,18 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if cfg.Temperature > 0 && temperature == 0 {
 		temperature = cfg.Temperature
 	}
+	if cfg.TopK != 0 && topK == 0 {
+		topK = cfg.TopK
+	}
 	if cfg.TopP > 0 && topP == 0 {
 		topP = cfg.TopP
 	}
 	if cfg.RepeatPenalty > 0 && repeatPenalty == 0 {
 		repeatPenalty = cfg.RepeatPenalty
+	}
+	if err := validateTopK(topK); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
 	}
 	if err := validateRepeatPenalty(repeatPenalty); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2207,6 +2609,14 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if len(stop) == 0 {
 		stop = append(stop, cfg.Stop...)
+	}
+	defaults := generationDefaultOverrides{
+		maxTokens:     flagWasSet(fs, "max-tokens") || cfg.MaxTokens > 0,
+		temperature:   flagWasSet(fs, "temperature") || cfg.Temperature > 0,
+		topK:          flagWasSet(fs, "top-k") || cfg.TopK > 0,
+		topP:          flagWasSet(fs, "top-p") || cfg.TopP > 0,
+		repeatPenalty: flagWasSet(fs, "repeat-penalty") || cfg.RepeatPenalty > 0,
+		stop:          flagWasSet(fs, "stop") || len(cfg.Stop) > 0,
 	}
 	if cfg.Log != "" && logPath == "" {
 		logPath = cfg.Log
@@ -2266,6 +2676,18 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
+	if err := applyCLIGenerationDefaults(path, defaults, &maxTokens, &temperature, &topK, &topP, &repeatPenalty, &stop); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if err := validateTopK(topK); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
+	if err := validateRepeatPenalty(repeatPenalty); err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 2
+	}
 	options, err := runtimeOptions(cfg.Options, runtimeFlagOptions{
 		threads:        threads,
 		ctxSize:        ctxSize,
@@ -2291,7 +2713,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		started := time.Now().UTC()
-		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
@@ -2307,6 +2729,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			messages:      messages,
 			maxTokens:     maxTokens,
 			temperature:   temperature,
+			topK:          topK,
 			topP:          topP,
 			repeatPenalty: repeatPenalty,
 			stop:          stop,
@@ -2318,10 +2741,10 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		})
 	}
 	started := time.Now().UTC()
-	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens, Temperature: temperature, TopP: topP, RepeatPenalty: repeatPenalty, Stop: stop, Seed: seed})
+	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens, Temperature: temperature, TopK: topK, TopP: topP, RepeatPenalty: repeatPenalty, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
-		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
@@ -2333,7 +2756,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
 		return 1
 	}
-	if err := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, resp.Message.Content, started, maxTokens, temperature, topP, repeatPenalty, stop, seed, options, nil)); err != nil {
+	if err := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, resp.Message.Content, started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, nil)); err != nil {
 		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 		return 1
 	}
@@ -2349,6 +2772,7 @@ type interactiveChatOptions struct {
 	messages      []nego.Message
 	maxTokens     int
 	temperature   float64
+	topK          int
 	topP          float64
 	repeatPenalty float64
 	stop          []string
@@ -2399,6 +2823,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 			Messages:      messages,
 			MaxTokens:     opts.maxTokens,
 			Temperature:   opts.temperature,
+			TopK:          opts.topK,
 			TopP:          opts.topP,
 			RepeatPenalty: opts.repeatPenalty,
 			Stop:          opts.stop,
@@ -2407,7 +2832,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 		if err != nil {
 			fmt.Fprintln(stdout)
 			fmt.Fprintf(stderr, "nego: %v\n", err)
-			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, "", started, opts.maxTokens, opts.temperature, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err)); logErr != nil {
+			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, "", started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err)); logErr != nil {
 				fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 			}
 			return 1
@@ -2421,7 +2846,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 			_ = stream.Close()
 			fmt.Fprintln(stdout)
 			fmt.Fprintf(stderr, "nego: %v\n", err)
-			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, output.String(), started, opts.maxTokens, opts.temperature, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err)); logErr != nil {
+			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, output.String(), started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err)); logErr != nil {
 				fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 			}
 			return 1
@@ -2435,7 +2860,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 			fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
 			return 1
 		}
-		if err := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, reply, started, opts.maxTokens, opts.temperature, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, nil)); err != nil {
+		if err := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, reply, started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, nil)); err != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 			return 1
 		}
@@ -2459,6 +2884,7 @@ type runtimeConfig struct {
 	Messages      []nego.Message    `json:"messages"`
 	MaxTokens     int               `json:"max_tokens"`
 	Temperature   float64           `json:"temperature"`
+	TopK          int               `json:"top_k"`
 	TopP          float64           `json:"top_p"`
 	RepeatPenalty float64           `json:"repeat_penalty"`
 	Stop          []string          `json:"stop"`
@@ -2560,6 +2986,44 @@ func loadRuntimeConfig(path string) (runtimeConfig, error) {
 	return cfg, nil
 }
 
+type generationDefaultOverrides struct {
+	maxTokens     bool
+	temperature   bool
+	topK          bool
+	topP          bool
+	repeatPenalty bool
+	stop          bool
+}
+
+func applyCLIGenerationDefaults(path string, overrides generationDefaultOverrides, maxTokens *int, temperature *float64, topK *int, topP, repeatPenalty *float64, stop *repeatedFlag) error {
+	if path == "" {
+		return nil
+	}
+	cfg, err := modelinfo.LoadGenerationConfig(path)
+	if err != nil || cfg == nil {
+		return err
+	}
+	if !overrides.maxTokens && maxTokens != nil && *maxTokens == 0 && cfg.MaxNewTokens != nil {
+		*maxTokens = *cfg.MaxNewTokens
+	}
+	if !overrides.temperature && temperature != nil && *temperature == 0 && cfg.Temperature != nil {
+		*temperature = *cfg.Temperature
+	}
+	if !overrides.topK && topK != nil && *topK == 0 && cfg.TopK != nil {
+		*topK = *cfg.TopK
+	}
+	if !overrides.topP && topP != nil && *topP == 0 && cfg.TopP != nil {
+		*topP = *cfg.TopP
+	}
+	if !overrides.repeatPenalty && repeatPenalty != nil && *repeatPenalty == 0 && cfg.RepetitionPenalty != nil {
+		*repeatPenalty = *cfg.RepetitionPenalty
+	}
+	if !overrides.stop && stop != nil && len(*stop) == 0 && len(cfg.StopStrings) > 0 {
+		*stop = append((*stop)[:0], cfg.StopStrings...)
+	}
+	return nil
+}
+
 func appendRuntimeLog(path string, entry runs.Entry) error {
 	if path == "" {
 		return nil
@@ -2567,7 +3031,7 @@ func appendRuntimeLog(path string, entry runs.Entry) error {
 	return runs.Append(path, entry)
 }
 
-func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, messages []nego.Message, output string, started time.Time, maxTokens int, temperature, topP, repeatPenalty float64, stop []string, seed int64, options map[string]string, runErr error) runs.Entry {
+func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, messages []nego.Message, output string, started time.Time, maxTokens int, temperature float64, topK int, topP, repeatPenalty float64, stop []string, seed int64, options map[string]string, runErr error) runs.Entry {
 	entry := runs.Entry{
 		ID:            runs.NewID(),
 		Command:       command,
@@ -2582,6 +3046,7 @@ func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, m
 		DurationMS:    time.Since(started).Milliseconds(),
 		MaxTokens:     maxTokens,
 		Temperature:   temperature,
+		TopK:          topK,
 		TopP:          topP,
 		RepeatPenalty: repeatPenalty,
 		Stop:          append([]string(nil), stop...),
@@ -2752,6 +3217,13 @@ func validateRepeatPenalty(value float64) error {
 	return nil
 }
 
+func validateTopK(value int) error {
+	if value < 0 {
+		return fmt.Errorf("top-k must be greater than or equal to 0")
+	}
+	return nil
+}
+
 func validateRuntimeOptions(options map[string]string) error {
 	if len(options) == 0 {
 		return nil
@@ -2801,11 +3273,12 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	var splitMode string
 	var flashAttention bool
 	var native bool
+	var adapterPath string
 	var extraOptions repeatedFlag
 
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(&backend, "backend", "llama.cpp", "runtime backend")
+	fs.StringVar(&backend, "backend", "auto", "runtime backend: auto, native, native-hf, llama.cpp, or openai-compatible")
 	fs.BoolVar(&native, "native", false, "use the experimental pure-Go native backend")
 	fs.StringVar(&addr, "addr", ":8080", "listen address")
 	fs.StringVar(&modelID, "model", "nego-model", "served model id")
@@ -2817,6 +3290,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
+	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.Var(&extraOptions, "option", "backend option key=value, repeatable")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
@@ -2829,6 +3303,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	if native {
 		backend = "native"
 	}
+	backend = normalizeBackendFlag(backend)
 	if len(positionals) != 1 {
 		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
 		return 2
@@ -2842,6 +3317,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		tensorSplit:    tensorSplit,
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
+		adapterPath:    adapterPath,
 		extraOptions:   extraOptions,
 	})
 	if err != nil {
@@ -2852,6 +3328,12 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 2
 	}
+	generation, err := modelinfo.LoadGenerationConfig(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	backend = resolveRuntimeBackend(backend, positionals[0], "", "")
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
 		Backend: backend,
 		Path:    positionals[0],
@@ -2862,7 +3344,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer model.Close()
-	handler, err := server.NewHandler(server.HandlerOptions{ModelID: modelID, Model: model})
+	handler, err := server.NewHandler(server.HandlerOptions{ModelID: modelID, Model: model, Generation: generation})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
@@ -3051,6 +3533,10 @@ func runDataset(args []string, stdout, stderr io.Writer) int {
 		return runDatasetInspect(args[1:], stdout, stderr)
 	case "validate":
 		return runDatasetValidate(args[1:], stdout, stderr)
+	case "tokens":
+		return runDatasetTokens(args[1:], stdout, stderr)
+	case "render":
+		return runDatasetRender(args[1:], stdout, stderr)
 	case "convert":
 		return runDatasetConvert(args[1:], stdout, stderr)
 	case "filter":
@@ -3128,6 +3614,114 @@ func runDatasetValidate(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Valid %s dataset: %d rows\n", format, len(rows))
 	return 0
+}
+
+func runDatasetTokens(args []string, stdout, stderr io.Writer) int {
+	var modelPath string
+	var format string
+	var maxContext int
+	var jsonOutput bool
+	var top int
+	fs := flag.NewFlagSet("dataset tokens", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&modelPath, "model", "", "model directory containing tokenizer.json")
+	fs.StringVar(&format, "format", "auto", "dataset format: auto, chat, completion, or instruction")
+	fs.IntVar(&maxContext, "max-context", 0, "maximum allowed context tokens")
+	fs.IntVar(&top, "top", 5, "number of longest rows to show")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 || modelPath == "" {
+		fmt.Fprintln(stderr, "usage: nego dataset tokens <file> --model <model-path> [flags]")
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	report, err := datasets.AnalyzeTokenBudget(rows, datasets.TokenBudgetOptions{
+		ModelPath:  modelPath,
+		Format:     format,
+		MaxContext: maxContext,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(report)
+	} else {
+		printDatasetTokenBudget(stdout, positionals[0], modelPath, report, top)
+	}
+	if !report.Valid {
+		return 1
+	}
+	return 0
+}
+
+func runDatasetRender(args []string, stdout, stderr io.Writer) int {
+	var modelPath string
+	var format string
+	var n int
+	var jsonOutput bool
+	fs := flag.NewFlagSet("dataset render", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&modelPath, "model", "", "model directory for chat template rendering")
+	fs.StringVar(&format, "format", "auto", "dataset format: auto, chat, completion, or instruction")
+	fs.IntVar(&n, "n", 3, "number of rows to render, 0 for all")
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego dataset render <file> [flags]")
+		return 2
+	}
+	if n < 0 {
+		fmt.Fprintln(stderr, "nego: n must be greater than or equal to 0")
+		return 2
+	}
+	rows, err := datasets.ReadFile(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if n > 0 && n < len(rows) {
+		rows = rows[:n]
+	}
+	rendered, err := datasets.RenderTrainingRows(rows, datasets.RenderOptions{
+		ModelPath: modelPath,
+		Format:    format,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(rendered)
+		return 0
+	}
+	printRenderedDatasetRows(stdout, positionals[0], modelPath, rendered)
+	return 0
+}
+
+func printRenderedDatasetRows(w io.Writer, path, modelPath string, rows []datasets.RenderedTrainingText) {
+	fmt.Fprintln(w, "Rendered dataset")
+	fmt.Fprintf(w, "Path:   %s\n", path)
+	if modelPath != "" {
+		fmt.Fprintf(w, "Model:  %s\n", modelPath)
+	}
+	fmt.Fprintf(w, "Rows:   %d\n", len(rows))
+	for _, row := range rows {
+		fmt.Fprintf(w, "\nRow %d [%s]\n", row.Row, row.Format)
+		fmt.Fprintln(w, "---")
+		fmt.Fprintln(w, row.Text)
+		fmt.Fprintln(w, "---")
+	}
 }
 
 func runDatasetConvert(args []string, stdout, stderr io.Writer) int {
@@ -3296,10 +3890,51 @@ func datasetUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego dataset inspect <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset validate <file> [flags]")
+	fmt.Fprintln(w, "  nego dataset tokens <file> --model <model-path> [flags]")
+	fmt.Fprintln(w, "  nego dataset render <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset convert <file> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset filter <file> --where <expr> --out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset split <file> --train-out <file> --test-out <file> [flags]")
 	fmt.Fprintln(w, "  nego dataset sample <file> [flags]")
+}
+
+func printDatasetTokenBudget(w io.Writer, path, modelPath string, report datasets.TokenBudgetReport, top int) {
+	fmt.Fprintln(w, "Dataset token budget")
+	fmt.Fprintf(w, "Path:         %s\n", path)
+	fmt.Fprintf(w, "Model:        %s\n", modelPath)
+	fmt.Fprintf(w, "Format:       %s\n", report.Format)
+	fmt.Fprintf(w, "Rows:         %d\n", report.Rows)
+	fmt.Fprintf(w, "Counted rows: %d\n", report.CountedRows)
+	fmt.Fprintf(w, "Tokens:       min %d / avg %.1f / max %d / total %d\n", report.MinTokens, report.AverageTokens, report.MaxTokens, report.TotalTokens)
+	if report.MaxContext > 0 {
+		fmt.Fprintf(w, "Max context:  %d\n", report.MaxContext)
+		fmt.Fprintf(w, "Over limit:   %d\n", report.OverLimit)
+	}
+	var invalid []datasets.TokenBudgetRow
+	for _, row := range report.RowsDetail {
+		if row.Error != "" {
+			invalid = append(invalid, row)
+		}
+	}
+	if len(invalid) > 0 {
+		fmt.Fprintln(w, "Invalid rows:")
+		for _, row := range invalid {
+			fmt.Fprintf(w, "  - row %d: %s\n", row.Row, row.Error)
+		}
+	}
+	longest := datasets.LongestTokenRows(report.RowsDetail, top)
+	if len(longest) > 0 {
+		fmt.Fprintln(w, "Longest rows:")
+		for _, row := range longest {
+			status := "ok"
+			if row.Error != "" {
+				status = "invalid"
+			} else if row.OverLimit {
+				status = "over limit"
+			}
+			fmt.Fprintf(w, "  - row %d: %d tokens (%s)\n", row.Row, row.Tokens, status)
+		}
+	}
 }
 
 func datasetSummary(path string, rows []datasets.Row) map[string]any {
@@ -3769,11 +4404,13 @@ func runModelsInfo(args []string, stdout, stderr io.Writer) int {
 func runModelsList(args []string, stdout, stderr io.Writer) int {
 	var cacheDir string
 	var jsonOutput bool
+	var withStatus bool
 
 	fs := flag.NewFlagSet("models list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&cacheDir, "cache-dir", "", "cache directory")
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.BoolVar(&withStatus, "status", false, "include local artifact format and run/train readiness")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -3802,16 +4439,58 @@ func runModelsList(args []string, stdout, stderr io.Writer) int {
 	}
 
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "REPO\tREVISION\tSIZE\tFILES\tLOCAL PATH")
+	if withStatus {
+		fmt.Fprintln(tw, "REPO\tREVISION\tFORMAT\tRUN\tTRAIN\tSIZE\tFILES\tLOCAL PATH")
+	} else {
+		fmt.Fprintln(tw, "REPO\tREVISION\tSIZE\tFILES\tLOCAL PATH")
+	}
 	for _, entry := range entries {
-		localPath := entry.LocalDir
-		if localPath == "" {
-			localPath = entry.SnapshotPath
+		localPath := modelEntryLocalPath(entry)
+		if withStatus {
+			status := modelEntryStatus(localPath)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\n", entry.RepoID, entry.Revision, status.format, status.run, status.train, humanBytes(entry.TotalSize), entry.FileCount, localPath)
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", entry.RepoID, entry.Revision, humanBytes(entry.TotalSize), entry.FileCount, localPath)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", entry.RepoID, entry.Revision, humanBytes(entry.TotalSize), entry.FileCount, localPath)
 	}
 	_ = tw.Flush()
 	return 0
+}
+
+type modelEntryStatusResult struct {
+	format string
+	run    string
+	train  string
+}
+
+func modelEntryLocalPath(entry registry.Entry) string {
+	if entry.LocalDir != "" {
+		return entry.LocalDir
+	}
+	return entry.SnapshotPath
+}
+
+func modelEntryStatus(path string) modelEntryStatusResult {
+	if strings.TrimSpace(path) == "" {
+		return modelEntryStatusResult{format: "missing", run: "not ready", train: "not ready"}
+	}
+	artifact, err := modelinfo.Resolve(path)
+	if err != nil {
+		return modelEntryStatusResult{format: "missing", run: "not ready", train: "not ready"}
+	}
+	run := artifact.RecommendedRunBackend
+	if run == "" {
+		run = "not ready"
+	}
+	train := artifact.RecommendedTrainBackend
+	if train == "" {
+		train = "not ready"
+	}
+	format := string(artifact.Format)
+	if format == "" {
+		format = "unknown"
+	}
+	return modelEntryStatusResult{format: format, run: run, train: train}
 }
 
 func modelsUsage(w io.Writer) {

@@ -14,15 +14,21 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/gakon/nego-ai/modelinfo"
 )
 
+const DefaultInlineUploadLimit int64 = 10 * 1024 * 1024
+
 type Manifest struct {
-	Path      string    `json:"path"`
-	RepoID    string    `json:"repo_id,omitempty"`
-	BaseModel string    `json:"base_model,omitempty"`
-	Files     []File    `json:"files"`
-	TotalSize int64     `json:"total_size"`
-	CreatedAt time.Time `json:"created_at"`
+	Path          string             `json:"path"`
+	RepoID        string             `json:"repo_id,omitempty"`
+	BaseModel     string             `json:"base_model,omitempty"`
+	ArtifactType  string             `json:"artifact_type,omitempty"`
+	NativeAdapter *NativeAdapterInfo `json:"native_adapter,omitempty"`
+	Files         []File             `json:"files"`
+	TotalSize     int64              `json:"total_size"`
+	CreatedAt     time.Time          `json:"created_at"`
 }
 
 type File struct {
@@ -30,6 +36,18 @@ type File struct {
 	Kind   string `json:"kind,omitempty"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+}
+
+type NativeAdapterInfo struct {
+	BaseModel          string                         `json:"base_model,omitempty"`
+	AdapterPath        string                         `json:"adapter_path,omitempty"`
+	Method             string                         `json:"method,omitempty"`
+	DatasetFormat      string                         `json:"dataset_format,omitempty"`
+	RecommendedBackend string                         `json:"recommended_backend,omitempty"`
+	VocabSize          int                            `json:"vocab_size,omitempty"`
+	UpdatedTokens      int                            `json:"updated_tokens,omitempty"`
+	TrainTokens        int                            `json:"train_tokens,omitempty"`
+	TopTokens          []modelinfo.NativeAdapterToken `json:"top_tokens,omitempty"`
 }
 
 type ManifestOptions struct {
@@ -46,6 +64,68 @@ type PackageOptions struct {
 	BaseModel       string
 	Gzip            bool
 	IncludeManifest bool
+}
+
+type CheckOptions struct {
+	Path          string
+	RepoID        string
+	BaseModel     string
+	MaxInlineSize int64
+}
+
+type CheckReport struct {
+	Path          string             `json:"path"`
+	RepoID        string             `json:"repo_id,omitempty"`
+	BaseModel     string             `json:"base_model,omitempty"`
+	ArtifactType  string             `json:"artifact_type,omitempty"`
+	NativeAdapter *NativeAdapterInfo `json:"native_adapter,omitempty"`
+	Valid         bool               `json:"valid"`
+	Files         int                `json:"files"`
+	TotalSize     int64              `json:"total_size"`
+	MaxInlineSize int64              `json:"max_inline_size"`
+	InlineFiles   int                `json:"inline_files"`
+	LargeFiles    []File             `json:"large_files,omitempty"`
+	LargeSize     int64              `json:"large_size,omitempty"`
+	Warnings      []string           `json:"warnings,omitempty"`
+}
+
+func Check(opts CheckOptions) (*CheckReport, error) {
+	limit := opts.MaxInlineSize
+	if limit <= 0 {
+		limit = DefaultInlineUploadLimit
+	}
+	manifest, err := BuildManifest(ManifestOptions{
+		Path:      opts.Path,
+		RepoID:    opts.RepoID,
+		BaseModel: opts.BaseModel,
+	})
+	if err != nil {
+		return nil, err
+	}
+	report := &CheckReport{
+		Path:          manifest.Path,
+		RepoID:        manifest.RepoID,
+		BaseModel:     manifest.BaseModel,
+		ArtifactType:  manifest.ArtifactType,
+		NativeAdapter: manifest.NativeAdapter,
+		Files:         len(manifest.Files),
+		TotalSize:     manifest.TotalSize,
+		MaxInlineSize: limit,
+		Valid:         true,
+	}
+	for _, file := range manifest.Files {
+		if file.Size > limit {
+			report.LargeFiles = append(report.LargeFiles, file)
+			report.LargeSize += file.Size
+			report.Valid = false
+			continue
+		}
+		report.InlineFiles++
+	}
+	if len(report.LargeFiles) > 0 {
+		report.Warnings = append(report.Warnings, "large model files require Hugging Face LFS/Xet upload, which is not implemented yet")
+	}
+	return report, nil
 }
 
 func BuildManifest(opts ManifestOptions) (*Manifest, error) {
@@ -68,6 +148,15 @@ func BuildManifest(opts ManifestOptions) (*Manifest, error) {
 		RepoID:    opts.RepoID,
 		BaseModel: opts.BaseModel,
 		CreatedAt: time.Now().UTC(),
+	}
+	if adapter, err := modelinfo.InspectNativeAdapter(root); err != nil {
+		return nil, fmt.Errorf("inspect native adapter: %w", err)
+	} else if adapter != nil {
+		manifest.ArtifactType = "native-adapter"
+		manifest.NativeAdapter = shareNativeAdapterInfo(adapter)
+		if manifest.BaseModel == "" {
+			manifest.BaseModel = adapter.BaseModel
+		}
 	}
 	excluded, err := excludedPaths(opts.Exclude)
 	if err != nil {
@@ -156,6 +245,23 @@ func manifestFile(root, path string, entry os.DirEntry) (File, error) {
 	}, nil
 }
 
+func shareNativeAdapterInfo(info *modelinfo.NativeAdapterInfo) *NativeAdapterInfo {
+	if info == nil {
+		return nil
+	}
+	return &NativeAdapterInfo{
+		BaseModel:          info.BaseModel,
+		AdapterPath:        info.AdapterPath,
+		Method:             info.Method,
+		DatasetFormat:      info.DatasetFormat,
+		RecommendedBackend: info.RecommendedBackend,
+		VocabSize:          info.VocabSize,
+		UpdatedTokens:      info.UpdatedTokens,
+		TrainTokens:        info.TrainTokens,
+		TopTokens:          append([]modelinfo.NativeAdapterToken(nil), info.TopTokens...),
+	}
+}
+
 func fileSHA256(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -174,6 +280,10 @@ func fileKind(path string) string {
 	switch {
 	case name == "readme.md":
 		return "model_card"
+	case name == "manifest.json":
+		return "native_manifest"
+	case name == "adapter.json":
+		return "native_adapter"
 	case name == "config.json":
 		return "config"
 	case name == "tokenizer.json" || name == "tokenizer_config.json":

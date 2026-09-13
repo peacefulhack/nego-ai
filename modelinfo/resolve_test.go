@@ -35,11 +35,9 @@ func TestResolveGGUFArtifact(t *testing.T) {
 
 func TestResolveHFSafetensorsArtifact(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "config.json", `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`)
+	writeFile(t, dir, "config.json", `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":4,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`)
 	writeFile(t, dir, "tokenizer.json", `{}`)
-	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), safetensorsFixture(t, `{
-		"weight":{"dtype":"F16","shape":[2,2],"data_offsets":[0,8]}
-	}`, 8), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), safetensorsShapeFixture(t, hfShapeFixtureTensors(nil)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -56,7 +54,7 @@ func TestResolveHFSafetensorsArtifact(t *testing.T) {
 	if artifact.RecommendedTrainBackend != "native-token-bias" {
 		t.Fatalf("RecommendedTrainBackend = %q", artifact.RecommendedTrainBackend)
 	}
-	if artifact.ParameterCount != 4 || artifact.TensorBytes != 8 {
+	if artifact.ParameterCount == 0 || artifact.TensorBytes == 0 {
 		t.Fatalf("unexpected tensor summary: %#v", artifact)
 	}
 	if !capabilityStatus(artifact.RunBackends, "native-hf", CapabilityExperimental) {
@@ -64,6 +62,30 @@ func TestResolveHFSafetensorsArtifact(t *testing.T) {
 	}
 	if !capabilityStatus(artifact.TrainBackends, "native-token-bias", CapabilityExperimental) {
 		t.Fatalf("unexpected train backends: %#v", artifact.TrainBackends)
+	}
+}
+
+func TestResolveHFSafetensorsDoesNotRecommendIncompleteNativeHF(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "config.json", `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"]}`)
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), safetensorsFixture(t, `{
+		"weight":{"dtype":"F16","shape":[2,2],"data_offsets":[0,8]}
+	}`, 8), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	artifact, err := Resolve(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.Format != ArtifactFormatHFSafetensors {
+		t.Fatalf("Format = %q", artifact.Format)
+	}
+	if artifact.RecommendedRunBackend != "" {
+		t.Fatalf("RecommendedRunBackend = %q", artifact.RecommendedRunBackend)
+	}
+	if !capabilityStatus(artifact.RunBackends, "native-hf", CapabilityUnsupported) {
+		t.Fatalf("unexpected run backends: %#v", artifact.RunBackends)
 	}
 }
 

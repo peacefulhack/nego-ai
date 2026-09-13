@@ -7,7 +7,7 @@ Some late workflow steps are marked as planned because Nego does not implement d
 ## Numbered Flow
 
 1. Download a base model.
-2. Inspect the downloaded model.
+2. Check local model status and inspect metadata.
 3. Prepare a dataset.
 4. Check tokenizer and context budget.
 5. Render a chat prompt.
@@ -29,7 +29,7 @@ Download a full model snapshot into a local directory:
 nego download Qwen/Qwen3-0.6B --local-dir ./models/qwen3
 ```
 
-That downloads the original Hugging Face files, usually `*.safetensors`. Use this for inspection, tokenizer work, dataset checks, or training flows. Nego will warn that safetensors are not directly runnable by the local llama.cpp backend.
+That downloads the original Hugging Face files, usually `*.safetensors`. Use this for inspection, tokenizer work, native-HF experiments, dataset checks, or training flows. Nego prints a compatibility summary with the detected format and recommended run/train backend.
 
 Download a llama.cpp-ready GGUF file when you want to run local chat immediately:
 
@@ -65,9 +65,19 @@ Download a private or gated model:
 nego download meta-llama/Llama-3.2-1B --token "$HF_TOKEN" --local-dir ./models/llama
 ```
 
-## 2. Inspect the Downloaded Model
+## 2. Check Status and Inspect the Downloaded Model
 
-Check model files, config, safetensors/GGUF metadata, and model card metadata:
+Start with the short status view after any download:
+
+```bash
+nego status ./models/qwen3
+nego status ./models/qwen3-gguf
+```
+
+This tells you the detected artifact format, the recommended run backend, the
+recommended training path, and any current blockers.
+
+Check model files, config, generation defaults, safetensors/GGUF metadata, and model card metadata:
 
 ```bash
 nego inspect ./models/qwen3
@@ -84,6 +94,11 @@ Check runtime compatibility:
 ```bash
 nego check ./models/qwen3
 ```
+
+`nego run`, `nego chat`, and `nego serve` read local `generation_config.json`
+defaults for token limits, sampling, repeat penalty, and stop strings. CLI flags
+or API request fields still win when you want to override those defaults for an
+experiment.
 
 Estimate memory before choosing context length, chat settings, or training hardware:
 
@@ -172,6 +187,18 @@ Validate the JSONL dataset:
 
 ```bash
 nego dataset validate data/completion.jsonl --format completion
+```
+
+Preview the exact training text Nego will feed into tokenizer and native training:
+
+```bash
+nego dataset render data/completion.jsonl --model ./models/qwen3 --format completion --n 3
+```
+
+Check token length before training:
+
+```bash
+nego dataset tokens data/completion.jsonl --model ./models/qwen3 --format completion --max-context 4096
 ```
 
 Filter rows for a subset:
@@ -397,6 +424,7 @@ nego train init \
   --train-file examples/5.train/train.jsonl \
   --eval-file examples/5.train/test.jsonl \
   --dataset-format completion \
+  --max-context 4096 \
   --output-dir ./outputs/qwen3-lora \
   --out examples/5.train/train-job.json
 ```
@@ -412,6 +440,7 @@ Minimal `job.json` shape:
   "eval_file": "examples/5.train/test.jsonl",
   "dataset_format": "completion",
   "output_dir": "./outputs/qwen3-lora",
+  "max_context": 4096,
   "command": "python",
   "args": [
     "scripts/train_lora.py",
@@ -455,11 +484,19 @@ nego train capabilities ./models/qwen3
 nego train native ./models/qwen3 \
   --train-file examples/5.train/train.jsonl \
   --dataset-format completion \
+  --max-context 4096 \
+  --dry-run
+
+nego train native ./models/qwen3 \
+  --train-file examples/5.train/train.jsonl \
+  --dataset-format completion \
+  --max-context 4096 \
   --out ./outputs/qwen3-token-bias
 
 nego train native ./models/qwen3-gguf \
   --train-file examples/5.train/train.jsonl \
   --dataset-format completion \
+  --max-context 4096 \
   --out ./outputs/qwen3-token-bias
 ```
 
@@ -467,15 +504,33 @@ The output directory contains:
 
 ```text
 adapter.json
+manifest.json
+README.md
 ```
+
+`manifest.json` records the base model, adapter path, recommended backend,
+runtime options, and reusable `run_args` / `chat_args`. `README.md` gives the
+same next-step commands for humans. Native training also records top updated
+tokens so you can catch dataset formatting mistakes before reusing the adapter.
 
 Load the adapter for native generation:
 
 ```bash
+nego status ./outputs/qwen3-token-bias
+nego inspect ./outputs/qwen3-token-bias
+nego check ./outputs/qwen3-token-bias
+
+nego run ./outputs/qwen3-token-bias "Hello"
+nego chat ./outputs/qwen3-token-bias "Hello"
+nego serve ./outputs/qwen3-token-bias
+
 nego run ./models/qwen3 "Hello" \
   --adapter ./outputs/qwen3-token-bias/adapter.json
 
 nego run --native ./models/qwen3-gguf "Hello" \
+  --adapter ./outputs/qwen3-token-bias/adapter.json
+
+nego serve ./models/qwen3 \
   --adapter ./outputs/qwen3-token-bias/adapter.json
 ```
 
@@ -538,6 +593,7 @@ nego convert gguf ./outputs/qwen3-sft \
 Serve a local model through Nego's HTTP server:
 
 ```bash
+nego serve ./models/qwen3 --addr :8080
 nego serve ./outputs/qwen3-sft.gguf --addr :8080 --gpu full --flash-attn
 ```
 
@@ -546,6 +602,8 @@ Then point an OpenAI-compatible client at:
 ```text
 http://localhost:8080/v1/chat/completions
 ```
+
+Both `/v1/completions` and `/v1/chat/completions` support `stream: true`.
 
 ## 12. Package or Share the Model
 
@@ -586,6 +644,15 @@ nego share manifest ./outputs/qwen3-sft \
   --out ./outputs/qwen3-sft/share-manifest.json \
   --repo username/qwen3-sft \
   --base-model Qwen/Qwen3-0.6B
+```
+
+If the path is a Nego native adapter output, `nego share manifest` reads
+`manifest.json` and includes native adapter metadata automatically.
+
+Check whether the output can be uploaded through the current inline uploader:
+
+```bash
+nego share check ./outputs/qwen3-sft
 ```
 
 Create a portable archive:
