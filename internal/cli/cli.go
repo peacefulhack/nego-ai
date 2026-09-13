@@ -1081,6 +1081,10 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	var jsonOutput bool
 	var dryRun bool
 	var logPath string
+	var dedupeKeys repeatedFlag
+	var dedupeTrim bool
+	var dedupeFold bool
+	var failOnDupes bool
 	fs := flag.NewFlagSet("train native", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&trainFile, "train-file", "", "training dataset file")
@@ -1094,6 +1098,10 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
 	fs.BoolVar(&dryRun, "dry-run", false, "validate and preview native training without writing output files")
 	fs.StringVar(&logPath, "log", "", "append training result to JSONL run log")
+	fs.Var(&dedupeKeys, "dedupe-key", "field used to warn about duplicate training rows, repeatable")
+	fs.BoolVar(&dedupeTrim, "dedupe-trim-space", false, "trim string fields before duplicate training row checks")
+	fs.BoolVar(&dedupeFold, "dedupe-ignore-case", false, "case-fold string fields before duplicate training row checks")
+	fs.BoolVar(&failOnDupes, "fail-on-duplicates", false, "fail native training when duplicate rows are found")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -1119,6 +1127,10 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 		MaxContext:    maxContext,
 		DryRun:        dryRun,
 		Progress:      progress,
+		DedupeKeys:    expandRepeatedCommaFields(dedupeKeys),
+		DedupeTrim:    dedupeTrim,
+		DedupeFold:    dedupeFold,
+		FailOnDupes:   failOnDupes,
 	})
 	if logPath != "" {
 		entry := nativeTrainingLogEntry(result, positionals[0], trainFile, evalFile, datasetFormat, outputDir, method, learningRate, epochs, maxContext, dryRun, started, err)
@@ -1180,6 +1192,7 @@ func nativeTrainingLogEntry(result training.NativeResult, baseModel, trainFile, 
 			MaxContext:    firstPositive(result.MaxContext, maxContext),
 			TrainRows:     result.TrainRows,
 			EvalRows:      result.EvalRows,
+			DuplicateRows: result.DuplicateRows,
 			VocabSize:     result.VocabSize,
 			TopTokenIDs:   topTokenIDs,
 		},
@@ -1256,6 +1269,9 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	fmt.Fprintf(w, "Epochs:         %d\n", result.Epochs)
 	if result.MaxContext > 0 {
 		fmt.Fprintf(w, "Max context:    %d\n", result.MaxContext)
+	}
+	if result.DuplicateRows > 0 {
+		fmt.Fprintf(w, "Duplicates:     %d\n", result.DuplicateRows)
 	}
 	if result.TrainBudget != nil {
 		printTrainingTokenBudget(w, "Train budget", result.TrainBudget)
@@ -2262,6 +2278,9 @@ func writeNativeAdapterInfo(w io.Writer, info *modelinfo.NativeAdapterInfo) {
 	}
 	if info.EvalRows > 0 {
 		fmt.Fprintf(w, "  Eval rows:    %d\n", info.EvalRows)
+	}
+	if info.DuplicateRows > 0 {
+		fmt.Fprintf(w, "  Duplicates:   %d\n", info.DuplicateRows)
 	}
 	if info.UpdatedTokens > 0 {
 		fmt.Fprintf(w, "  Tokens:       %d updated\n", info.UpdatedTokens)
@@ -4736,6 +4755,9 @@ func writeTrainingRunInfo(w io.Writer, info runs.Training) {
 	}
 	if info.EvalRows > 0 {
 		fmt.Fprintf(w, "  Eval rows:     %d\n", info.EvalRows)
+	}
+	if info.DuplicateRows > 0 {
+		fmt.Fprintf(w, "  Duplicates:    %d\n", info.DuplicateRows)
 	}
 	if info.VocabSize > 0 {
 		fmt.Fprintf(w, "  Vocab size:    %d\n", info.VocabSize)

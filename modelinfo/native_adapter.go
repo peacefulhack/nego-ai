@@ -24,6 +24,7 @@ type NativeAdapterInfo struct {
 	MaxContext         int                  `json:"max_context,omitempty"`
 	TrainRows          int                  `json:"train_rows,omitempty"`
 	EvalRows           int                  `json:"eval_rows,omitempty"`
+	DuplicateRows      int                  `json:"duplicate_rows,omitempty"`
 	BaseFormat         string               `json:"base_format,omitempty"`
 	RecommendedBackend string               `json:"recommended_backend,omitempty"`
 	RuntimeOptions     map[string]string    `json:"runtime_options,omitempty"`

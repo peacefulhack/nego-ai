@@ -474,6 +474,64 @@ func TestRunNativeSupportsHFSafetensorsDirectory(t *testing.T) {
 	}
 }
 
+func TestRunNativeDuplicateRows(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	outputDir := filepath.Join(dir, "outputs", "qwen3-adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"num_hidden_layers":0}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0,"▁world":1},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.safetensors"), minimalSafetensors(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"prompt":"hi","completion":"hello world"}` + "\n" +
+		`{"prompt":" hi ","completion":"hello world"}` + "\n"
+	if err := os.WriteFile(trainFile, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		OutputDir:     outputDir,
+		DryRun:        true,
+		DedupeKeys:    []string{"prompt", "completion"},
+		DedupeTrim:    true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.DuplicateRows != 1 || len(result.Warnings) == 0 || !strings.Contains(result.Warnings[0], "duplicate") {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+
+	result, err = RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelDir,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		OutputDir:     outputDir,
+		DedupeKeys:    []string{"prompt", "completion"},
+		DedupeTrim:    true,
+		FailOnDupes:   true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicate rows") {
+		t.Fatalf("expected duplicate error, got result=%#v err=%v", result, err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
+		t.Fatalf("adapter should not be written when duplicate check fails: %v", err)
+	}
+}
+
 func TestAssessReportsTrainingCapabilities(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models", "qwen3")

@@ -2086,6 +2086,40 @@ func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
 	}
 }
 
+func TestTrainNativeCommandFailsOnDuplicateRows(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	dir := t.TempDir()
+	trainFile := filepath.Join(dir, "train.jsonl")
+	outputDir := filepath.Join(dir, "adapter")
+	body := `{"prompt":"hi","completion":"hello"}` + "\n" +
+		`{"prompt":" hi ","completion":"hello"}` + "\n"
+	if err := os.WriteFile(trainFile, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--dataset-format",
+		"completion",
+		"--out",
+		outputDir,
+		"--dedupe-key",
+		"prompt,completion",
+		"--dedupe-trim-space",
+		"--fail-on-duplicates",
+	}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "duplicate rows") {
+		t.Fatalf("expected duplicate failure, code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
+		t.Fatalf("adapter should not be written when duplicate check fails: %v", err)
+	}
+}
+
 func TestNativeTrainingCommandsUseAutoBackendForSafetensors(t *testing.T) {
 	result := training.NativeResult{
 		BaseModel:   "./models/qwen3",

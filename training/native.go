@@ -31,6 +31,10 @@ type NativeOptions struct {
 	MaxContext    int                  `json:"max_context,omitempty"`
 	DryRun        bool                 `json:"dry_run,omitempty"`
 	Progress      func(NativeProgress) `json:"-"`
+	DedupeKeys    []string             `json:"dedupe_keys,omitempty"`
+	DedupeTrim    bool                 `json:"dedupe_trim,omitempty"`
+	DedupeFold    bool                 `json:"dedupe_fold,omitempty"`
+	FailOnDupes   bool                 `json:"fail_on_duplicates,omitempty"`
 }
 
 type NativeProgress struct {
@@ -58,6 +62,7 @@ type NativeResult struct {
 	DryRun        bool                       `json:"dry_run,omitempty"`
 	TrainRows     int                        `json:"train_rows"`
 	EvalRows      int                        `json:"eval_rows,omitempty"`
+	DuplicateRows int                        `json:"duplicate_rows,omitempty"`
 	TrainBudget   *TokenBudgetSummary        `json:"train_budget,omitempty"`
 	EvalBudget    *TokenBudgetSummary        `json:"eval_budget,omitempty"`
 	TrainTokens   int                        `json:"train_tokens"`
@@ -84,6 +89,7 @@ type NativeManifest struct {
 	MaxContext         int                  `json:"max_context,omitempty"`
 	TrainRows          int                  `json:"train_rows,omitempty"`
 	EvalRows           int                  `json:"eval_rows,omitempty"`
+	DuplicateRows      int                  `json:"duplicate_rows,omitempty"`
 	BaseFormat         string               `json:"base_format,omitempty"`
 	RecommendedBackend string               `json:"recommended_backend"`
 	RuntimeOptions     map[string]string    `json:"runtime_options"`
@@ -157,6 +163,24 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 		return result, fmt.Errorf("train file %q does not match %s format: %w", normalized.TrainFile, normalized.DatasetFormat, err)
 	}
 	result.TrainRows = len(rows)
+	var warnings []string
+	if len(normalized.DedupeKeys) > 0 {
+		reportNativeProgress(normalized, NativeProgress{Stage: "dedupe", Message: "checking duplicate training rows", RowsTotal: len(rows)})
+		dupes := datasets.DedupeRows(rows, datasets.DedupeOptions{
+			Keys:       normalized.DedupeKeys,
+			TrimSpace:  normalized.DedupeTrim,
+			IgnoreCase: normalized.DedupeFold,
+		}).Removed
+		result.DuplicateRows = dupes
+		if dupes > 0 {
+			warning := fmt.Sprintf("training dataset has %d duplicate rows by keys: %s", dupes, strings.Join(normalized.DedupeKeys, ", "))
+			warnings = append(warnings, warning)
+			if normalized.FailOnDupes {
+				result.Warnings = nativeTrainingWarnings(warnings...)
+				return result, fmt.Errorf("%s", warning)
+			}
+		}
+	}
 	if normalized.MaxContext > 0 {
 		reportNativeProgress(normalized, NativeProgress{Stage: "train_budget", Message: "checking training token budget", RowsTotal: len(rows)})
 		budget, err := nativeRowsTokenBudget(rows, normalized.DatasetFormat, tok, normalized.MaxContext)
@@ -218,7 +242,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.TopTokens = topNativeTokens(counts, adapter.Bias, tok, 10)
 	if normalized.DryRun {
 		result.Duration = time.Since(start)
-		result.Warnings = nativeTrainingWarnings()
+		result.Warnings = nativeTrainingWarnings(warnings...)
 		reportNativeProgress(normalized, NativeProgress{Stage: "done", Message: "native training dry run completed"})
 		return result, nil
 	}
@@ -242,7 +266,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	}
 	result.ReadmePath = readmePath
 	result.Duration = time.Since(start)
-	result.Warnings = nativeTrainingWarnings()
+	result.Warnings = nativeTrainingWarnings(warnings...)
 	reportNativeProgress(normalized, NativeProgress{Stage: "done", Message: "native training completed"})
 	return result, nil
 }
@@ -253,11 +277,13 @@ func reportNativeProgress(opts NativeOptions, event NativeProgress) {
 	}
 }
 
-func nativeTrainingWarnings() []string {
-	return []string{
+func nativeTrainingWarnings(extra ...string) []string {
+	warnings := append([]string(nil), extra...)
+	warnings = append(warnings,
 		"native training currently writes a token-bias adapter; full LoRA/backprop training is still planned",
 		"load the adapter with native backend option adapter_path when using a compatible runtime vocabulary",
-	}
+	)
+	return warnings
 }
 
 func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *modelinfo.Artifact) (NativeManifest, error) {
@@ -282,6 +308,7 @@ func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *mode
 		MaxContext:         result.MaxContext,
 		TrainRows:          result.TrainRows,
 		EvalRows:           result.EvalRows,
+		DuplicateRows:      result.DuplicateRows,
 		BaseFormat:         string(artifact.Format),
 		RecommendedBackend: backend,
 		RuntimeOptions:     map[string]string{"adapter_path": adapterPath},
@@ -525,10 +552,25 @@ func normalizeNativeOptions(opts NativeOptions) (NativeOptions, error) {
 	if opts.MaxContext < 0 {
 		return opts, fmt.Errorf("max context must be greater than or equal to 0")
 	}
+	opts.DedupeKeys = normalizeDedupeKeys(opts.DedupeKeys)
 	if _, err := os.Stat(opts.BaseModel); err != nil {
 		return opts, fmt.Errorf("base model %q is not available: %w", opts.BaseModel, err)
 	}
 	return opts, nil
+}
+
+func normalizeDedupeKeys(keys []string) []string {
+	out := make([]string, 0, len(keys))
+	seen := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out
 }
 
 type nativeTrainingTokenizer interface {

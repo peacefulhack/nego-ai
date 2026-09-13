@@ -496,6 +496,9 @@ nego train native ./models/qwen3 \
   --train-file examples/5.train/train.jsonl \
   --dataset-format completion \
   --max-context 4096 \
+  --dedupe-key prompt \
+  --dedupe-key completion \
+  --dedupe-trim-space \
   --dry-run
 
 nego train native ./models/qwen3 \

@@ -54,6 +54,7 @@ type Training struct {
 	MaxContext    int     `json:"max_context,omitempty"`
 	TrainRows     int     `json:"train_rows,omitempty"`
 	EvalRows      int     `json:"eval_rows,omitempty"`
+	DuplicateRows int     `json:"duplicate_rows,omitempty"`
 	VocabSize     int     `json:"vocab_size,omitempty"`
 	TopTokenIDs   []int   `json:"top_token_ids,omitempty"`
 }
