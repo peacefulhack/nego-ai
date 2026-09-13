@@ -13,21 +13,29 @@ import (
 const maxNativeAdapterManifestBytes = 1 << 20
 
 type NativeAdapterInfo struct {
-	Version            int               `json:"version"`
-	Type               string            `json:"type"`
-	BaseModel          string            `json:"base_model"`
-	AdapterPath        string            `json:"adapter_path"`
-	Method             string            `json:"method,omitempty"`
-	DatasetFormat      string            `json:"dataset_format,omitempty"`
-	RecommendedBackend string            `json:"recommended_backend,omitempty"`
-	RuntimeOptions     map[string]string `json:"runtime_options,omitempty"`
-	RunArgs            []string          `json:"run_args,omitempty"`
-	ChatArgs           []string          `json:"chat_args,omitempty"`
-	VocabSize          int               `json:"vocab_size,omitempty"`
-	UpdatedTokens      int               `json:"updated_tokens,omitempty"`
-	TrainTokens        int               `json:"train_tokens,omitempty"`
-	CreatedAt          time.Time         `json:"created_at,omitempty"`
-	ManifestPath       string            `json:"manifest_path,omitempty"`
+	Version            int                  `json:"version"`
+	Type               string               `json:"type"`
+	BaseModel          string               `json:"base_model"`
+	AdapterPath        string               `json:"adapter_path"`
+	Method             string               `json:"method,omitempty"`
+	DatasetFormat      string               `json:"dataset_format,omitempty"`
+	RecommendedBackend string               `json:"recommended_backend,omitempty"`
+	RuntimeOptions     map[string]string    `json:"runtime_options,omitempty"`
+	RunArgs            []string             `json:"run_args,omitempty"`
+	ChatArgs           []string             `json:"chat_args,omitempty"`
+	VocabSize          int                  `json:"vocab_size,omitempty"`
+	UpdatedTokens      int                  `json:"updated_tokens,omitempty"`
+	TrainTokens        int                  `json:"train_tokens,omitempty"`
+	TopTokens          []NativeAdapterToken `json:"top_tokens,omitempty"`
+	CreatedAt          time.Time            `json:"created_at,omitempty"`
+	ManifestPath       string               `json:"manifest_path,omitempty"`
+}
+
+type NativeAdapterToken struct {
+	ID    int     `json:"id"`
+	Text  string  `json:"text,omitempty"`
+	Count int     `json:"count"`
+	Bias  float32 `json:"bias"`
 }
 
 func InspectNativeAdapter(path string) (*NativeAdapterInfo, error) {

@@ -510,7 +510,8 @@ README.md
 
 `manifest.json` records the base model, adapter path, recommended backend,
 runtime options, and reusable `run_args` / `chat_args`. `README.md` gives the
-same next-step commands for humans.
+same next-step commands for humans. Native training also records top updated
+tokens so you can catch dataset formatting mistakes before reusing the adapter.
 
 Load the adapter for native generation:
 

@@ -250,8 +250,11 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.AdapterPath == "" || result.TrainRows != 1 || result.TrainTokens != 4 || result.UpdatedTokens != 2 || result.TrainBudget == nil {
+	if result.AdapterPath == "" || result.TrainRows != 1 || result.TrainTokens != 4 || result.UpdatedTokens != 2 || result.TrainBudget == nil || len(result.TopTokens) != 2 {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.TopTokens[0].Text != "hello" || result.TopTokens[0].Count != 2 {
+		t.Fatalf("unexpected top tokens: %#v", result.TopTokens)
 	}
 	if _, err := os.Stat(result.AdapterPath); err != nil {
 		t.Fatal(err)
@@ -267,7 +270,7 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.AdapterPath != "adapter.json" || manifest.RuntimeOptions["adapter_path"] != "adapter.json" {
+	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.AdapterPath != "adapter.json" || manifest.RuntimeOptions["adapter_path"] != "adapter.json" || len(manifest.TopTokens) != 2 {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
 	loaded, err := LoadNativeManifest(outputDir)
@@ -328,7 +331,7 @@ func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.DryRun || result.AdapterPath == "" || result.UpdatedTokens != 2 || result.TrainBudget == nil {
+	if !result.DryRun || result.AdapterPath == "" || result.UpdatedTokens != 2 || result.TrainBudget == nil || len(result.TopTokens) != 2 {
 		t.Fatalf("unexpected dry run result: %#v", result)
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {

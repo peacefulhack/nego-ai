@@ -1040,6 +1040,7 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	}
 	fmt.Fprintf(w, "Train tokens:   %d\n", result.TrainTokens)
 	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
+	printNativeTrainingTopTokens(w, result.TopTokens)
 	if result.DryRun {
 		if result.AdapterPath != "" {
 			fmt.Fprintf(w, "Planned adapter: %s\n", result.AdapterPath)
@@ -2018,6 +2019,35 @@ func writeNativeAdapterInfo(w io.Writer, info *modelinfo.NativeAdapterInfo) {
 	}
 	if info.UpdatedTokens > 0 {
 		fmt.Fprintf(w, "  Tokens:       %d updated\n", info.UpdatedTokens)
+	}
+	printNativeAdapterTopTokens(w, info.TopTokens)
+}
+
+func printNativeTrainingTopTokens(w io.Writer, tokens []training.NativeTokenSummary) {
+	if len(tokens) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "Top tokens:")
+	for _, token := range tokens {
+		fmt.Fprintf(w, "  - %d", token.ID)
+		if token.Text != "" {
+			fmt.Fprintf(w, " %s", strconv.Quote(token.Text))
+		}
+		fmt.Fprintf(w, " count=%d bias=%.4g\n", token.Count, token.Bias)
+	}
+}
+
+func printNativeAdapterTopTokens(w io.Writer, tokens []modelinfo.NativeAdapterToken) {
+	if len(tokens) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "  Top tokens:")
+	for _, token := range tokens {
+		fmt.Fprintf(w, "    - %d", token.ID)
+		if token.Text != "" {
+			fmt.Fprintf(w, " %s", strconv.Quote(token.Text))
+		}
+		fmt.Fprintf(w, " count=%d bias=%.4g\n", token.Count, token.Bias)
 	}
 }
 

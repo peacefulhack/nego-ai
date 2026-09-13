@@ -576,7 +576,7 @@ func TestInspectCommandShowsGenerationConfig(t *testing.T) {
 
 func TestInspectCommandShowsNativeAdapter(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2,"top_tokens":[{"id":1,"text":"hello","count":3,"bias":0.1}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
@@ -585,7 +585,7 @@ func TestInspectCommandShowsNativeAdapter(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Native adapter:", "Base model:   ./models/qwen3", "Adapter:      ./outputs/qwen3/adapter.json", "Backend:      native-hf"} {
+	for _, want := range []string{"Native adapter:", "Base model:   ./models/qwen3", "Adapter:      ./outputs/qwen3/adapter.json", "Backend:      native-hf", "Top tokens:", `"hello"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output:\n%s", want, out)
 		}
@@ -703,7 +703,7 @@ func TestCheckCommandShowsGenerationConfig(t *testing.T) {
 
 func TestCheckCommandShowsNativeAdapter(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2}`), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{"version":1,"type":"nego-native-adapter","base_model":"./models/qwen3","adapter_path":"./outputs/qwen3/adapter.json","recommended_backend":"native-hf","method":"token-bias","updated_tokens":2,"top_tokens":[{"id":1,"text":"hello","count":3,"bias":0.1}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
@@ -712,7 +712,7 @@ func TestCheckCommandShowsNativeAdapter(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Native adapter:", "Backend:      native-hf", "Artifact:", "Format:       native-adapter", "Run:          native-hf", "native-hf: yes"} {
+	for _, want := range []string{"Native adapter:", "Backend:      native-hf", "Top tokens:", "Artifact:", "Format:       native-adapter", "Run:          native-hf", "native-hf: yes"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output:\n%s", want, out)
 		}
@@ -1751,6 +1751,7 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 		!strings.Contains(stdout.String(), "Manifest:") ||
 		!strings.Contains(stdout.String(), "Guide:") ||
 		!strings.Contains(stdout.String(), "Train budget:") ||
+		!strings.Contains(stdout.String(), "Top tokens:") ||
 		!strings.Contains(stdout.String(), "Run:            nego run") ||
 		!strings.Contains(stdout.String(), outputDir) ||
 		!strings.Contains(stdout.String(), "Chat:           nego chat") {
@@ -1790,6 +1791,7 @@ func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Native training dry run passed") ||
 		!strings.Contains(stdout.String(), "Planned adapter:") ||
 		!strings.Contains(stdout.String(), "Writes:         no") ||
+		!strings.Contains(stdout.String(), "Top tokens:") ||
 		strings.Contains(stdout.String(), "Manifest:") {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}

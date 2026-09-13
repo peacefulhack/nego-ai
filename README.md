@@ -336,7 +336,8 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 This writes a small token-bias adapter from the dataset. Full LoRA/backprop training remains planned.
 The output directory also includes `manifest.json` and `README.md` so the
 trained adapter can be inspected or reused by local tooling. You can run a
-native training output directory directly:
+native training output directory directly. Native training output includes
+top updated tokens so you can sanity-check what the dataset reinforced.
 
 ```bash
 nego inspect ./outputs/qwen3-token-bias

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -51,6 +52,7 @@ type NativeResult struct {
 	TrainTokens   int                        `json:"train_tokens"`
 	VocabSize     int                        `json:"vocab_size"`
 	UpdatedTokens int                        `json:"updated_tokens"`
+	TopTokens     []NativeTokenSummary       `json:"top_tokens,omitempty"`
 	Duration      time.Duration              `json:"duration"`
 	Artifact      *modelinfo.Artifact        `json:"artifact,omitempty"`
 	Adapter       *adapters.TokenBiasAdapter `json:"adapter,omitempty"`
@@ -58,22 +60,30 @@ type NativeResult struct {
 }
 
 type NativeManifest struct {
-	Version            int               `json:"version"`
-	Type               string            `json:"type"`
-	BaseModel          string            `json:"base_model"`
-	AdapterPath        string            `json:"adapter_path"`
-	Method             string            `json:"method"`
-	DatasetFormat      string            `json:"dataset_format"`
-	TrainFile          string            `json:"train_file"`
-	EvalFile           string            `json:"eval_file,omitempty"`
-	RecommendedBackend string            `json:"recommended_backend"`
-	RuntimeOptions     map[string]string `json:"runtime_options"`
-	RunArgs            []string          `json:"run_args"`
-	ChatArgs           []string          `json:"chat_args"`
-	VocabSize          int               `json:"vocab_size"`
-	UpdatedTokens      int               `json:"updated_tokens"`
-	TrainTokens        int               `json:"train_tokens"`
-	CreatedAt          time.Time         `json:"created_at"`
+	Version            int                  `json:"version"`
+	Type               string               `json:"type"`
+	BaseModel          string               `json:"base_model"`
+	AdapterPath        string               `json:"adapter_path"`
+	Method             string               `json:"method"`
+	DatasetFormat      string               `json:"dataset_format"`
+	TrainFile          string               `json:"train_file"`
+	EvalFile           string               `json:"eval_file,omitempty"`
+	RecommendedBackend string               `json:"recommended_backend"`
+	RuntimeOptions     map[string]string    `json:"runtime_options"`
+	RunArgs            []string             `json:"run_args"`
+	ChatArgs           []string             `json:"chat_args"`
+	VocabSize          int                  `json:"vocab_size"`
+	UpdatedTokens      int                  `json:"updated_tokens"`
+	TrainTokens        int                  `json:"train_tokens"`
+	TopTokens          []NativeTokenSummary `json:"top_tokens,omitempty"`
+	CreatedAt          time.Time            `json:"created_at"`
+}
+
+type NativeTokenSummary struct {
+	ID    int     `json:"id"`
+	Text  string  `json:"text,omitempty"`
+	Count int     `json:"count"`
+	Bias  float32 `json:"bias"`
 }
 
 func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
@@ -175,6 +185,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	}
 	result.Adapter = adapter
 	result.UpdatedTokens = len(adapter.Bias)
+	result.TopTokens = topNativeTokens(counts, adapter.Bias, tok, 10)
 	if normalized.DryRun {
 		result.Duration = time.Since(start)
 		result.Warnings = nativeTrainingWarnings()
@@ -233,8 +244,41 @@ func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *mode
 		VocabSize:          result.VocabSize,
 		UpdatedTokens:      result.UpdatedTokens,
 		TrainTokens:        result.TrainTokens,
+		TopTokens:          result.TopTokens,
 		CreatedAt:          time.Now().UTC(),
 	}, nil
+}
+
+func topNativeTokens(counts map[int]int, bias map[int]float32, tok nativeTrainingTokenizer, limit int) []NativeTokenSummary {
+	if limit <= 0 || len(counts) == 0 {
+		return nil
+	}
+	out := make([]NativeTokenSummary, 0, len(counts))
+	for id, count := range counts {
+		if count <= 0 {
+			continue
+		}
+		text, _ := tok.decode([]int{id})
+		out = append(out, NativeTokenSummary{
+			ID:    id,
+			Text:  text,
+			Count: count,
+			Bias:  bias[id],
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		if out[i].Bias != out[j].Bias {
+			return out[i].Bias > out[j].Bias
+		}
+		return out[i].ID < out[j].ID
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }
 
 func manifestRelativePath(baseDir, path string) string {
@@ -443,6 +487,7 @@ func normalizeNativeOptions(opts NativeOptions) (NativeOptions, error) {
 
 type nativeTrainingTokenizer interface {
 	encode(string) ([]int, error)
+	decode([]int) (string, error)
 	vocabSize() int
 }
 
@@ -452,6 +497,10 @@ type jsonTrainingTokenizer struct {
 
 func (t jsonTrainingTokenizer) encode(text string) ([]int, error) {
 	return t.tok.Encode(text)
+}
+
+func (t jsonTrainingTokenizer) decode(ids []int) (string, error) {
+	return t.tok.Decode(ids)
 }
 
 func (t jsonTrainingTokenizer) vocabSize() int {
@@ -464,6 +513,10 @@ type ggufTrainingTokenizer struct {
 
 func (t ggufTrainingTokenizer) encode(text string) ([]int, error) {
 	return t.vocab.Encode(text, modelinfo.EncodeOptions{})
+}
+
+func (t ggufTrainingTokenizer) decode(ids []int) (string, error) {
+	return t.vocab.Decode(ids, modelinfo.DecodeOptions{SkipSpecial: true})
 }
 
 func (t ggufTrainingTokenizer) vocabSize() int {
