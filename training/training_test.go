@@ -276,6 +276,9 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if manifest.LearningRate != 0.2 || manifest.Epochs != 2 || manifest.MaxContext != 8 || manifest.TrainRows != 1 || manifest.BaseFormat != "gguf" {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
+	if !warningsContain(manifest.Warnings, "native generation is not ready yet") {
+		t.Fatalf("expected manifest runtime warning: %#v", manifest.Warnings)
+	}
 	loaded, err := LoadNativeManifest(outputDir)
 	if err != nil {
 		t.Fatal(err)
@@ -296,6 +299,9 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "nego run "+outputDir) || !strings.Contains(string(readme), "nego chat "+outputDir) {
 		t.Fatalf("unexpected README: %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "Warnings:") || !strings.Contains(string(readme), "native generation is not ready yet") {
+		t.Fatalf("expected README warning: %s", string(readme))
 	}
 	if result.Adapter.Bias[0] <= 0 || result.Adapter.Bias[1] <= 0 {
 		t.Fatalf("unexpected adapter bias: %#v", result.Adapter.Bias)

@@ -55,6 +55,7 @@ Implemented:
 20. Native GGUF tensor caching can be disabled per model with `cache_tensors=false` for lower-memory inspection experiments.
 21. Memory estimates include approximate decoded float32 tensor cache needs for native HF and GGUF runtime experiments.
 22. Native token-bias training reports a warning when the base model is trainable but its local generation backend is not ready.
+23. Native training output manifests and generated READMEs persist runtime-readiness warnings.
 
 Not production-ready yet:
 

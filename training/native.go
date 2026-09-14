@@ -95,6 +95,7 @@ type NativeManifest struct {
 	RuntimeOptions     map[string]string    `json:"runtime_options"`
 	RunArgs            []string             `json:"run_args"`
 	ChatArgs           []string             `json:"chat_args"`
+	Warnings           []string             `json:"warnings,omitempty"`
 	VocabSize          int                  `json:"vocab_size"`
 	UpdatedTokens      int                  `json:"updated_tokens"`
 	TrainTokens        int                  `json:"train_tokens"`
@@ -242,9 +243,9 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.Adapter = adapter
 	result.UpdatedTokens = len(adapter.Bias)
 	result.TopTokens = topNativeTokens(counts, adapter.Bias, tok, 10)
+	result.Warnings = nativeTrainingWarnings(append(append([]string(nil), warnings...), runtimeWarnings...)...)
 	if normalized.DryRun {
 		result.Duration = time.Since(start)
-		result.Warnings = nativeTrainingWarnings(append(warnings, runtimeWarnings...)...)
 		reportNativeProgress(normalized, NativeProgress{Stage: "done", Message: "native training dry run completed"})
 		return result, nil
 	}
@@ -268,7 +269,6 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	}
 	result.ReadmePath = readmePath
 	result.Duration = time.Since(start)
-	result.Warnings = nativeTrainingWarnings(append(warnings, runtimeWarnings...)...)
 	reportNativeProgress(normalized, NativeProgress{Stage: "done", Message: "native training completed"})
 	return result, nil
 }
@@ -341,6 +341,7 @@ func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *mode
 		RuntimeOptions:     map[string]string{"adapter_path": adapterPath},
 		RunArgs:            runArgs,
 		ChatArgs:           chatArgs,
+		Warnings:           append([]string(nil), result.Warnings...),
 		VocabSize:          result.VocabSize,
 		UpdatedTokens:      result.UpdatedTokens,
 		TrainTokens:        result.TrainTokens,
@@ -504,6 +505,14 @@ func writeNativeTrainingReadme(path string, manifest NativeManifest) error {
 	fmt.Fprintf(&b, "Adapter: `%s`\n", manifest.AdapterPath)
 	fmt.Fprintf(&b, "Backend: `%s`\n", manifest.RecommendedBackend)
 	fmt.Fprintln(&b)
+	if len(manifest.Warnings) > 0 {
+		fmt.Fprintln(&b, "Warnings:")
+		fmt.Fprintln(&b)
+		for _, warning := range manifest.Warnings {
+			fmt.Fprintf(&b, "- %s\n", singleLineText(warning))
+		}
+		fmt.Fprintln(&b)
+	}
 	fmt.Fprintln(&b, "Run:")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "```bash")
@@ -516,6 +525,10 @@ func writeNativeTrainingReadme(path string, manifest NativeManifest) error {
 	fmt.Fprintln(&b, strings.Join(shellQuoteArgs(manifest.ChatArgs), " "))
 	fmt.Fprintln(&b, "```")
 	return os.WriteFile(path, []byte(b.String()), 0o644)
+}
+
+func singleLineText(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func shellQuoteArgs(args []string) []string {
