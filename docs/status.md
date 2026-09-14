@@ -51,6 +51,7 @@ Implemented:
 16. Public `nego.BackendPureGo` / `nego.BackendNativeAuto` aliases for requiring local pure-Go runtime resolution from Go code.
 17. Native-HF float32 tensor caching per loaded model instance for faster repeated forward steps.
 18. Native GGUF load preflight for incomplete manifests and unsupported required tensor types before opening tensor storage.
+19. Native readiness reports name unsupported required or present optional GGUF tensors, not only their tensor type family.
 
 Not production-ready yet:
 

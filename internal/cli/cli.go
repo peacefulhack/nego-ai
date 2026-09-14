@@ -2559,6 +2559,8 @@ func writeNativeReadiness(w io.Writer, readiness *modelinfo.NativeRuntimeReadine
 	}
 	writeLimitedStringList(w, "  Spec issues:", readiness.SpecIssues, 6)
 	writeLimitedStringList(w, "  Unsupported:", readiness.UnsupportedTensorTypes, 6)
+	writeLimitedStringList(w, "  Unsupported required:", readiness.UnsupportedRequired, 6)
+	writeLimitedStringList(w, "  Unsupported optional:", readiness.UnsupportedOptional, 6)
 	writeLimitedStringList(w, "  Missing:", readiness.MissingTensors, 8)
 	writeLimitedStringList(w, "  Shape issues:", readiness.ShapeMismatches, 8)
 }

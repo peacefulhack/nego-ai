@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -57,6 +58,31 @@ func TestCheckReportsNativeUnsupportedTensorTypes(t *testing.T) {
 	}
 	if report.NativeReadiness == nil || len(report.NativeReadiness.SpecIssues) == 0 {
 		t.Fatalf("expected native readiness spec issues: %#v", report.NativeReadiness)
+	}
+}
+
+func TestCheckReportsNativeUnsupportedRequiredTensorNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(path, testUnsupportedRequiredNativeGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Check(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.NativeReadiness == nil || report.NativeReadiness.Ready {
+		t.Fatalf("expected native unreadiness: %#v", report.NativeReadiness)
+	}
+	if len(report.NativeReadiness.UnsupportedRequired) != 1 ||
+		report.NativeReadiness.UnsupportedRequired[0] != "blk.0.attn_q.weight:i8" {
+		t.Fatalf("unexpected unsupported required tensors: %#v", report.NativeReadiness.UnsupportedRequired)
+	}
+	if !strings.Contains(report.NativeReadiness.Reason, "unsupported required tensor types") {
+		t.Fatalf("unexpected reason: %s", report.NativeReadiness.Reason)
+	}
+	native, ok := backendByName(report.Backends, "native")
+	if !ok || native.Compatible {
+		t.Fatalf("expected native backend incompatibility: %#v", report.Backends)
 	}
 }
 
@@ -213,6 +239,23 @@ func testNativeKQuantGGUF(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
+func testUnsupportedRequiredNativeGGUF(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	writeGGUFHeader(t, &buf, 3, 11, 9)
+	writeGGUFStringKV(t, &buf, "general.architecture", "llama")
+	writeGGUFUint32KV(t, &buf, "general.file_type", 0)
+	writeGGUFUint32KV(t, &buf, "llama.context_length", 4096)
+	writeGGUFUint32KV(t, &buf, "llama.embedding_length", 4)
+	writeGGUFUint32KV(t, &buf, "llama.block_count", 1)
+	writeGGUFUint32KV(t, &buf, "llama.feed_forward_length", 8)
+	writeGGUFUint32KV(t, &buf, "llama.attention.head_count", 2)
+	writeGGUFUint32KV(t, &buf, "llama.attention.head_count_kv", 1)
+	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
+	writeTinyNativeTensorManifestWithTypeOverride(t, &buf, "blk.0.attn_q.weight", 24)
+	return buf.Bytes()
+}
+
 func writeTinyNativeTensorManifest(t *testing.T, buf *bytes.Buffer, typ uint32) {
 	t.Helper()
 	writeGGUFTensor(t, buf, "token_embd.weight", []uint64{4, 2}, typ, 0)
@@ -226,6 +269,28 @@ func writeTinyNativeTensorManifest(t *testing.T, buf *bytes.Buffer, typ uint32) 
 	writeGGUFTensor(t, buf, "blk.0.ffn_gate.weight", []uint64{4, 8}, typ, 0)
 	writeGGUFTensor(t, buf, "blk.0.ffn_up.weight", []uint64{4, 8}, typ, 0)
 	writeGGUFTensor(t, buf, "blk.0.ffn_down.weight", []uint64{8, 4}, typ, 0)
+}
+
+func writeTinyNativeTensorManifestWithTypeOverride(t *testing.T, buf *bytes.Buffer, overrideName string, overrideType uint32) {
+	t.Helper()
+	writeTensor := func(name string, shape []uint64) {
+		typ := uint32(0)
+		if name == overrideName {
+			typ = overrideType
+		}
+		writeGGUFTensor(t, buf, name, shape, typ, 0)
+	}
+	writeTensor("token_embd.weight", []uint64{4, 2})
+	writeTensor("output_norm.weight", []uint64{4})
+	writeTensor("blk.0.attn_norm.weight", []uint64{4})
+	writeTensor("blk.0.attn_q.weight", []uint64{4, 4})
+	writeTensor("blk.0.attn_k.weight", []uint64{4, 2})
+	writeTensor("blk.0.attn_v.weight", []uint64{4, 2})
+	writeTensor("blk.0.attn_output.weight", []uint64{4, 4})
+	writeTensor("blk.0.ffn_norm.weight", []uint64{4})
+	writeTensor("blk.0.ffn_gate.weight", []uint64{4, 8})
+	writeTensor("blk.0.ffn_up.weight", []uint64{4, 8})
+	writeTensor("blk.0.ffn_down.weight", []uint64{8, 4})
 }
 
 func writeTinyNativeKQuantTensorManifest(t *testing.T, buf *bytes.Buffer) {

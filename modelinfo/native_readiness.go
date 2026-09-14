@@ -14,6 +14,8 @@ type NativeRuntimeReadiness struct {
 	RequiredTensorCount    int      `json:"required_tensor_count,omitempty"`
 	OptionalTensorCount    int      `json:"optional_tensor_count,omitempty"`
 	UnsupportedTensorTypes []string `json:"unsupported_tensor_types,omitempty"`
+	UnsupportedRequired    []string `json:"unsupported_required_tensors,omitempty"`
+	UnsupportedOptional    []string `json:"unsupported_optional_tensors,omitempty"`
 	SpecIssues             []string `json:"spec_issues,omitempty"`
 	MissingTensors         []string `json:"missing_tensors,omitempty"`
 	ShapeMismatches        []string `json:"shape_mismatches,omitempty"`
@@ -69,10 +71,12 @@ func nativeRuntimeReadiness(info *Info) *NativeRuntimeReadiness {
 		names := nativeReadinessTensorNames(spec)
 		readiness.RequiredTensorCount = len(nativeRequiredTensorNames(names))
 		readiness.OptionalTensorCount = len(nativeOptionalTensorNames(names))
+		readiness.UnsupportedRequired = nativeUnsupportedNamedTensors(info.GGUF, nativeRequiredTensorNames(names))
+		readiness.UnsupportedOptional = nativeUnsupportedNamedTensors(info.GGUF, nativeOptionalTensorNames(names))
 		readiness.MissingTensors = nativeMissingTensors(info.GGUF, names)
 		readiness.ShapeMismatches = nativeShapeMismatches(info.GGUF, spec, names)
 	}
-	readiness.Ready = len(readiness.UnsupportedTensorTypes) == 0 &&
+	readiness.Ready = nativeUnsupportedReady(readiness) &&
 		len(readiness.SpecIssues) == 0 &&
 		len(readiness.MissingTensors) == 0 &&
 		len(readiness.ShapeMismatches) == 0
@@ -180,6 +184,37 @@ func nativeOptionalTensorNames(names nativeTensorNames) []string {
 	return out
 }
 
+func nativeUnsupportedReady(readiness *NativeRuntimeReadiness) bool {
+	if readiness == nil {
+		return false
+	}
+	if len(readiness.SpecIssues) > 0 {
+		return len(readiness.UnsupportedTensorTypes) == 0
+	}
+	return len(readiness.UnsupportedRequired) == 0 && len(readiness.UnsupportedOptional) == 0
+}
+
+func nativeUnsupportedNamedTensors(info *GGUFInfo, names []string) []string {
+	available := nativeTensorMap(info)
+	var out []string
+	for _, name := range names {
+		tensor, ok := available[name]
+		if !ok || nativeSupportsGGMLType(tensor.GGMLType) {
+			continue
+		}
+		out = append(out, tensor.Name+":"+nativeTensorTypeLabel(tensor))
+	}
+	sort.Strings(out)
+	return out
+}
+
+func nativeTensorTypeLabel(tensor GGUFTensor) string {
+	if tensor.Type != "" {
+		return tensor.Type
+	}
+	return fmt.Sprintf("ggml_type_%d", tensor.GGMLType)
+}
+
 func nativeMissingTensors(info *GGUFInfo, names nativeTensorNames) []string {
 	available := nativeTensorMap(info)
 	var missing []string
@@ -253,8 +288,9 @@ func nativeReadinessWarnings(info *Info, readiness *NativeRuntimeReadiness) []st
 	if readiness == nil {
 		return warnings
 	}
-	if len(readiness.UnsupportedTensorTypes) > 0 {
-		warnings = append(warnings, "native pure-Go runtime cannot load all tensor types yet")
+	if len(readiness.UnsupportedRequired) > 0 || len(readiness.UnsupportedOptional) > 0 ||
+		(len(readiness.SpecIssues) > 0 && len(readiness.UnsupportedTensorTypes) > 0) {
+		warnings = append(warnings, "native pure-Go runtime cannot load all tensor types required by this model yet")
 	}
 	if info != nil && info.GGUF != nil && strings.Contains(strings.ToLower(info.GGUF.Quantization), "_k") {
 		warnings = append(warnings, "K-quant GGUF support is experimental; validate outputs before relying on them")
@@ -277,6 +313,10 @@ func nativeReadinessReason(readiness *NativeRuntimeReadiness) string {
 		return fmt.Sprintf("native GGUF tensor manifest is incomplete: %d required tensors missing", len(readiness.MissingTensors))
 	case len(readiness.ShapeMismatches) > 0:
 		return fmt.Sprintf("native GGUF tensor shapes do not match expected Llama/Qwen layout: %d mismatches", len(readiness.ShapeMismatches))
+	case len(readiness.UnsupportedRequired) > 0:
+		return fmt.Sprintf("unsupported required tensor types: %d tensors", len(readiness.UnsupportedRequired))
+	case len(readiness.UnsupportedOptional) > 0:
+		return fmt.Sprintf("unsupported optional tensor types: %d tensors", len(readiness.UnsupportedOptional))
 	case len(readiness.UnsupportedTensorTypes) > 0:
 		return "unsupported tensor types: " + strings.Join(readiness.UnsupportedTensorTypes, ", ")
 	default:
