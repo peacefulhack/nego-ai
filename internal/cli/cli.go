@@ -2501,6 +2501,9 @@ func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 	if report.NativeAdapter != nil {
 		writeNativeAdapterInfo(w, report.NativeAdapter)
 	}
+	if report.NativeReadiness != nil {
+		writeNativeReadiness(w, report.NativeReadiness)
+	}
 	if report.Artifact != nil {
 		fmt.Fprintln(w, "Artifact:")
 		fmt.Fprintf(w, "  Format:       %s\n", report.Artifact.Format)
@@ -2535,6 +2538,44 @@ func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 		for _, warning := range report.Warnings {
 			fmt.Fprintf(w, "  - %s\n", warning)
 		}
+	}
+}
+
+func writeNativeReadiness(w io.Writer, readiness *modelinfo.NativeRuntimeReadiness) {
+	status := "no"
+	if readiness.Ready {
+		status = "yes"
+	}
+	fmt.Fprintln(w, "Native readiness:")
+	fmt.Fprintf(w, "  Ready:        %s\n", status)
+	if readiness.Reason != "" {
+		fmt.Fprintf(w, "  Reason:       %s\n", readiness.Reason)
+	}
+	if readiness.RequiredTensorCount > 0 {
+		fmt.Fprintf(w, "  Required:     %d tensors\n", readiness.RequiredTensorCount)
+	}
+	if readiness.OptionalTensorCount > 0 {
+		fmt.Fprintf(w, "  Optional:     %d tensors\n", readiness.OptionalTensorCount)
+	}
+	writeLimitedStringList(w, "  Spec issues:", readiness.SpecIssues, 6)
+	writeLimitedStringList(w, "  Unsupported:", readiness.UnsupportedTensorTypes, 6)
+	writeLimitedStringList(w, "  Missing:", readiness.MissingTensors, 8)
+	writeLimitedStringList(w, "  Shape issues:", readiness.ShapeMismatches, 8)
+}
+
+func writeLimitedStringList(w io.Writer, label string, values []string, limit int) {
+	if len(values) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(values) {
+		limit = len(values)
+	}
+	fmt.Fprintln(w, label)
+	for _, value := range values[:limit] {
+		fmt.Fprintf(w, "    - %s\n", value)
+	}
+	if remaining := len(values) - limit; remaining > 0 {
+		fmt.Fprintf(w, "    - ... %d more\n", remaining)
 	}
 }
 

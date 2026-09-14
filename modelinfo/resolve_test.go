@@ -25,7 +25,7 @@ func TestResolveGGUFArtifact(t *testing.T) {
 	if artifact.RecommendedTrainBackend != "native-token-bias" {
 		t.Fatalf("RecommendedTrainBackend = %q", artifact.RecommendedTrainBackend)
 	}
-	if artifact.ParameterCount != 32 {
+	if artifact.ParameterCount != 164 {
 		t.Fatalf("ParameterCount = %d", artifact.ParameterCount)
 	}
 	if !capabilityStatus(artifact.RunBackends, "native", CapabilityExperimental) {

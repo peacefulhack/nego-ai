@@ -718,7 +718,7 @@ func TestCheckCommandReportsCompatibility(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Artifact:", "Format:       gguf", "Run:          native", "Train:        native-token-bias", "Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
+	for _, want := range []string{"Native readiness:", "Ready:        yes", "Artifact:", "Format:       gguf", "Run:          native", "Train:        native-token-bias", "Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output:\n%s", want, out)
 		}
@@ -781,11 +781,14 @@ func TestCheckCommandJSON(t *testing.T) {
 			Name       string `json:"name"`
 			Compatible bool   `json:"compatible"`
 		} `json:"backends"`
+		NativeReadiness struct {
+			Ready bool `json:"ready"`
+		} `json:"native_readiness"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !body.ChatTemplate || body.Artifact.Format != "gguf" || body.Artifact.RecommendedRunBackend == "" || len(body.Backends) == 0 {
+	if !body.ChatTemplate || body.Artifact.Format != "gguf" || body.Artifact.RecommendedRunBackend == "" || len(body.Backends) == 0 || !body.NativeReadiness.Ready {
 		t.Fatalf("unexpected check json: %s", stdout.String())
 	}
 }
@@ -2467,7 +2470,7 @@ func fakeInspectGGUF(t *testing.T) string {
 	t.Helper()
 	var buf bytes.Buffer
 	buf.WriteString("GGUF")
-	for _, value := range []any{uint32(3), uint64(2), uint64(5)} {
+	for _, value := range []any{uint32(3), uint64(11), uint64(10)} {
 		if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
 			t.Fatal(err)
 		}
@@ -2475,15 +2478,34 @@ func fakeInspectGGUF(t *testing.T) string {
 	writeInspectGGUFStringKV(t, &buf, "general.architecture", "llama")
 	writeInspectGGUFUint32KV(t, &buf, "general.file_type", 15)
 	writeInspectGGUFUint32KV(t, &buf, "llama.context_length", 4096)
+	writeInspectGGUFUint32KV(t, &buf, "llama.embedding_length", 4)
+	writeInspectGGUFUint32KV(t, &buf, "llama.block_count", 1)
+	writeInspectGGUFUint32KV(t, &buf, "llama.feed_forward_length", 8)
+	writeInspectGGUFUint32KV(t, &buf, "llama.attention.head_count", 2)
+	writeInspectGGUFUint32KV(t, &buf, "llama.attention.head_count_kv", 1)
 	writeInspectGGUFStringKV(t, &buf, "tokenizer.chat_template", "[INST] {{ message }} [/INST]")
 	writeInspectGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
-	writeInspectGGUFTensor(t, &buf, "token_embd.weight", []uint64{2, 16}, 1, 0)
-	writeInspectGGUFTensor(t, &buf, "blk.0.attn_q.weight", []uint64{16, 16}, 12, 128)
+	writeInspectTinyNativeTensorManifest(t, &buf)
 	path := filepath.Join(t.TempDir(), "model.gguf")
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func writeInspectTinyNativeTensorManifest(t *testing.T, buf *bytes.Buffer) {
+	t.Helper()
+	writeInspectGGUFTensor(t, buf, "token_embd.weight", []uint64{4, 2}, 1, 0)
+	writeInspectGGUFTensor(t, buf, "output_norm.weight", []uint64{4}, 1, 0)
+	writeInspectGGUFTensor(t, buf, "blk.0.attn_norm.weight", []uint64{4}, 1, 0)
+	writeInspectGGUFTensor(t, buf, "blk.0.attn_q.weight", []uint64{4, 4}, 12, 0)
+	writeInspectGGUFTensor(t, buf, "blk.0.attn_k.weight", []uint64{4, 2}, 12, 0)
+	writeInspectGGUFTensor(t, buf, "blk.0.attn_v.weight", []uint64{4, 2}, 12, 0)
+	writeInspectGGUFTensor(t, buf, "blk.0.attn_output.weight", []uint64{4, 4}, 12, 0)
+	writeInspectGGUFTensor(t, buf, "blk.0.ffn_norm.weight", []uint64{4}, 1, 0)
+	writeInspectGGUFTensor(t, buf, "blk.0.ffn_gate.weight", []uint64{4, 8}, 12, 0)
+	writeInspectGGUFTensor(t, buf, "blk.0.ffn_up.weight", []uint64{4, 8}, 12, 0)
+	writeInspectGGUFTensor(t, buf, "blk.0.ffn_down.weight", []uint64{8, 4}, 12, 0)
 }
 
 func writeInspectGGUFStringKV(t *testing.T, buf *bytes.Buffer, key, value string) {

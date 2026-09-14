@@ -14,7 +14,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 8. Validate Hugging Face safetensors tensor shapes against local model config, including Qwen-style q/k attention norms.
 9. Run native HF float32 math primitives for embedding lookup, projections, normalization, MLP, and logits.
 10. Run experimental native HF generation, streaming completions, streaming chat, and local serving with prompt decode state, KV cache history, adapter bias, sampler controls, context guards, and local generation defaults.
-11. Resolve local model artifacts into format, run backend, and training backend compatibility reports.
+11. Resolve local model artifacts into format, run backend, training backend, and native GGUF readiness reports.
 12. Inspect and check native training output directories as runnable adapter artifacts.
 13. Tokenize text, count context usage, and render chat prompts with WordLevel, BPE, and Unigram/SentencePiece-style tokenizer metadata.
 14. Run local GGUF chat through `llama.cpp` when `llama-cli` is installed.

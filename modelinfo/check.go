@@ -6,18 +6,19 @@ import (
 )
 
 type CheckReport struct {
-	Path          string                 `json:"path"`
-	ModelType     string                 `json:"model_type,omitempty"`
-	Architecture  string                 `json:"architecture,omitempty"`
-	RuntimeFile   *RuntimeFile           `json:"runtime_file,omitempty"`
-	ChatTemplate  bool                   `json:"chat_template"`
-	ContextLength uint64                 `json:"context_length,omitempty"`
-	Quantization  string                 `json:"quantization,omitempty"`
-	Generation    *GenerationConfig      `json:"generation,omitempty"`
-	NativeAdapter *NativeAdapterInfo     `json:"native_adapter,omitempty"`
-	Artifact      *Artifact              `json:"artifact,omitempty"`
-	Backends      []BackendCompatibility `json:"backends"`
-	Warnings      []string               `json:"warnings,omitempty"`
+	Path            string                  `json:"path"`
+	ModelType       string                  `json:"model_type,omitempty"`
+	Architecture    string                  `json:"architecture,omitempty"`
+	RuntimeFile     *RuntimeFile            `json:"runtime_file,omitempty"`
+	ChatTemplate    bool                    `json:"chat_template"`
+	ContextLength   uint64                  `json:"context_length,omitempty"`
+	Quantization    string                  `json:"quantization,omitempty"`
+	Generation      *GenerationConfig       `json:"generation,omitempty"`
+	NativeAdapter   *NativeAdapterInfo      `json:"native_adapter,omitempty"`
+	NativeReadiness *NativeRuntimeReadiness `json:"native_readiness,omitempty"`
+	Artifact        *Artifact               `json:"artifact,omitempty"`
+	Backends        []BackendCompatibility  `json:"backends"`
+	Warnings        []string                `json:"warnings,omitempty"`
 }
 
 type BackendCompatibility struct {
@@ -54,6 +55,7 @@ func checkInfo(info *Info) (*CheckReport, error) {
 	if runtimeFile, err := FindRuntimeFile(info.Path, "gguf", "onnx"); err == nil {
 		report.RuntimeFile = runtimeFile
 	}
+	report.NativeReadiness = nativeRuntimeReadiness(info)
 	report.Backends = backendCompatibility(report, info)
 	report.Warnings = checkWarnings(report, info)
 	report.Artifact = resolveArtifact(info, report)
@@ -92,10 +94,10 @@ func backendCompatibility(report *CheckReport, info *Info) []BackendCompatibilit
 		}
 	}
 	nativeHFCompatible, nativeHFReason := nativeHFCompatibility(info, hasSafetensors)
-	nativeUnsupported := nativeUnsupportedTensorTypes(info)
-	nativeWarnings := nativeCompatibilityWarnings(report, nativeUnsupported)
-	nativeHasTensors := info.GGUF != nil && len(info.GGUF.Tensors) > 0
-	nativeCompatible := hasGGUF && nativeHasTensors && len(nativeUnsupported) == 0
+	nativeReadiness := report.NativeReadiness
+	nativeUnsupported := nativeUnsupportedFromReadiness(nativeReadiness)
+	nativeWarnings := nativeCompatibilityWarnings(nativeReadiness)
+	nativeCompatible := hasGGUF && nativeReadiness != nil && nativeReadiness.Ready
 	out = append(out, BackendCompatibility{
 		Name:       "llama.cpp",
 		Compatible: hasGGUF,
@@ -104,7 +106,7 @@ func backendCompatibility(report *CheckReport, info *Info) []BackendCompatibilit
 	out = append(out, BackendCompatibility{
 		Name:                   "native",
 		Compatible:             nativeCompatible,
-		Reason:                 nativeCompatibilityReason(hasGGUF, nativeHasTensors, nativeUnsupported),
+		Reason:                 nativeCompatibilityReason(hasGGUF, nativeReadiness),
 		UnsupportedTensorTypes: nativeUnsupported,
 		Warnings:               nativeWarnings,
 	})
@@ -128,17 +130,14 @@ func compatibilityReason(ok bool, good, bad string) string {
 	return bad
 }
 
-func nativeCompatibilityReason(hasGGUF, hasTensors bool, unsupported []string) string {
+func nativeCompatibilityReason(hasGGUF bool, readiness *NativeRuntimeReadiness) string {
 	if !hasGGUF {
 		return "requires a GGUF file"
 	}
-	if !hasTensors {
-		return "requires a GGUF tensor directory"
+	if readiness == nil {
+		return "native readiness is unavailable"
 	}
-	if len(unsupported) > 0 {
-		return "unsupported tensor types: " + strings.Join(unsupported, ", ")
-	}
-	return "GGUF tensor types can be loaded by the experimental pure-Go backend"
+	return readiness.Reason
 }
 
 func nativeHFCompatibility(info *Info, hasSafetensors bool) (bool, string) {
@@ -197,15 +196,18 @@ func nativeSupportsGGMLType(typ uint32) bool {
 	}
 }
 
-func nativeCompatibilityWarnings(report *CheckReport, unsupported []string) []string {
-	if len(unsupported) == 0 {
+func nativeUnsupportedFromReadiness(readiness *NativeRuntimeReadiness) []string {
+	if readiness == nil {
 		return nil
 	}
-	warnings := []string{"native pure-Go runtime cannot load all tensor types yet"}
-	if strings.Contains(strings.ToLower(report.Quantization), "_k") {
-		warnings = append(warnings, "K-quant GGUF models still need broader native kernels")
+	return readiness.UnsupportedTensorTypes
+}
+
+func nativeCompatibilityWarnings(readiness *NativeRuntimeReadiness) []string {
+	if readiness == nil {
+		return nil
 	}
-	return warnings
+	return append([]string(nil), readiness.Warnings...)
 }
 
 func checkWarnings(report *CheckReport, info *Info) []string {
