@@ -58,6 +58,7 @@ Implemented:
 23. Native training output manifests and generated READMEs persist runtime-readiness warnings.
 24. Runtime CLI commands expose `--no-cache-tensors` as a direct lower-memory native backend option.
 25. Runtime CLI commands print model-loading progress before potentially slow backend initialization.
+26. Native GGUF raw tensor reads use a configurable `max_tensor_read_bytes` safety limit.
 
 Not production-ready yet:
 

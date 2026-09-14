@@ -63,6 +63,19 @@ func TestLoadRejectsUnsupportedRequiredTensorType(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidMaxTensorReadBytes(t *testing.T) {
+	_, err := Backend{}.Load(context.Background(), nego.ModelOptions{
+		Path: fakeGGUF(t),
+		Options: map[string]string{
+			"allow_incomplete":      "true",
+			"max_tensor_read_bytes": "many",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "max_tensor_read_bytes") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestGenerateReportsExperimentalInference(t *testing.T) {
 	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
@@ -113,6 +126,33 @@ func TestReadTensorReturnsRawBytes(t *testing.T) {
 	_, _, err = nativeModel.ReadTensor("token_embd.weight")
 	if err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("expected closed tensor store error, got %v", err)
+	}
+}
+
+func TestReadTensorHonorsMaxTensorReadBytesOption(t *testing.T) {
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{
+		Path: fakeGGUF(t),
+		Options: map[string]string{
+			"allow_incomplete":      "true",
+			"max_tensor_read_bytes": "1",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+
+	nativeModel := model.(*Model)
+	_, _, err = nativeModel.ReadTensor("token_embd.weight")
+	if err == nil || !strings.Contains(err.Error(), "use TensorReader") {
+		t.Fatalf("unexpected read error: %v", err)
+	}
+	reader, tensor, err := nativeModel.TensorReader("token_embd.weight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tensor.Name != "token_embd.weight" || reader.Size() != 256 {
+		t.Fatalf("unexpected reader: %s %d", tensor.Name, reader.Size())
 	}
 }
 

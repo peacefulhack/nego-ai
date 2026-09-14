@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -35,6 +36,7 @@ func (b Backend) Info() nego.BackendInfo {
 			{Name: "adapter_path", Description: "alias for adapter"},
 			{Name: "allow_incomplete", Description: "allow loading incomplete GGUF manifests for tensor inspection; generation may still fail"},
 			{Name: "cache_tensors", Description: "cache decoded float32 tensors per model instance; defaults to true"},
+			{Name: "max_tensor_read_bytes", Description: "maximum raw tensor bytes read into memory at once; defaults to 536870912"},
 		},
 	}
 }
@@ -65,7 +67,11 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 			return nil, err
 		}
 	}
-	tensors, err := openTensorStore(modelPath, info)
+	maxReadBytes, err := optionUintDefault(opts.Options, "max_tensor_read_bytes", defaultMaxTensorReadBytes)
+	if err != nil {
+		return nil, err
+	}
+	tensors, err := openTensorStore(modelPath, info, maxReadBytes)
 	if err != nil {
 		return nil, fmt.Errorf("open native tensor store: %w", err)
 	}
@@ -389,6 +395,21 @@ func optionBoolDefault(options map[string]string, key string, fallback bool) boo
 	default:
 		return fallback
 	}
+}
+
+func optionUintDefault(options map[string]string, key string, fallback uint64) (uint64, error) {
+	if len(options) == 0 {
+		return fallback, nil
+	}
+	value := strings.TrimSpace(options[key])
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("option %s must be an unsigned integer", key)
+	}
+	return parsed, nil
 }
 
 func promptPath(inputPath, modelPath string, options map[string]string) string {

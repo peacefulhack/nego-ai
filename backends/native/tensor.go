@@ -8,15 +8,16 @@ import (
 	"github.com/gakon/nego-ai/modelinfo"
 )
 
-const maxTensorReadBytes = 512 << 20
+const defaultMaxTensorReadBytes = 512 << 20
 
 type tensorStore struct {
-	file     *os.File
-	fileSize uint64
-	tensors  map[string]modelinfo.GGUFTensor
+	file         *os.File
+	fileSize     uint64
+	maxReadBytes uint64
+	tensors      map[string]modelinfo.GGUFTensor
 }
 
-func openTensorStore(path string, info *modelinfo.GGUFInfo) (*tensorStore, error) {
+func openTensorStore(path string, info *modelinfo.GGUFInfo, maxReadBytes uint64) (*tensorStore, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -27,9 +28,10 @@ func openTensorStore(path string, info *modelinfo.GGUFInfo) (*tensorStore, error
 		return nil, err
 	}
 	store := &tensorStore{
-		file:     file,
-		fileSize: uint64(stat.Size()),
-		tensors:  make(map[string]modelinfo.GGUFTensor, len(info.Tensors)),
+		file:         file,
+		fileSize:     uint64(stat.Size()),
+		maxReadBytes: maxReadBytes,
+		tensors:      make(map[string]modelinfo.GGUFTensor, len(info.Tensors)),
 	}
 	for _, tensor := range info.Tensors {
 		store.tensors[tensor.Name] = tensor
@@ -57,7 +59,11 @@ func (s *tensorStore) ReadTensor(name string) ([]byte, modelinfo.GGUFTensor, err
 	if err != nil {
 		return nil, modelinfo.GGUFTensor{}, err
 	}
-	if reader.Size() > maxTensorReadBytes {
+	maxReadBytes := s.maxReadBytes
+	if maxReadBytes == 0 {
+		maxReadBytes = defaultMaxTensorReadBytes
+	}
+	if uint64(reader.Size()) > maxReadBytes {
 		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("tensor %q is %d bytes; use TensorReader for large tensors", name, reader.Size())
 	}
 	buf := make([]byte, reader.Size())
