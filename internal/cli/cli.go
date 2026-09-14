@@ -2603,7 +2603,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var extraOptions repeatedFlag
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(&backend, "backend", "auto", "runtime backend: auto, native, llama.cpp, or openai-compatible")
+	fs.StringVar(&backend, "backend", "auto", "runtime backend: auto, native, native-hf, llama.cpp, or openai-compatible")
 	fs.BoolVar(&native, "native", false, "use the experimental pure-Go native backend")
 	fs.IntVar(&maxTokens, "max-tokens", 0, "maximum tokens to generate")
 	fs.Float64Var(&temperature, "temperature", 0, "sampling temperature")
@@ -2640,9 +2640,6 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	}
 	if cfg.Backend != "" {
 		backend = cfg.Backend
-	}
-	if native {
-		backend = "native"
 	}
 	backend = normalizeBackendFlag(backend)
 	if cfg.MaxTokens > 0 && maxTokens == 0 {
@@ -2696,6 +2693,13 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	if path == "" || prompt == "" {
 		fmt.Fprintln(stderr, "usage: nego run <model-path> <prompt> [flags]")
 		return 2
+	}
+	if native {
+		backend, err = resolvePureGoBackend(path)
+		if err != nil {
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			return 1
+		}
 	}
 	if err := applyCLIGenerationDefaults(path, defaults, &maxTokens, &temperature, &topK, &topP, &repeatPenalty, &stop); err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2903,10 +2907,6 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			cfg.Model = session.Model
 		}
 	}
-	if native {
-		backend = "native"
-	}
-	backend = normalizeBackendFlag(backend)
 	messages := append([]nego.Message(nil), cfg.Messages...)
 	if loadedSession {
 		messages = append([]nego.Message(nil), session.Messages...)
@@ -2923,6 +2923,13 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if !(interactive && path != "") {
 			fmt.Fprintln(stderr, "usage: nego chat <model-path> <message> [flags]")
 			return 2
+		}
+	}
+	if native {
+		backend, err = resolvePureGoBackend(path)
+		if err != nil {
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			return 1
 		}
 	}
 	if err := applyCLIGenerationDefaults(path, defaults, &maxTokens, &temperature, &topK, &topP, &repeatPenalty, &stop); err != nil {
@@ -3482,6 +3489,34 @@ func resolveRuntimeBackend(backend, path, endpoint, modelID string) string {
 	return resolved
 }
 
+func resolvePureGoBackend(path string) (string, error) {
+	artifact, err := modelinfo.Resolve(path)
+	if err != nil {
+		return "", err
+	}
+	for _, capability := range artifact.RunBackends {
+		if !pureGoRuntimeBackend(capability.Name) {
+			continue
+		}
+		if capability.Status == modelinfo.CapabilityReady || capability.Status == modelinfo.CapabilityExperimental {
+			return capability.Name, nil
+		}
+	}
+	if pureGoRuntimeBackend(artifact.RecommendedRunBackend) {
+		return artifact.RecommendedRunBackend, nil
+	}
+	return "", fmt.Errorf("no pure-Go runtime backend is ready for %q (%s); run `nego check %s` for details", path, artifact.Format, path)
+}
+
+func pureGoRuntimeBackend(name string) bool {
+	switch name {
+	case "native", "native-hf":
+		return true
+	default:
+		return false
+	}
+}
+
 func runtimeOptions(base map[string]string, flags runtimeFlagOptions) (map[string]string, error) {
 	options := make(map[string]string, len(base)+len(flags.extraOptions)+9)
 	for key, value := range base {
@@ -3635,13 +3670,18 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "nego: use either --native or --backend, not both")
 		return 2
 	}
-	if native {
-		backend = "native"
-	}
 	backend = normalizeBackendFlag(backend)
 	if len(positionals) != 1 {
 		fmt.Fprintln(stderr, "usage: nego serve <model-path> [flags]")
 		return 2
+	}
+	if native {
+		var err error
+		backend, err = resolvePureGoBackend(positionals[0])
+		if err != nil {
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			return 1
+		}
 	}
 	options, err := runtimeOptions(nil, runtimeFlagOptions{
 		threads:        threads,

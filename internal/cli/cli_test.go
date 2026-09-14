@@ -827,6 +827,38 @@ func TestStatusCommandJSON(t *testing.T) {
 	}
 }
 
+func TestResolvePureGoBackendSelectsNativeGGUF(t *testing.T) {
+	backend, err := resolvePureGoBackend(fakeInspectGGUF(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backend != "native" {
+		t.Fatalf("backend = %q, want native", backend)
+	}
+}
+
+func TestResolvePureGoBackendSelectsNativeHF(t *testing.T) {
+	dir := fakeNativeHFModel(t)
+	backend, err := resolvePureGoBackend(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if backend != "native-hf" {
+		t.Fatalf("backend = %q, want native-hf", backend)
+	}
+}
+
+func TestResolvePureGoBackendRejectsMetadataOnly(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := resolvePureGoBackend(dir)
+	if err == nil || !strings.Contains(err.Error(), "no pure-Go runtime backend") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRunCommandUsesLlamaBackend(t *testing.T) {
 	t.Setenv("NEGO_LLAMA_CLI", fakeCLILlamaCommand(t))
 	modelPath := fakeCLIGGUF(t)
@@ -961,13 +993,13 @@ func TestRunCommandRejectsInvalidGenerationConfigRepeatPenalty(t *testing.T) {
 }
 
 func TestRunCommandNativeShortcutUsesNativeBackend(t *testing.T) {
-	modelPath := fakeCLIGGUF(t)
+	modelPath := fakeInspectGGUF(t)
 	var stdout, stderr bytes.Buffer
 	code := Run(context.Background(), []string{"run", modelPath, "hello", "--native"}, &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "inspect native GGUF model") {
+	if !strings.Contains(stderr.String(), "token_embd.weight") {
 		t.Fatalf("expected native backend error, got %q", stderr.String())
 	}
 }
@@ -1081,13 +1113,13 @@ func TestChatCommandUsesLlamaBackend(t *testing.T) {
 }
 
 func TestChatCommandNativeShortcutUsesNativeBackend(t *testing.T) {
-	modelPath := fakeCLIGGUF(t)
+	modelPath := fakeInspectGGUF(t)
 	var stdout, stderr bytes.Buffer
 	code := Run(context.Background(), []string{"chat", modelPath, "hello", "--native"}, &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "inspect native GGUF model") {
+	if !strings.Contains(stderr.String(), "token_embd.weight") {
 		t.Fatalf("expected native backend error, got %q", stderr.String())
 	}
 }
@@ -2464,6 +2496,37 @@ func cliSafetensorsFixture(t *testing.T, header string, dataBytes int) []byte {
 	binary.LittleEndian.PutUint64(data[:8], uint64(len(header)))
 	copy(data[8:], header)
 	return data
+}
+
+func fakeNativeHFModel(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	config := `{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":4,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	header := `{
+		"model.embed_tokens.weight":{"dtype":"F32","shape":[4,4],"data_offsets":[0,64]},
+		"model.norm.weight":{"dtype":"F32","shape":[4],"data_offsets":[64,80]},
+		"model.layers.0.input_layernorm.weight":{"dtype":"F32","shape":[4],"data_offsets":[80,96]},
+		"model.layers.0.self_attn.q_proj.weight":{"dtype":"F32","shape":[4,4],"data_offsets":[96,160]},
+		"model.layers.0.self_attn.q_norm.weight":{"dtype":"F32","shape":[2],"data_offsets":[160,168]},
+		"model.layers.0.self_attn.k_proj.weight":{"dtype":"F32","shape":[2,4],"data_offsets":[168,200]},
+		"model.layers.0.self_attn.k_norm.weight":{"dtype":"F32","shape":[2],"data_offsets":[200,208]},
+		"model.layers.0.self_attn.v_proj.weight":{"dtype":"F32","shape":[2,4],"data_offsets":[208,240]},
+		"model.layers.0.self_attn.o_proj.weight":{"dtype":"F32","shape":[4,4],"data_offsets":[240,304]},
+		"model.layers.0.post_attention_layernorm.weight":{"dtype":"F32","shape":[4],"data_offsets":[304,320]},
+		"model.layers.0.mlp.gate_proj.weight":{"dtype":"F32","shape":[8,4],"data_offsets":[320,448]},
+		"model.layers.0.mlp.up_proj.weight":{"dtype":"F32","shape":[8,4],"data_offsets":[448,576]},
+		"model.layers.0.mlp.down_proj.weight":{"dtype":"F32","shape":[4,8],"data_offsets":[576,704]}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), cliSafetensorsFixture(t, header, 704), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func fakeInspectGGUF(t *testing.T) string {
