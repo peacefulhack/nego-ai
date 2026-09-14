@@ -44,6 +44,14 @@ func (s *tensorStore) Close() error {
 	return s.file.Close()
 }
 
+func (s *tensorStore) HasTensor(name string) bool {
+	if s == nil {
+		return false
+	}
+	_, ok := s.tensors[name]
+	return ok
+}
+
 func (s *tensorStore) ReadTensor(name string) ([]byte, modelinfo.GGUFTensor, error) {
 	reader, tensor, err := s.TensorReader(name)
 	if err != nil {

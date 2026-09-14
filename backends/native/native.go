@@ -27,7 +27,7 @@ func (b Backend) Info() nego.BackendInfo {
 	return nego.BackendInfo{
 		Name:         BackendName,
 		Description:  "Experimental pure-Go GGUF runtime foundation for local model loading, tokenization, and early CPU inference.",
-		Capabilities: []string{"load_gguf", "inspect_tensors", "tokenize_gguf", "generate_experimental", "stream_generate", "chat_experimental", "stream_chat", "kv_cache", "float32_tensor_cache", "legacy_quant_dequant", "k_quant_dequant"},
+		Capabilities: []string{"load_gguf", "inspect_tensors", "tokenize_gguf", "generate_experimental", "stream_generate", "chat_experimental", "stream_chat", "kv_cache", "float32_tensor_cache", "legacy_quant_dequant", "k_quant_dequant", "qk_norm_attention"},
 		Required:     []string{"path"},
 		Options: []nego.BackendOption{
 			{Name: "template_path", Description: "directory or file path for chat template sidecars"},

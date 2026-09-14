@@ -40,7 +40,15 @@ func (m *Model) loadAttentionWeights(names BlockTensorNames) (AttentionWeights, 
 	if err != nil {
 		return AttentionWeights{}, err
 	}
+	qNorm, err := m.loadOptionalFloat32(names.AttentionQNorm)
+	if err != nil {
+		return AttentionWeights{}, err
+	}
 	kValues, kTensor, err := m.loadNamedFloat32(names.AttentionK)
+	if err != nil {
+		return AttentionWeights{}, err
+	}
+	kNorm, err := m.loadOptionalFloat32(names.AttentionKNorm)
 	if err != nil {
 		return AttentionWeights{}, err
 	}
@@ -54,7 +62,9 @@ func (m *Model) loadAttentionWeights(names BlockTensorNames) (AttentionWeights, 
 	}
 	return AttentionWeights{
 		QValues:   qValues,
+		QNorm:     qNorm,
 		KValues:   kValues,
+		KNorm:     kNorm,
 		VValues:   vValues,
 		OutValues: outValues,
 		QTensor:   qTensor,
@@ -93,4 +103,18 @@ func (m *Model) loadNamedFloat32(name string) ([]float32, modelinfo.GGUFTensor, 
 		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("load %s: %w", name, err)
 	}
 	return values, tensor, nil
+}
+
+func (m *Model) loadOptionalFloat32(name string) ([]float32, error) {
+	if name == "" || m.tensors == nil {
+		return nil, nil
+	}
+	if !m.tensors.HasTensor(name) {
+		return nil, nil
+	}
+	values, _, err := m.loadTensorFloat32Shared(name)
+	if err != nil {
+		return nil, fmt.Errorf("load optional %s: %w", name, err)
+	}
+	return values, nil
 }

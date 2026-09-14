@@ -8,7 +8,9 @@ import (
 
 type AttentionWeights struct {
 	QValues   []float32
+	QNorm     []float32
 	KValues   []float32
+	KNorm     []float32
 	VValues   []float32
 	OutValues []float32
 	QTensor   modelinfo.GGUFTensor
@@ -42,7 +44,7 @@ func transformerBlockWithStateFloat32(input []float32, weights BlockWeights, spe
 	if err != nil {
 		return nil, fmt.Errorf("attention rmsnorm: %w", err)
 	}
-	attnOut, err := multiHeadAttentionWithCacheFloat32(attnInput, weights.Attention.QValues, weights.Attention.KValues, weights.Attention.VValues, weights.Attention.OutValues, weights.Attention.QTensor, weights.Attention.KTensor, weights.Attention.VTensor, weights.Attention.OutTensor, spec, layer, position, cache)
+	attnOut, err := multiHeadAttentionWithCacheFloat32(attnInput, weights.Attention, spec, layer, position, cache)
 	if err != nil {
 		return nil, fmt.Errorf("attention: %w", err)
 	}

@@ -38,12 +38,13 @@ Implemented:
 3. Tensor loading into float32 buffers with per-model caching.
 4. F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1, Q2_K, Q3_K, Q4_K, Q5_K, and Q6_K dequantization.
 5. RMSNorm, SiLU, softmax, vector math, RoPE, attention, KV-cache, MLP, logits, and transformer block primitives.
-6. Decode state plumbing that processes prompt tokens and appends K/V vectors.
-7. Early `Generate` and `Chat` loops for supported tiny GGUF fixtures.
-8. EOS stopping, context guards, repeat penalty controls, streaming completions, and streaming chat for native sampling.
-9. CLI access through `nego run --native` and `nego chat --native`.
-10. Early pure-Go token-bias adapter training for GGUF or Hugging Face safetensors downloads through `nego train native`.
-11. Native adapter manifests with training provenance, reusable commands, and direct load support through output directories.
+6. Qwen-style optional Q/K attention norm tensors in native GGUF forward passes.
+7. Decode state plumbing that processes prompt tokens and appends K/V vectors.
+8. Early `Generate` and `Chat` loops for supported tiny GGUF fixtures.
+9. EOS stopping, context guards, repeat penalty controls, streaming completions, and streaming chat for native sampling.
+10. CLI access through `nego run --native` and `nego chat --native`.
+11. Early pure-Go token-bias adapter training for GGUF or Hugging Face safetensors downloads through `nego train native`.
+12. Native adapter manifests with training provenance, reusable commands, and direct load support through output directories.
 
 Not production-ready yet:
 

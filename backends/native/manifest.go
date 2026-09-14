@@ -26,7 +26,7 @@ func buildTensorManifest(info *modelinfo.GGUFInfo, spec ModelSpec, names TensorN
 	}
 	report := TensorManifestReport{
 		Required: requiredTensorNames(names),
-		Optional: []string{names.Output},
+		Optional: optionalTensorNames(names),
 	}
 	for _, name := range report.Required {
 		if _, ok := available[name]; !ok {
@@ -67,6 +67,14 @@ func requiredTensorNames(names TensorNames) []string {
 	return out
 }
 
+func optionalTensorNames(names TensorNames) []string {
+	out := []string{names.Output}
+	for _, block := range names.Blocks {
+		out = append(out, block.AttentionQNorm, block.AttentionKNorm)
+	}
+	return out
+}
+
 func validateKnownTensorShapes(available map[string]modelinfo.GGUFTensor, spec ModelSpec, names TensorNames) []string {
 	var out []string
 	expect := func(name string, shape ...uint64) {
@@ -86,7 +94,9 @@ func validateKnownTensorShapes(available map[string]modelinfo.GGUFTensor, spec M
 	for _, block := range names.Blocks {
 		expect(block.AttentionNorm, spec.EmbeddingLength)
 		expect(block.AttentionQ, spec.EmbeddingLength, spec.EmbeddingLength)
+		expect(block.AttentionQNorm, spec.EmbeddingLength/spec.AttentionHeadCount)
 		expect(block.AttentionK, spec.EmbeddingLength, kvProjectionLength(spec))
+		expect(block.AttentionKNorm, spec.EmbeddingLength/spec.AttentionHeadCount)
 		expect(block.AttentionV, spec.EmbeddingLength, kvProjectionLength(spec))
 		expect(block.AttentionOut, spec.EmbeddingLength, spec.EmbeddingLength)
 		expect(block.FFNNorm, spec.EmbeddingLength)

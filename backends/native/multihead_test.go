@@ -74,14 +74,16 @@ func TestMultiHeadAttentionWithCacheAppendsKV(t *testing.T) {
 	}
 	if _, err := multiHeadAttentionWithCacheFloat32(
 		[]float32{1, 2, 3, 4},
-		identity4,
-		firstTwo,
-		firstTwo,
-		identity4,
-		qTensor,
-		kTensor,
-		vTensor,
-		outTensor,
+		AttentionWeights{
+			QValues:   identity4,
+			KValues:   firstTwo,
+			VValues:   firstTwo,
+			OutValues: identity4,
+			QTensor:   qTensor,
+			KTensor:   kTensor,
+			VTensor:   vTensor,
+			OutTensor: outTensor,
+		},
 		spec,
 		0,
 		0,
@@ -98,6 +100,50 @@ func TestMultiHeadAttentionWithCacheAppendsKV(t *testing.T) {
 	}
 	assertFloat32Slice(t, keys[0], []float32{1, 2})
 	assertFloat32Slice(t, values[0], []float32{1, 2})
+}
+
+func TestMultiHeadAttentionUsesQKNorms(t *testing.T) {
+	spec := ModelSpec{
+		EmbeddingLength:    4,
+		AttentionHeadCount: 2,
+		KVHeadCount:        1,
+		RopeTheta:          10000,
+		RMSNormEpsilon:     0,
+	}
+	tensor4x4 := modelinfo.GGUFTensor{Name: "q", Shape: []uint64{4, 4}}
+	tensor4x2 := modelinfo.GGUFTensor{Name: "k", Shape: []uint64{4, 2}}
+	identity4 := []float32{
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+		0, 0, 1, 0,
+		0, 0, 0, 1,
+	}
+	firstTwo := []float32{
+		1, 0, 0, 0,
+		0, 1, 0, 0,
+	}
+	_, err := multiHeadAttentionWithCacheFloat32(
+		[]float32{1, 2, 3, 4},
+		AttentionWeights{
+			QValues:   identity4,
+			QNorm:     []float32{1},
+			KValues:   firstTwo,
+			KNorm:     []float32{1, 1},
+			VValues:   firstTwo,
+			OutValues: identity4,
+			QTensor:   tensor4x4,
+			KTensor:   tensor4x2,
+			VTensor:   tensor4x2,
+			OutTensor: tensor4x4,
+		},
+		spec,
+		0,
+		0,
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "q norm head") {
+		t.Fatalf("expected q norm error, got %v", err)
+	}
 }
 
 func TestSplitHeads(t *testing.T) {

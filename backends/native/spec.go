@@ -20,15 +20,17 @@ type ModelSpec struct {
 }
 
 type BlockTensorNames struct {
-	AttentionNorm string
-	AttentionQ    string
-	AttentionK    string
-	AttentionV    string
-	AttentionOut  string
-	FFNNorm       string
-	FFNGate       string
-	FFNUp         string
-	FFNDown       string
+	AttentionNorm  string
+	AttentionQ     string
+	AttentionQNorm string
+	AttentionK     string
+	AttentionKNorm string
+	AttentionV     string
+	AttentionOut   string
+	FFNNorm        string
+	FFNGate        string
+	FFNUp          string
+	FFNDown        string
 }
 
 type TensorNames struct {
@@ -106,15 +108,17 @@ func tensorNames(spec ModelSpec) TensorNames {
 	for i := range out.Blocks {
 		prefix := fmt.Sprintf("blk.%d.", i)
 		out.Blocks[i] = BlockTensorNames{
-			AttentionNorm: prefix + "attn_norm.weight",
-			AttentionQ:    prefix + "attn_q.weight",
-			AttentionK:    prefix + "attn_k.weight",
-			AttentionV:    prefix + "attn_v.weight",
-			AttentionOut:  prefix + "attn_output.weight",
-			FFNNorm:       prefix + "ffn_norm.weight",
-			FFNGate:       prefix + "ffn_gate.weight",
-			FFNUp:         prefix + "ffn_up.weight",
-			FFNDown:       prefix + "ffn_down.weight",
+			AttentionNorm:  prefix + "attn_norm.weight",
+			AttentionQ:     prefix + "attn_q.weight",
+			AttentionQNorm: prefix + "attn_q_norm.weight",
+			AttentionK:     prefix + "attn_k.weight",
+			AttentionKNorm: prefix + "attn_k_norm.weight",
+			AttentionV:     prefix + "attn_v.weight",
+			AttentionOut:   prefix + "attn_output.weight",
+			FFNNorm:        prefix + "ffn_norm.weight",
+			FFNGate:        prefix + "ffn_gate.weight",
+			FFNUp:          prefix + "ffn_up.weight",
+			FFNDown:        prefix + "ffn_down.weight",
 		}
 	}
 	return out

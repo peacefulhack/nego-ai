@@ -36,6 +36,9 @@ func TestBuildTensorManifestReportsMissingAndTiedOutput(t *testing.T) {
 	if len(report.Missing) == 0 || !containsString(report.Missing, names.Blocks[0].AttentionQ) {
 		t.Fatalf("expected missing block tensors, got %#v", report.Missing)
 	}
+	if !containsString(report.Optional, names.Blocks[0].AttentionQNorm) || !containsString(report.Optional, names.Blocks[0].AttentionKNorm) {
+		t.Fatalf("expected optional q/k norms, got %#v", report.Optional)
+	}
 	if len(report.MissingShape) != 0 {
 		t.Fatalf("unexpected shape errors: %#v", report.MissingShape)
 	}
@@ -55,10 +58,13 @@ func TestBuildTensorManifestReportsShapeMismatch(t *testing.T) {
 	info := &modelinfo.GGUFInfo{
 		Tensors: []modelinfo.GGUFTensor{
 			{Name: names.Blocks[0].AttentionQ, Shape: []uint64{4, 5}},
+			{Name: names.Blocks[0].AttentionQNorm, Shape: []uint64{1}},
 		},
 	}
 	report := buildTensorManifest(info, spec, names)
-	if len(report.MissingShape) != 1 || !strings.Contains(report.MissingShape[0], names.Blocks[0].AttentionQ) {
+	if len(report.MissingShape) != 2 ||
+		!containsStringWith(report.MissingShape, names.Blocks[0].AttentionQ) ||
+		!containsStringWith(report.MissingShape, names.Blocks[0].AttentionQNorm) {
 		t.Fatalf("unexpected shape errors: %#v", report.MissingShape)
 	}
 }
@@ -79,6 +85,15 @@ func TestModelExposesTensorManifest(t *testing.T) {
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsStringWith(values []string, want string) bool {
+	for _, value := range values {
+		if strings.Contains(value, want) {
 			return true
 		}
 	}

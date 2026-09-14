@@ -7,10 +7,19 @@ import (
 )
 
 func multiHeadAttentionFloat32(input []float32, qValues, kValues, vValues, outValues []float32, qTensor, kTensor, vTensor, outTensor modelinfo.GGUFTensor, spec ModelSpec, position int) ([]float32, error) {
-	return multiHeadAttentionWithCacheFloat32(input, qValues, kValues, vValues, outValues, qTensor, kTensor, vTensor, outTensor, spec, -1, position, nil)
+	return multiHeadAttentionWithCacheFloat32(input, AttentionWeights{
+		QValues:   qValues,
+		KValues:   kValues,
+		VValues:   vValues,
+		OutValues: outValues,
+		QTensor:   qTensor,
+		KTensor:   kTensor,
+		VTensor:   vTensor,
+		OutTensor: outTensor,
+	}, spec, -1, position, nil)
 }
 
-func multiHeadAttentionWithCacheFloat32(input []float32, qValues, kValues, vValues, outValues []float32, qTensor, kTensor, vTensor, outTensor modelinfo.GGUFTensor, spec ModelSpec, layer int, position int, cache *KVCache) ([]float32, error) {
+func multiHeadAttentionWithCacheFloat32(input []float32, weights AttentionWeights, spec ModelSpec, layer int, position int, cache *KVCache) ([]float32, error) {
 	if spec.EmbeddingLength > uint64(int(^uint(0)>>1)) {
 		return nil, fmt.Errorf("embedding length %d overflows this runtime", spec.EmbeddingLength)
 	}
@@ -24,15 +33,15 @@ func multiHeadAttentionWithCacheFloat32(input []float32, qValues, kValues, vValu
 	if err != nil {
 		return nil, err
 	}
-	q, err := linearFloat32(input, qValues, qTensor)
+	q, err := linearFloat32(input, weights.QValues, weights.QTensor)
 	if err != nil {
 		return nil, fmt.Errorf("q projection: %w", err)
 	}
-	k, err := linearFloat32(input, kValues, kTensor)
+	k, err := linearFloat32(input, weights.KValues, weights.KTensor)
 	if err != nil {
 		return nil, fmt.Errorf("k projection: %w", err)
 	}
-	v, err := linearFloat32(input, vValues, vTensor)
+	v, err := linearFloat32(input, weights.VValues, weights.VTensor)
 	if err != nil {
 		return nil, fmt.Errorf("v projection: %w", err)
 	}
@@ -50,6 +59,12 @@ func multiHeadAttentionWithCacheFloat32(input []float32, qValues, kValues, vValu
 	}
 	rotatedKHeads := make([][]float32, len(kHeads))
 	for i, kHead := range kHeads {
+		if len(weights.KNorm) > 0 {
+			kHead, err = rmsNormFloat32(kHead, weights.KNorm, spec.RMSNormEpsilon)
+			if err != nil {
+				return nil, fmt.Errorf("k norm head %d: %w", i, err)
+			}
+		}
 		rotatedK, err := applyRoPEFloat32(kHead, position, spec.RopeTheta)
 		if err != nil {
 			return nil, fmt.Errorf("k rope head %d: %w", i, err)
@@ -73,6 +88,12 @@ func multiHeadAttentionWithCacheFloat32(input []float32, qValues, kValues, vValu
 	concat := make([]float32, 0, len(q))
 	for i, qHead := range qHeads {
 		kvHead := i / headsPerKV
+		if len(weights.QNorm) > 0 {
+			qHead, err = rmsNormFloat32(qHead, weights.QNorm, spec.RMSNormEpsilon)
+			if err != nil {
+				return nil, fmt.Errorf("q norm head %d: %w", i, err)
+			}
+		}
 		rotatedQ, err := applyRoPEFloat32(qHead, position, spec.RopeTheta)
 		if err != nil {
 			return nil, fmt.Errorf("q rope head %d: %w", i, err)
@@ -99,7 +120,7 @@ func multiHeadAttentionWithCacheFloat32(input []float32, qValues, kValues, vValu
 		}
 		concat = append(concat, headOut...)
 	}
-	return linearFloat32(concat, outValues, outTensor)
+	return linearFloat32(concat, weights.OutValues, weights.OutTensor)
 }
 
 func concatHeadVectors(heads [][]float32) ([]float32, error) {
