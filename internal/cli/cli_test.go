@@ -1002,6 +1002,9 @@ func TestRunCommandNativeShortcutUsesNativeBackend(t *testing.T) {
 	if !strings.Contains(stderr.String(), "token_embd.weight") {
 		t.Fatalf("expected native backend error, got %q", stderr.String())
 	}
+	if !strings.Contains(stderr.String(), "Loading model (native):") {
+		t.Fatalf("expected load progress, got %q", stderr.String())
+	}
 }
 
 func TestRunCommandRejectsNativeAndBackendTogether(t *testing.T) {
@@ -1121,6 +1124,9 @@ func TestChatCommandNativeShortcutUsesNativeBackend(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "token_embd.weight") {
 		t.Fatalf("expected native backend error, got %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Loading model (native):") {
+		t.Fatalf("expected load progress, got %q", stderr.String())
 	}
 }
 

@@ -2740,6 +2740,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	}
 	started := time.Now().UTC()
 	backend = resolveRuntimeBackend(backend, path, cfg.Endpoint, cfg.Model)
+	printModelLoadProgress(stderr, backend, path)
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2973,6 +2974,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	backend = resolveRuntimeBackend(backend, path, cfg.Endpoint, cfg.Model)
+	printModelLoadProgress(stderr, backend, path)
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{Backend: backend, Path: path, Endpoint: cfg.Endpoint, Model: cfg.Model, APIKey: cfg.APIKey, Options: options})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -3552,6 +3554,14 @@ func runtimeOptions(base map[string]string, flags runtimeFlagOptions) (map[strin
 	return options, nil
 }
 
+func printModelLoadProgress(w io.Writer, backend, path string) {
+	label := strings.TrimSpace(backend)
+	if label == "" {
+		label = "auto"
+	}
+	fmt.Fprintf(w, "Loading model (%s): %s\n", label, path)
+}
+
 func parseRuntimeOption(raw string) (string, string, error) {
 	key, value, ok := strings.Cut(raw, "=")
 	key = strings.TrimSpace(key)
@@ -3700,6 +3710,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	backend = resolveRuntimeBackend(backend, positionals[0], "", "")
+	printModelLoadProgress(stderr, backend, positionals[0])
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
 		Backend: backend,
 		Path:    positionals[0],
