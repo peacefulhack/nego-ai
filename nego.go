@@ -33,6 +33,11 @@ type ModelOptions struct {
 	Options  map[string]string
 }
 
+const (
+	BackendPureGo     = "pure-go"
+	BackendNativeAuto = "native-auto"
+)
+
 type GenerateRequest struct {
 	Prompt        string
 	MaxTokens     int
@@ -273,7 +278,13 @@ func LoadModel(ctx context.Context, opts ModelOptions) (Model, error) {
 		return nil, err
 	}
 	opts = expanded
-	if opts.Backend == "" {
+	if pureGoBackendAlias(opts.Backend) {
+		backend, err := ResolvePureGoBackend(opts)
+		if err != nil {
+			return nil, err
+		}
+		opts.Backend = backend
+	} else if opts.Backend == "" {
 		backend, err := ResolveBackend(opts)
 		if err != nil {
 			return nil, err
@@ -287,6 +298,60 @@ func LoadModel(ctx context.Context, opts ModelOptions) (Model, error) {
 		return nil, fmt.Errorf("backend %q is not registered", opts.Backend)
 	}
 	return backend.Load(ctx, opts)
+}
+
+func ResolvePureGoBackend(opts ModelOptions) (string, error) {
+	expanded, err := expandNativeManifestOptions(opts)
+	if err != nil {
+		return "", err
+	}
+	opts = expanded
+	if opts.Backend != "" && !pureGoBackendAlias(opts.Backend) {
+		if pureGoRuntimeBackend(opts.Backend) {
+			return opts.Backend, nil
+		}
+		return "", fmt.Errorf("backend %q is not a pure-Go runtime backend", opts.Backend)
+	}
+	if strings.TrimSpace(opts.Endpoint) != "" || strings.TrimSpace(opts.Model) != "" {
+		return "", fmt.Errorf("pure-Go runtime backend requires a local model path")
+	}
+	if strings.TrimSpace(opts.Path) == "" {
+		return "", fmt.Errorf("model path is required for pure-Go runtime backend resolution")
+	}
+	artifact, err := modelinfo.Resolve(opts.Path)
+	if err != nil {
+		return "", err
+	}
+	for _, capability := range artifact.RunBackends {
+		if !pureGoRuntimeBackend(capability.Name) {
+			continue
+		}
+		if capability.Status == modelinfo.CapabilityReady || capability.Status == modelinfo.CapabilityExperimental {
+			return capability.Name, nil
+		}
+	}
+	if pureGoRuntimeBackend(artifact.RecommendedRunBackend) {
+		return artifact.RecommendedRunBackend, nil
+	}
+	return "", fmt.Errorf("no pure-Go runtime backend is ready for %q (%s); run `nego check %s` for details", opts.Path, artifact.Format, opts.Path)
+}
+
+func pureGoBackendAlias(backend string) bool {
+	switch strings.ToLower(strings.TrimSpace(backend)) {
+	case BackendPureGo, BackendNativeAuto:
+		return true
+	default:
+		return false
+	}
+}
+
+func pureGoRuntimeBackend(name string) bool {
+	switch name {
+	case "native", "native-hf":
+		return true
+	default:
+		return false
+	}
 }
 
 func ResolveBackend(opts ModelOptions) (string, error) {

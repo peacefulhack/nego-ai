@@ -145,6 +145,15 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 })
 ```
 
+To require a local pure-Go backend, use `BackendPureGo`:
+
+```go
+model, err := nego.LoadModel(ctx, nego.ModelOptions{
+    Backend: nego.BackendPureGo,
+    Path:    "./models/qwen3",
+})
+```
+
 Nego resolves GGUF artifacts to the experimental pure-Go `native` backend when possible. Hugging Face safetensors downloads resolve to the experimental pure-Go `native-hf` backend and can be used for native token-bias adapter training. Full LoRA/backprop training and production-quality local generation are still being built.
 
 ```go
@@ -161,6 +170,7 @@ nego chat ./models/qwen3-gguf "Hello"
 nego serve ./models/qwen3 --addr :8080
 nego run --backend llama.cpp ./models/qwen3-gguf "Hello"
 nego run ./models/qwen3 "Hello"
+nego run --native ./models/qwen3 "Hello"
 ```
 
 ## Pure-Go native runtime

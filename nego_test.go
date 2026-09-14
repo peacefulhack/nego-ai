@@ -1,7 +1,11 @@
 package nego
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -103,6 +107,26 @@ func TestLoadModelAutoSelectsRemoteBackend(t *testing.T) {
 	defer model.Close()
 }
 
+func TestLoadModelPureGoAliasUsesResolvedBackend(t *testing.T) {
+	if _, ok := BackendInfoByName("native"); !ok {
+		if err := RegisterBackend("native", mockBackend{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	model, err := LoadModel(context.Background(), ModelOptions{Backend: BackendPureGo, Path: fakeNativeReadyGGUF(t)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+}
+
+func TestResolvePureGoBackendRejectsRemoteBackend(t *testing.T) {
+	_, err := ResolvePureGoBackend(ModelOptions{Backend: BackendNativeAuto, Endpoint: "http://localhost:8080/v1", Model: "remote"})
+	if err == nil {
+		t.Fatal("expected pure-Go remote rejection")
+	}
+}
+
 func TestResolveBackendRequiresLocalOrRemoteTarget(t *testing.T) {
 	if _, err := ResolveBackend(ModelOptions{}); err == nil {
 		t.Fatal("expected target error")
@@ -201,5 +225,103 @@ func (describedBackend) Info() BackendInfo {
 	return BackendInfo{
 		Description:  "test backend",
 		Capabilities: []string{"generate"},
+	}
+}
+
+func fakeNativeReadyGGUF(t *testing.T) string {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteString("GGUF")
+	for _, value := range []any{uint32(3), uint64(11), uint64(9)} {
+		if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTestGGUFStringKV(t, &buf, "general.architecture", "llama")
+	writeTestGGUFUint32KV(t, &buf, "general.file_type", 1)
+	writeTestGGUFUint32KV(t, &buf, "llama.context_length", 128)
+	writeTestGGUFUint32KV(t, &buf, "llama.embedding_length", 4)
+	writeTestGGUFUint32KV(t, &buf, "llama.block_count", 1)
+	writeTestGGUFUint32KV(t, &buf, "llama.feed_forward_length", 8)
+	writeTestGGUFUint32KV(t, &buf, "llama.attention.head_count", 2)
+	writeTestGGUFUint32KV(t, &buf, "llama.attention.head_count_kv", 1)
+	writeTestGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
+	writeTestGGUFTensor(t, &buf, "token_embd.weight", []uint64{4, 2}, 1)
+	writeTestGGUFTensor(t, &buf, "output_norm.weight", []uint64{4}, 1)
+	writeTestGGUFTensor(t, &buf, "blk.0.attn_norm.weight", []uint64{4}, 1)
+	writeTestGGUFTensor(t, &buf, "blk.0.attn_q.weight", []uint64{4, 4}, 1)
+	writeTestGGUFTensor(t, &buf, "blk.0.attn_k.weight", []uint64{4, 2}, 1)
+	writeTestGGUFTensor(t, &buf, "blk.0.attn_v.weight", []uint64{4, 2}, 1)
+	writeTestGGUFTensor(t, &buf, "blk.0.attn_output.weight", []uint64{4, 4}, 1)
+	writeTestGGUFTensor(t, &buf, "blk.0.ffn_norm.weight", []uint64{4}, 1)
+	writeTestGGUFTensor(t, &buf, "blk.0.ffn_gate.weight", []uint64{4, 8}, 1)
+	writeTestGGUFTensor(t, &buf, "blk.0.ffn_up.weight", []uint64{4, 8}, 1)
+	writeTestGGUFTensor(t, &buf, "blk.0.ffn_down.weight", []uint64{8, 4}, 1)
+	path := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeTestGGUFStringKV(t *testing.T, buf *bytes.Buffer, key, value string) {
+	t.Helper()
+	writeTestGGUFString(t, buf, key)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(8)); err != nil {
+		t.Fatal(err)
+	}
+	writeTestGGUFString(t, buf, value)
+}
+
+func writeTestGGUFUint32KV(t *testing.T, buf *bytes.Buffer, key string, value uint32) {
+	t.Helper()
+	writeTestGGUFString(t, buf, key)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(4)); err != nil {
+		t.Fatal(err)
+	}
+	if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeTestGGUFStringArrayKV(t *testing.T, buf *bytes.Buffer, key string, values []string) {
+	t.Helper()
+	writeTestGGUFString(t, buf, key)
+	for _, value := range []any{uint32(9), uint32(8), uint64(len(values))} {
+		if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, value := range values {
+		writeTestGGUFString(t, buf, value)
+	}
+}
+
+func writeTestGGUFTensor(t *testing.T, buf *bytes.Buffer, name string, shape []uint64, typ uint32) {
+	t.Helper()
+	writeTestGGUFString(t, buf, name)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(len(shape))); err != nil {
+		t.Fatal(err)
+	}
+	for _, dim := range shape {
+		if err := binary.Write(buf, binary.LittleEndian, dim); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := binary.Write(buf, binary.LittleEndian, typ); err != nil {
+		t.Fatal(err)
+	}
+	if err := binary.Write(buf, binary.LittleEndian, uint64(0)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeTestGGUFString(t *testing.T, buf *bytes.Buffer, value string) {
+	t.Helper()
+	if err := binary.Write(buf, binary.LittleEndian, uint64(len(value))); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buf.WriteString(value); err != nil {
+		t.Fatal(err)
 	}
 }

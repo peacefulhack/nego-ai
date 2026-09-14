@@ -3490,31 +3490,7 @@ func resolveRuntimeBackend(backend, path, endpoint, modelID string) string {
 }
 
 func resolvePureGoBackend(path string) (string, error) {
-	artifact, err := modelinfo.Resolve(path)
-	if err != nil {
-		return "", err
-	}
-	for _, capability := range artifact.RunBackends {
-		if !pureGoRuntimeBackend(capability.Name) {
-			continue
-		}
-		if capability.Status == modelinfo.CapabilityReady || capability.Status == modelinfo.CapabilityExperimental {
-			return capability.Name, nil
-		}
-	}
-	if pureGoRuntimeBackend(artifact.RecommendedRunBackend) {
-		return artifact.RecommendedRunBackend, nil
-	}
-	return "", fmt.Errorf("no pure-Go runtime backend is ready for %q (%s); run `nego check %s` for details", path, artifact.Format, path)
-}
-
-func pureGoRuntimeBackend(name string) bool {
-	switch name {
-	case "native", "native-hf":
-		return true
-	default:
-		return false
-	}
+	return nego.ResolvePureGoBackend(nego.ModelOptions{Path: path})
 }
 
 func runtimeOptions(base map[string]string, flags runtimeFlagOptions) (map[string]string, error) {
