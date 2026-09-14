@@ -56,6 +56,7 @@ Implemented:
 21. Memory estimates include approximate decoded float32 tensor cache needs for native HF and GGUF runtime experiments.
 22. Native token-bias training reports a warning when the base model is trainable but its local generation backend is not ready.
 23. Native training output manifests and generated READMEs persist runtime-readiness warnings.
+24. Runtime CLI commands expose `--no-cache-tensors` as a direct lower-memory native backend option.
 
 Not production-ready yet:
 

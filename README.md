@@ -214,7 +214,7 @@ Current status:
 - Runs a single-token float32 forward path when a small GGUF has supported tensors.
 - Runs an early multi-token generate/chat loop over the float32 forward path for supported tiny GGUF fixtures.
 - Loads supported GGUF tensors into float32 buffers for native runtime prototyping.
-- Caches loaded float32 tensor buffers per model instance for native forward experiments, with `cache_tensors=false` available for lower-memory inspection runs.
+- Caches loaded float32 tensor buffers per model instance for native forward experiments, with `cache_tensors=false` or CLI `--no-cache-tensors` available for lower-memory inspection runs.
 - Includes deterministic temperature, top-k, top-p, repeat penalty, EOS-aware sampling, and native stream plumbing.
 - Loads token-bias adapters produced by native training.
 - Does not run production GGUF inference for large Qwen/Llama models yet.

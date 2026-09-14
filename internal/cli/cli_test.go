@@ -1561,6 +1561,7 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		tensorSplit:    "3,1",
 		splitMode:      "layer",
 		flashAttention: true,
+		noCacheTensors: true,
 		adapterPath:    "adapter.json",
 		extraOptions:   []string{"experimental_generation=true", "custom=override"},
 	})
@@ -1576,6 +1577,7 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		"tensor_split":            "3,1",
 		"split_mode":              "layer",
 		"flash_attn":              "true",
+		"cache_tensors":           "false",
 		"adapter_path":            "adapter.json",
 		"custom":                  "override",
 		"experimental_generation": "true",

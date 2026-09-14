@@ -2598,6 +2598,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var tensorSplit string
 	var splitMode string
 	var flashAttention bool
+	var noCacheTensors bool
 	var native bool
 	var adapterPath string
 	var configFile string
@@ -2622,6 +2623,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
+	fs.BoolVar(&noCacheTensors, "no-cache-tensors", false, "disable native decoded tensor cache")
 	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.StringVar(&configFile, "f", "", "run config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
@@ -2724,6 +2726,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		tensorSplit:    tensorSplit,
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
+		noCacheTensors: noCacheTensors,
 		adapterPath:    adapterPath,
 		extraOptions:   extraOptions,
 	})
@@ -2780,6 +2783,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var tensorSplit string
 	var splitMode string
 	var flashAttention bool
+	var noCacheTensors bool
 	var configFile string
 	var logPath string
 	var sessionPath string
@@ -2808,6 +2812,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
+	fs.BoolVar(&noCacheTensors, "no-cache-tensors", false, "disable native decoded tensor cache")
 	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.StringVar(&configFile, "f", "", "chat config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
@@ -2955,6 +2960,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		tensorSplit:    tensorSplit,
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
+		noCacheTensors: noCacheTensors,
 		adapterPath:    adapterPath,
 		extraOptions:   extraOptions,
 	})
@@ -3464,6 +3470,7 @@ type runtimeFlagOptions struct {
 	tensorSplit    string
 	splitMode      string
 	flashAttention bool
+	noCacheTensors bool
 	adapterPath    string
 	extraOptions   []string
 }
@@ -3532,6 +3539,9 @@ func runtimeOptions(base map[string]string, flags runtimeFlagOptions) (map[strin
 	}
 	if flags.flashAttention {
 		options["flash_attn"] = "true"
+	}
+	if flags.noCacheTensors {
+		options["cache_tensors"] = "false"
 	}
 	if flags.adapterPath != "" {
 		options["adapter_path"] = flags.adapterPath
@@ -3620,6 +3630,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	var tensorSplit string
 	var splitMode string
 	var flashAttention bool
+	var noCacheTensors bool
 	var native bool
 	var adapterPath string
 	var extraOptions repeatedFlag
@@ -3638,6 +3649,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&tensorSplit, "tensor-split", "", "llama.cpp comma-separated tensor split")
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
+	fs.BoolVar(&noCacheTensors, "no-cache-tensors", false, "disable native decoded tensor cache")
 	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.Var(&extraOptions, "option", "backend option key=value, repeatable")
 	parseArgs, positionals := splitFlags(args)
@@ -3670,6 +3682,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		tensorSplit:    tensorSplit,
 		splitMode:      splitMode,
 		flashAttention: flashAttention,
+		noCacheTensors: noCacheTensors,
 		adapterPath:    adapterPath,
 		extraOptions:   extraOptions,
 	})
