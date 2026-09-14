@@ -34,6 +34,7 @@ func (b Backend) Info() nego.BackendInfo {
 			{Name: "adapter", Description: "token-bias adapter JSON produced by native training"},
 			{Name: "adapter_path", Description: "alias for adapter"},
 			{Name: "allow_incomplete", Description: "allow loading incomplete GGUF manifests for tensor inspection; generation may still fail"},
+			{Name: "cache_tensors", Description: "cache decoded float32 tensors per model instance; defaults to true"},
 		},
 	}
 }
@@ -74,16 +75,17 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		return nil, err
 	}
 	return &Model{
-		path:       modelPath,
-		info:       info,
-		vocab:      vocab,
-		spec:       spec,
-		names:      tensorNames,
-		manifest:   manifest,
-		tensors:    tensors,
-		float32:    make(map[string]cachedFloat32Tensor),
-		adapter:    adapter,
-		promptPath: promptPath(opts.Path, modelPath, opts.Options),
+		path:         modelPath,
+		info:         info,
+		vocab:        vocab,
+		spec:         spec,
+		names:        tensorNames,
+		manifest:     manifest,
+		tensors:      tensors,
+		float32:      make(map[string]cachedFloat32Tensor),
+		cacheTensors: optionBoolDefault(opts.Options, "cache_tensors", true),
+		adapter:      adapter,
+		promptPath:   promptPath(opts.Path, modelPath, opts.Options),
 	}, nil
 }
 
@@ -138,17 +140,18 @@ type cachedFloat32Tensor struct {
 }
 
 type Model struct {
-	path       string
-	info       *modelinfo.GGUFInfo
-	vocab      *modelinfo.GGUFVocab
-	spec       ModelSpec
-	names      TensorNames
-	manifest   TensorManifestReport
-	tensors    *tensorStore
-	float32    map[string]cachedFloat32Tensor
-	tensorMu   sync.Mutex
-	adapter    *adapters.TokenBiasAdapter
-	promptPath string
+	path         string
+	info         *modelinfo.GGUFInfo
+	vocab        *modelinfo.GGUFVocab
+	spec         ModelSpec
+	names        TensorNames
+	manifest     TensorManifestReport
+	tensors      *tensorStore
+	float32      map[string]cachedFloat32Tensor
+	cacheTensors bool
+	tensorMu     sync.Mutex
+	adapter      *adapters.TokenBiasAdapter
+	promptPath   string
 }
 
 func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
@@ -273,8 +276,10 @@ func (m *Model) loadTensorFloat32Shared(name string) ([]float32, modelinfo.GGUFT
 	if m.tensors == nil {
 		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("native tensor store is closed")
 	}
-	if cached, ok := m.float32[name]; ok {
-		return cached.values, cached.tensor, nil
+	if m.cacheTensors {
+		if cached, ok := m.float32[name]; ok {
+			return cached.values, cached.tensor, nil
+		}
 	}
 	data, tensor, err := m.tensors.ReadTensor(name)
 	if err != nil {
@@ -283,6 +288,9 @@ func (m *Model) loadTensorFloat32Shared(name string) ([]float32, modelinfo.GGUFT
 	values, err := tensorFloat32(tensor, data)
 	if err != nil {
 		return nil, modelinfo.GGUFTensor{}, err
+	}
+	if !m.cacheTensors {
+		return values, tensor, nil
 	}
 	if m.float32 == nil {
 		m.float32 = make(map[string]cachedFloat32Tensor)

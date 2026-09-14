@@ -72,6 +72,32 @@ func TestLoadTensorFloat32SharedUsesCache(t *testing.T) {
 	}
 }
 
+func TestLoadTensorFloat32CanDisableCache(t *testing.T) {
+	options := allowIncompleteOptions()
+	options["cache_tensors"] = "false"
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: options})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+
+	nativeModel := model.(*Model)
+	first, _, err := nativeModel.loadTensorFloat32Shared("token_embd.weight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := nativeModel.loadTensorFloat32Shared("token_embd.weight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) == 0 || len(second) == 0 {
+		t.Fatal("expected decoded tensors")
+	}
+	if &first[0] == &second[0] {
+		t.Fatal("expected cache_tensors=false to avoid reusing the same float32 buffer")
+	}
+}
+
 func TestLoadTensorFloat32RejectsClosedModel(t *testing.T) {
 	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
