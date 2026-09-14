@@ -45,6 +45,7 @@ Implemented:
 10. CLI access through `nego run --native` and `nego chat --native`.
 11. Early pure-Go token-bias adapter training for GGUF or Hugging Face safetensors downloads through `nego train native`.
 12. Native adapter manifests with training provenance, reusable commands, and direct load support through output directories.
+13. Actionable native GGUF runtime errors that point to missing tensors, shape mismatches, and `nego check` diagnostics.
 
 Not production-ready yet:
 

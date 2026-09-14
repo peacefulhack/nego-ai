@@ -50,7 +50,10 @@ func TestGenerateReportsExperimentalInference(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected inference error")
 	}
-	if !strings.Contains(err.Error(), "native GGUF inference is not implemented yet") || strings.Contains(err.Error(), "llama-cli is not available") {
+	if !strings.Contains(err.Error(), "native GGUF tensor manifest is not ready") ||
+		!strings.Contains(err.Error(), "missing=") ||
+		!strings.Contains(err.Error(), "nego check") ||
+		strings.Contains(err.Error(), "llama-cli is not available") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

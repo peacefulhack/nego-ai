@@ -264,7 +264,31 @@ func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {
 }
 
 func (m *Model) inferenceError() error {
-	return fmt.Errorf("native GGUF inference is not implemented yet for architecture %q with %d tensors; loaded %s without llama-cli, but transformer forward pass and sampling are still in progress", m.info.Architecture, len(m.info.Tensors), m.path)
+	if !m.manifest.Ready() {
+		return fmt.Errorf("native GGUF tensor manifest is not ready for %q: missing=%d%s shape_errors=%d%s; run `nego check %s` for full details",
+			m.path,
+			len(m.manifest.Missing),
+			formatIssueExamples(m.manifest.Missing, 3),
+			len(m.manifest.MissingShape),
+			formatIssueExamples(m.manifest.MissingShape, 2),
+			m.path,
+		)
+	}
+	return fmt.Errorf("native GGUF inference could not run for architecture %q with %d tensors; run `nego check %s` for compatibility details", m.info.Architecture, len(m.info.Tensors), m.path)
+}
+
+func formatIssueExamples(values []string, limit int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	if limit <= 0 || limit > len(values) {
+		limit = len(values)
+	}
+	suffix := ""
+	if remaining := len(values) - limit; remaining > 0 {
+		suffix = fmt.Sprintf(", ... %d more", remaining)
+	}
+	return " [" + strings.Join(values[:limit], ", ") + suffix + "]"
 }
 
 func (m *Model) applyAdapter(logits []float32) []float32 {
