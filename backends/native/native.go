@@ -33,6 +33,7 @@ func (b Backend) Info() nego.BackendInfo {
 			{Name: "template_path", Description: "directory or file path for chat template sidecars"},
 			{Name: "adapter", Description: "token-bias adapter JSON produced by native training"},
 			{Name: "adapter_path", Description: "alias for adapter"},
+			{Name: "allow_incomplete", Description: "allow loading incomplete GGUF manifests for tensor inspection; generation may still fail"},
 		},
 	}
 }
@@ -49,21 +50,24 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if len(info.Tensors) == 0 {
 		return nil, fmt.Errorf("native GGUF model %q has no tensor directory", modelPath)
 	}
-	tensors, err := openTensorStore(modelPath, info)
-	if err != nil {
-		return nil, fmt.Errorf("open native tensor store: %w", err)
-	}
 	vocab, err := modelinfo.InspectGGUFVocab(modelPath)
 	if err != nil {
-		tensors.Close()
 		return nil, fmt.Errorf("inspect native GGUF vocab: %w", err)
 	}
 	spec, tensorNames, err := buildModelSpec(info)
 	if err != nil {
-		tensors.Close()
 		return nil, fmt.Errorf("build native model spec: %w", err)
 	}
 	manifest := buildTensorManifest(info, spec, tensorNames)
+	if !optionBoolDefault(opts.Options, "allow_incomplete", false) {
+		if err := validateNativeGGUFLoad(modelPath, info, manifest); err != nil {
+			return nil, err
+		}
+	}
+	tensors, err := openTensorStore(modelPath, info)
+	if err != nil {
+		return nil, fmt.Errorf("open native tensor store: %w", err)
+	}
 	adapter, err := loadAdapter(opts.Options)
 	if err != nil {
 		tensors.Close()
@@ -81,6 +85,51 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		adapter:    adapter,
 		promptPath: promptPath(opts.Path, modelPath, opts.Options),
 	}, nil
+}
+
+func validateNativeGGUFLoad(modelPath string, info *modelinfo.GGUFInfo, manifest TensorManifestReport) error {
+	if !manifest.Ready() {
+		return fmt.Errorf("native GGUF tensor manifest is not ready for %q: missing=%d%s shape_errors=%d%s; run `nego check %s` for full details or set allow_incomplete=true for tensor inspection",
+			modelPath,
+			len(manifest.Missing),
+			formatIssueExamples(manifest.Missing, 3),
+			len(manifest.MissingShape),
+			formatIssueExamples(manifest.MissingShape, 2),
+			modelPath,
+		)
+	}
+	unsupported := unsupportedRequiredTensorTypes(info, manifest)
+	if len(unsupported) > 0 {
+		return fmt.Errorf("native GGUF required tensor types are not ready for %q: unsupported=%d%s; run `nego check %s` for full details or set allow_incomplete=true for tensor inspection",
+			modelPath,
+			len(unsupported),
+			formatIssueExamples(unsupported, 3),
+			modelPath,
+		)
+	}
+	return nil
+}
+
+func unsupportedRequiredTensorTypes(info *modelinfo.GGUFInfo, manifest TensorManifestReport) []string {
+	required := make(map[string]struct{}, len(manifest.Required))
+	for _, name := range manifest.Required {
+		required[name] = struct{}{}
+	}
+	var unsupported []string
+	for _, tensor := range info.Tensors {
+		if _, ok := required[tensor.Name]; !ok || tensorFloat32SupportedType(tensor.GGMLType) {
+			continue
+		}
+		unsupported = append(unsupported, fmt.Sprintf("%s:%s", tensor.Name, tensorTypeLabel(tensor)))
+	}
+	return unsupported
+}
+
+func tensorTypeLabel(tensor modelinfo.GGUFTensor) string {
+	if tensor.Type != "" {
+		return tensor.Type
+	}
+	return fmt.Sprintf("ggml_type_%d", tensor.GGMLType)
 }
 
 type cachedFloat32Tensor struct {
@@ -314,6 +363,24 @@ func loadAdapter(options map[string]string) (*adapters.TokenBiasAdapter, error) 
 		return nil, fmt.Errorf("load native adapter: %w", err)
 	}
 	return adapter, nil
+}
+
+func optionBoolDefault(options map[string]string, key string, fallback bool) bool {
+	if len(options) == 0 {
+		return fallback
+	}
+	value, ok := options[key]
+	if !ok {
+		return fallback
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func promptPath(inputPath, modelPath string, options map[string]string) string {

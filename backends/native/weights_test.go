@@ -29,7 +29,7 @@ func TestLoadBlockWeights(t *testing.T) {
 }
 
 func TestLoadBlockWeightsRejectsMissingTensor(t *testing.T) {
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestForwardToken(t *testing.T) {
 }
 
 func TestForwardTokenRejectsUnreadyManifest(t *testing.T) {
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}

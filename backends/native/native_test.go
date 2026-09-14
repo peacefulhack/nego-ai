@@ -14,7 +14,7 @@ import (
 )
 
 func TestLoadReadsGGUFWithoutExternalRuntime(t *testing.T) {
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,8 +40,31 @@ func TestLoadReadsGGUFWithoutExternalRuntime(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsIncompleteGGUFByDefault(t *testing.T) {
+	_, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	if err == nil {
+		t.Fatal("expected incomplete manifest error")
+	}
+	if !strings.Contains(err.Error(), "native GGUF tensor manifest is not ready") ||
+		!strings.Contains(err.Error(), "allow_incomplete=true") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadRejectsUnsupportedRequiredTensorType(t *testing.T) {
+	_, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeUnsupportedRequiredGGUF(t)})
+	if err == nil {
+		t.Fatal("expected unsupported tensor type error")
+	}
+	if !strings.Contains(err.Error(), "required tensor types are not ready") ||
+		!strings.Contains(err.Error(), "blk.0.attn_q.weight") ||
+		!strings.Contains(err.Error(), "allow_incomplete=true") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestGenerateReportsExperimentalInference(t *testing.T) {
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +82,7 @@ func TestGenerateReportsExperimentalInference(t *testing.T) {
 }
 
 func TestReadTensorReturnsRawBytes(t *testing.T) {
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,6 +114,10 @@ func TestReadTensorReturnsRawBytes(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "closed") {
 		t.Fatalf("expected closed tensor store error, got %v", err)
 	}
+}
+
+func allowIncompleteOptions() map[string]string {
+	return map[string]string{"allow_incomplete": "true"}
 }
 
 func TestDecodeTokenIDsUsesGGUFVocab(t *testing.T) {
@@ -156,6 +183,46 @@ func fakeGGUF(t *testing.T) string {
 	writeTensor(t, &buf, "token_embd.weight", []uint64{16, 8}, 1, 0)
 	padToAlignment(&buf, 32)
 	buf.Write(bytes.Repeat([]byte{0x7b}, 256))
+
+	path := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fakeUnsupportedRequiredGGUF(t *testing.T) string {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteString("GGUF")
+	for _, value := range []any{uint32(3), uint64(12), uint64(9)} {
+		if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeStringKV(t, &buf, "general.architecture", "llama")
+	writeUint32KV(t, &buf, "general.file_type", 0)
+	writeUint32KV(t, &buf, "llama.context_length", 8)
+	writeUint32KV(t, &buf, "llama.embedding_length", 2)
+	writeUint32KV(t, &buf, "llama.block_count", 1)
+	writeUint32KV(t, &buf, "llama.feed_forward_length", 2)
+	writeUint32KV(t, &buf, "llama.attention.head_count", 1)
+	writeUint32KV(t, &buf, "llama.attention.head_count_kv", 1)
+	writeStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"hello", " done", "USER:", " hello", "\nASSISTANT:", " "})
+
+	writeTensor(t, &buf, "token_embd.weight", []uint64{2, 6}, 0, 0)
+	writeTensor(t, &buf, "output_norm.weight", []uint64{2}, 0, 0)
+	writeTensor(t, &buf, "blk.0.attn_norm.weight", []uint64{2}, 0, 0)
+	writeTensor(t, &buf, "blk.0.attn_q.weight", []uint64{2, 2}, 24, 0)
+	writeTensor(t, &buf, "blk.0.attn_k.weight", []uint64{2, 2}, 0, 0)
+	writeTensor(t, &buf, "blk.0.attn_v.weight", []uint64{2, 2}, 0, 0)
+	writeTensor(t, &buf, "blk.0.attn_output.weight", []uint64{2, 2}, 0, 0)
+	writeTensor(t, &buf, "blk.0.ffn_norm.weight", []uint64{2}, 0, 0)
+	writeTensor(t, &buf, "blk.0.ffn_gate.weight", []uint64{2, 2}, 0, 0)
+	writeTensor(t, &buf, "blk.0.ffn_up.weight", []uint64{2, 2}, 0, 0)
+	writeTensor(t, &buf, "blk.0.ffn_down.weight", []uint64{2, 2}, 0, 0)
+	writeTensor(t, &buf, "output.weight", []uint64{2, 6}, 0, 0)
+	padToAlignment(&buf, 32)
 
 	path := filepath.Join(t.TempDir(), "model.gguf")
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {

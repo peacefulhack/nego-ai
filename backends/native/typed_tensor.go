@@ -45,6 +45,15 @@ func tensorFloat32(tensor modelinfo.GGUFTensor, data []byte) ([]float32, error) 
 	}
 }
 
+func tensorFloat32SupportedType(typ uint32) bool {
+	switch typ {
+	case 0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 30:
+		return true
+	default:
+		return false
+	}
+}
+
 func cloneFloat32(values []float32) []float32 {
 	if values == nil {
 		return nil

@@ -10,7 +10,7 @@ import (
 )
 
 func TestLoadTensorFloat32(t *testing.T) {
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestLoadTensorFloat32(t *testing.T) {
 }
 
 func TestLoadTensorFloat32ReturnsCopyFromCache(t *testing.T) {
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestLoadTensorFloat32ReturnsCopyFromCache(t *testing.T) {
 }
 
 func TestLoadTensorFloat32SharedUsesCache(t *testing.T) {
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestLoadTensorFloat32SharedUsesCache(t *testing.T) {
 }
 
 func TestLoadTensorFloat32RejectsClosedModel(t *testing.T) {
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}

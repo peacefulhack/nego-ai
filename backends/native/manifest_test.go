@@ -70,7 +70,7 @@ func TestBuildTensorManifestReportsShapeMismatch(t *testing.T) {
 }
 
 func TestModelExposesTensorManifest(t *testing.T) {
-	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t)})
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
 		t.Fatal(err)
 	}
