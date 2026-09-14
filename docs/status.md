@@ -53,6 +53,7 @@ Implemented:
 18. Native GGUF load preflight for incomplete manifests and unsupported required tensor types before opening tensor storage.
 19. Native readiness reports name unsupported required or present optional GGUF tensors, not only their tensor type family.
 20. Native GGUF tensor caching can be disabled per model with `cache_tensors=false` for lower-memory inspection experiments.
+21. Memory estimates include approximate decoded float32 tensor cache needs for native HF and GGUF runtime experiments.
 
 Not production-ready yet:
 

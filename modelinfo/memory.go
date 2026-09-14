@@ -64,8 +64,14 @@ func applyHFMemory(estimate *MemoryEstimate, info *Info, opts MemoryOptions) {
 	estimate.HeadDim = spec.HeadDim
 	if info.Safetensors != nil {
 		estimate.WeightBytes = info.Safetensors.TotalSize
+		if runtimeBytes, ok := checkedProduct(info.Safetensors.ParamCount, 4); ok {
+			estimate.RuntimeBytes = runtimeBytes
+		} else {
+			estimate.Notes = append(estimate.Notes, "float32 runtime tensor cache estimate overflowed")
+		}
 	}
 	addKVEstimate(estimate, opts.KVBytes)
+	addRuntimeCacheNote(estimate)
 	if !spec.Ready {
 		estimate.Notes = append(estimate.Notes, "HF model spec is incomplete; KV cache estimate may be unavailable")
 	}
@@ -86,10 +92,39 @@ func applyGGUFMemory(estimate *MemoryEstimate, info *GGUFInfo, opts MemoryOption
 	if stat, err := os.Stat(info.Path); err == nil && stat.Size() > 0 {
 		estimate.WeightBytes = uint64(stat.Size())
 	}
+	addGGUFFloat32RuntimeEstimate(estimate, info)
 	addKVEstimate(estimate, opts.KVBytes)
+	addRuntimeCacheNote(estimate)
 	if estimate.AttentionHeadCount == 0 || estimate.HeadDim == 0 {
 		estimate.Notes = append(estimate.Notes, "GGUF attention metadata is incomplete; KV cache estimate may be unavailable")
 	}
+}
+
+func addGGUFFloat32RuntimeEstimate(estimate *MemoryEstimate, info *GGUFInfo) {
+	var params uint64
+	for _, tensor := range info.Tensors {
+		if params > ^uint64(0)-tensor.ElementCount {
+			estimate.Notes = append(estimate.Notes, "float32 runtime tensor cache estimate overflowed")
+			return
+		}
+		params += tensor.ElementCount
+	}
+	if params == 0 {
+		return
+	}
+	runtimeBytes, ok := checkedProduct(params, 4)
+	if !ok {
+		estimate.Notes = append(estimate.Notes, "float32 runtime tensor cache estimate overflowed")
+		return
+	}
+	estimate.RuntimeBytes = runtimeBytes
+}
+
+func addRuntimeCacheNote(estimate *MemoryEstimate) {
+	if estimate.RuntimeBytes == 0 {
+		return
+	}
+	estimate.Notes = append(estimate.Notes, "runtime estimate assumes decoded float32 tensor buffers; use cache_tensors=false for lower-memory native inspection runs")
 }
 
 func addKVEstimate(estimate *MemoryEstimate, kvBytes uint64) {
