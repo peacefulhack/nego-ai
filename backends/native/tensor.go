@@ -64,7 +64,7 @@ func (s *tensorStore) ReadTensor(name string) ([]byte, modelinfo.GGUFTensor, err
 		maxReadBytes = defaultMaxTensorReadBytes
 	}
 	if uint64(reader.Size()) > maxReadBytes {
-		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("tensor %q is %d bytes; use TensorReader for large tensors", name, reader.Size())
+		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("tensor %q is %d bytes; use TensorReader for large tensors or increase max_tensor_read_bytes", name, reader.Size())
 	}
 	buf := make([]byte, reader.Size())
 	if _, err := io.ReadFull(reader, buf); err != nil {

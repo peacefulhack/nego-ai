@@ -144,7 +144,7 @@ func TestReadTensorHonorsMaxTensorReadBytesOption(t *testing.T) {
 
 	nativeModel := model.(*Model)
 	_, _, err = nativeModel.ReadTensor("token_embd.weight")
-	if err == nil || !strings.Contains(err.Error(), "use TensorReader") {
+	if err == nil || !strings.Contains(err.Error(), "use TensorReader") || !strings.Contains(err.Error(), "max_tensor_read_bytes") {
 		t.Fatalf("unexpected read error: %v", err)
 	}
 	reader, tensor, err := nativeModel.TensorReader("token_embd.weight")
