@@ -48,6 +48,9 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if info.HFWeights == nil {
 		return nil, fmt.Errorf("native-hf requires a Hugging Face weight manifest")
 	}
+	if err := validateNativeHFReadiness(info); err != nil {
+		return nil, err
+	}
 	store, err := modelinfo.OpenSafetensors(opts.Path)
 	if err != nil {
 		return nil, fmt.Errorf("open safetensors store: %w", err)
@@ -270,4 +273,44 @@ func hasChatTemplateFile(info *modelinfo.Info) bool {
 		}
 	}
 	return false
+}
+
+func validateNativeHFReadiness(info *modelinfo.Info) error {
+	if info == nil {
+		return fmt.Errorf("native-hf model info is not loaded")
+	}
+	if info.HFSpec == nil {
+		return fmt.Errorf("native-hf requires a Hugging Face config.json model spec")
+	}
+	if !info.HFSpec.Ready {
+		reason := info.HFSpec.ValidationError
+		if reason == "" {
+			reason = "Hugging Face model spec is incomplete"
+		}
+		return fmt.Errorf("native-hf model spec is not ready: %s", reason)
+	}
+	if info.HFWeights == nil {
+		return fmt.Errorf("native-hf requires a Hugging Face weight manifest")
+	}
+	if !info.HFWeights.Ready {
+		return fmt.Errorf("native-hf weight manifest is not ready: missing_tensors=%d%s", len(info.HFWeights.Missing), formatListExamples(info.HFWeights.Missing, 4))
+	}
+	if info.HFShapes != nil && !info.HFShapes.Ready {
+		return fmt.Errorf("native-hf tensor shapes are not ready: mismatches=%d%s", len(info.HFShapes.MissingShape), formatListExamples(info.HFShapes.MissingShape, 3))
+	}
+	return nil
+}
+
+func formatListExamples(values []string, limit int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	if limit <= 0 || limit > len(values) {
+		limit = len(values)
+	}
+	suffix := ""
+	if remaining := len(values) - limit; remaining > 0 {
+		suffix = fmt.Sprintf(", ... %d more", remaining)
+	}
+	return " [" + strings.Join(values[:limit], ", ") + suffix + "]"
 }

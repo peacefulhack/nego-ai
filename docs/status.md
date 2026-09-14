@@ -47,6 +47,7 @@ Implemented:
 12. Native adapter manifests with training provenance, reusable commands, and direct load support through output directories.
 13. Actionable native GGUF runtime errors that point to missing tensors, shape mismatches, and `nego check` diagnostics.
 14. `--native` CLI runtime selection for GGUF (`native`) and Hugging Face safetensors (`native-hf`) pure-Go backends.
+15. Native-HF load preflight for incomplete config, missing tensors, and shape mismatches before generation starts.
 
 Not production-ready yet:
 
