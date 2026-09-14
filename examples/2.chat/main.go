@@ -17,7 +17,8 @@ func main() {
 		path = os.Args[1]
 	}
 	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
-		Path: path,
+		Backend: nego.BackendPureGo,
+		Path:    path,
 	})
 	if err != nil {
 		log.Fatalf("load local model %s: %v", path, err)
