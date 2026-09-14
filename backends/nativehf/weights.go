@@ -148,7 +148,7 @@ func (m *Model) loadTensorValues(name string) (TensorValues, error) {
 	if name == "" {
 		return TensorValues{}, fmt.Errorf("native-hf tensor name is empty")
 	}
-	values, tensor, err := m.LoadTensorFloat32(name)
+	values, tensor, err := m.loadTensorFloat32Shared(name)
 	if err != nil {
 		return TensorValues{}, fmt.Errorf("load %s: %w", name, err)
 	}

@@ -49,6 +49,7 @@ Implemented:
 14. `--native` CLI runtime selection for GGUF (`native`) and Hugging Face safetensors (`native-hf`) pure-Go backends.
 15. Native-HF load preflight for incomplete config, missing tensors, and shape mismatches before generation starts.
 16. Public `nego.BackendPureGo` / `nego.BackendNativeAuto` aliases for requiring local pure-Go runtime resolution from Go code.
+17. Native-HF float32 tensor caching per loaded model instance for faster repeated forward steps.
 
 Not production-ready yet:
 

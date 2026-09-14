@@ -36,6 +36,17 @@ func TestNativeHFBackendLoadsSafetensorsModel(t *testing.T) {
 	if nativeModel.Info().Safetensors == nil || nativeModel.Spec() == nil || nativeModel.Tokenizer() == nil || nativeModel.Store() == nil {
 		t.Fatalf("model did not load native HF components: %#v", nativeModel)
 	}
+	noCacheModel, err := Backend{}.Load(context.Background(), nego.ModelOptions{
+		Path:    dir,
+		Options: map[string]string{"experimental_generation": "false", "cache_tensors": "false"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if noCacheModel.(*Model).cache {
+		t.Fatal("expected cache_tensors=false to disable native-hf cache")
+	}
+	_ = noCacheModel.Close()
 	core, err := nativeModel.LoadCoreWeights()
 	if err != nil {
 		t.Fatal(err)
@@ -50,9 +61,28 @@ func TestNativeHFBackendLoadsSafetensorsModel(t *testing.T) {
 	if block.Attention.Q.Tensor.Name != "model.layers.0.self_attn.q_proj.weight" || len(block.MLP.Down.Values) != 32 {
 		t.Fatalf("unexpected block weights: %#v", block)
 	}
+	values, _, err := nativeModel.LoadTensorFloat32("model.norm.weight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	values[0] = 99
+	values, _, err = nativeModel.LoadTensorFloat32("model.norm.weight")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values[0] == 99 {
+		t.Fatal("LoadTensorFloat32 should return a copy of cached values")
+	}
 	_, err = model.Generate(context.Background(), nego.GenerateRequest{Prompt: "hello"})
 	if err == nil || !strings.Contains(err.Error(), "native-hf experimental generation is disabled") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if err := model.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = nativeModel.LoadTensorFloat32("model.norm.weight")
+	if err == nil || !strings.Contains(err.Error(), "not loaded") {
+		t.Fatalf("expected closed store error, got %v", err)
 	}
 }
 
