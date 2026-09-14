@@ -300,6 +300,9 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if result.Adapter.Bias[0] <= 0 || result.Adapter.Bias[1] <= 0 {
 		t.Fatalf("unexpected adapter bias: %#v", result.Adapter.Bias)
 	}
+	if !warningsContain(result.Warnings, "native generation is not ready yet") {
+		t.Fatalf("expected runtime readiness warning: %#v", result.Warnings)
+	}
 }
 
 func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
@@ -370,6 +373,15 @@ func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
 func containsStage(stages []string, want string) bool {
 	for _, stage := range stages {
 		if stage == want {
+			return true
+		}
+	}
+	return false
+}
+
+func warningsContain(warnings []string, needle string) bool {
+	for _, warning := range warnings {
+		if strings.Contains(warning, needle) {
 			return true
 		}
 	}

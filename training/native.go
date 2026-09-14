@@ -145,6 +145,8 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	if !nativeTrainingFormat(artifact.Format) {
 		return result, fmt.Errorf("native token-bias training requires GGUF or Hugging Face safetensors weights, got %s", artifact.Format)
 	}
+	reportNativeProgress(normalized, NativeProgress{Stage: "check", Message: "checking base runtime compatibility"})
+	runtimeWarnings := nativeBaseRuntimeWarnings(normalized.BaseModel, artifact)
 	reportNativeProgress(normalized, NativeProgress{Stage: "tokenizer", Message: "loading training tokenizer"})
 	tok, err := loadNativeTrainingTokenizer(normalized.BaseModel, artifact)
 	if err != nil {
@@ -242,7 +244,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.TopTokens = topNativeTokens(counts, adapter.Bias, tok, 10)
 	if normalized.DryRun {
 		result.Duration = time.Since(start)
-		result.Warnings = nativeTrainingWarnings(warnings...)
+		result.Warnings = nativeTrainingWarnings(append(warnings, runtimeWarnings...)...)
 		reportNativeProgress(normalized, NativeProgress{Stage: "done", Message: "native training dry run completed"})
 		return result, nil
 	}
@@ -266,7 +268,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	}
 	result.ReadmePath = readmePath
 	result.Duration = time.Since(start)
-	result.Warnings = nativeTrainingWarnings(warnings...)
+	result.Warnings = nativeTrainingWarnings(append(warnings, runtimeWarnings...)...)
 	reportNativeProgress(normalized, NativeProgress{Stage: "done", Message: "native training completed"})
 	return result, nil
 }
@@ -284,6 +286,31 @@ func nativeTrainingWarnings(extra ...string) []string {
 		"load the adapter with native backend option adapter_path when using a compatible runtime vocabulary",
 	)
 	return warnings
+}
+
+func nativeBaseRuntimeWarnings(baseModel string, artifact *modelinfo.Artifact) []string {
+	report, err := modelinfo.Check(baseModel)
+	if err != nil {
+		return nil
+	}
+	backend := nativeTrainingRuntimeBackend(artifact)
+	if backend == "" {
+		return nil
+	}
+	for _, candidate := range report.Backends {
+		if candidate.Name != backend {
+			continue
+		}
+		if candidate.Compatible {
+			return nil
+		}
+		reason := strings.TrimSpace(candidate.Reason)
+		if reason == "" {
+			reason = "runtime compatibility is not ready"
+		}
+		return []string{fmt.Sprintf("base model is trainable for token-bias, but %s generation is not ready yet: %s", backend, reason)}
+	}
+	return nil
 }
 
 func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *modelinfo.Artifact) (NativeManifest, error) {

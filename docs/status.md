@@ -54,6 +54,7 @@ Implemented:
 19. Native readiness reports name unsupported required or present optional GGUF tensors, not only their tensor type family.
 20. Native GGUF tensor caching can be disabled per model with `cache_tensors=false` for lower-memory inspection experiments.
 21. Memory estimates include approximate decoded float32 tensor cache needs for native HF and GGUF runtime experiments.
+22. Native token-bias training reports a warning when the base model is trainable but its local generation backend is not ready.
 
 Not production-ready yet:
 
