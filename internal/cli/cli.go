@@ -1307,6 +1307,9 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	if chatCommand := nativeTrainingChatCommand(result); chatCommand != "" {
 		fmt.Fprintf(w, "Chat:           %s\n", chatCommand)
 	}
+	if shareCommand := nativeTrainingShareCommand(result); shareCommand != "" {
+		fmt.Fprintf(w, "Share:          %s\n", shareCommand)
+	}
 	for _, warning := range result.Warnings {
 		fmt.Fprintf(w, "Warning:        %s\n", warning)
 	}
@@ -1328,6 +1331,13 @@ func nativeTrainingChatCommand(result training.NativeResult) string {
 	}
 	args = append(args, "Hello")
 	return formatCommand(args)
+}
+
+func nativeTrainingShareCommand(result training.NativeResult) string {
+	if result.DryRun || result.OutputDir == "" || result.ManifestPath == "" {
+		return ""
+	}
+	return formatCommand([]string{"nego", "share", "package", result.OutputDir, "--out", result.OutputDir + ".zip"})
 }
 
 func nativeTrainingRuntimeArgs(command string, result training.NativeResult) []string {

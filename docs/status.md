@@ -72,6 +72,7 @@ Implemented:
 37. GGUF decode skip-special handling recognizes common special token strings even when the special token ID is zero.
 38. Dataset token-budget checks can use an injected token counter, and the CLI uses that path for GGUF vocabulary fallback.
 39. `nego train capabilities` includes tokenizer diagnostics when the inspected model exposes GGUF tokenizer metadata.
+40. `nego train native` prints a follow-up share packaging command after writing a native adapter artifact.
 
 Not production-ready yet:
 

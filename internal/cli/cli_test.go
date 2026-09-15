@@ -2165,7 +2165,8 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 		!strings.Contains(stdout.String(), "Top tokens:") ||
 		!strings.Contains(stdout.String(), "Run:            nego run") ||
 		!strings.Contains(stdout.String(), outputDir) ||
-		!strings.Contains(stdout.String(), "Chat:           nego chat") {
+		!strings.Contains(stdout.String(), "Chat:           nego chat") ||
+		!strings.Contains(stdout.String(), "Share:          nego share package") {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); err != nil {
@@ -2265,7 +2266,8 @@ func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
 		!strings.Contains(stdout.String(), "Writes:         no") ||
 		!strings.Contains(stdout.String(), "Memory:") ||
 		!strings.Contains(stdout.String(), "Top tokens:") ||
-		strings.Contains(stdout.String(), "Manifest:") {
+		strings.Contains(stdout.String(), "Manifest:") ||
+		strings.Contains(stdout.String(), "Share:") {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
