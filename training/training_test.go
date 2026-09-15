@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/gakon/nego-ai/modelinfo"
 )
 
 func TestRunTrainingJob(t *testing.T) {
@@ -417,6 +419,21 @@ func TestNativeManifestRejectsEscapingAdapterPath(t *testing.T) {
 	manifest.RuntimeOptions = map[string]string{"adapter_path": "../adapter.json"}
 	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "cannot escape") {
 		t.Fatalf("expected escaping runtime option error, got %v", err)
+	}
+}
+
+func TestNativeBaseRuntimeWarningsIncludeCompatibleBackendWarnings(t *testing.T) {
+	report := &modelinfo.CheckReport{
+		Backends: []modelinfo.BackendCompatibility{{
+			Name:       "native",
+			Compatible: true,
+			Warnings:   []string{"tokenizer output should be validated"},
+		}},
+	}
+	artifact := &modelinfo.Artifact{Format: modelinfo.ArtifactFormatGGUF}
+	warnings := nativeBaseRuntimeWarnings(report, artifact)
+	if !warningsContain(warnings, "tokenizer output should be validated") {
+		t.Fatalf("expected backend warning: %#v", warnings)
 	}
 }
 

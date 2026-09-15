@@ -304,14 +304,16 @@ func nativeBaseRuntimeWarnings(report *modelinfo.CheckReport, artifact *modelinf
 		if candidate.Name != backend {
 			continue
 		}
+		warnings := append([]string(nil), candidate.Warnings...)
 		if candidate.Compatible {
-			return nil
+			return warnings
 		}
 		reason := strings.TrimSpace(candidate.Reason)
 		if reason == "" {
 			reason = "runtime compatibility is not ready"
 		}
-		return []string{fmt.Sprintf("base model is trainable for token-bias, but %s generation is not ready yet: %s", backend, reason)}
+		warnings = append([]string{fmt.Sprintf("base model is trainable for token-bias, but %s generation is not ready yet: %s", backend, reason)}, warnings...)
+		return warnings
 	}
 	return nil
 }

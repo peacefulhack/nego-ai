@@ -73,6 +73,7 @@ Implemented:
 38. Dataset token-budget checks can use an injected token counter, and the CLI uses that path for GGUF vocabulary fallback.
 39. `nego train capabilities` includes tokenizer diagnostics when the inspected model exposes GGUF tokenizer metadata.
 40. `nego train native` prints a follow-up share packaging command after writing a native adapter artifact.
+41. Native training propagates backend readiness warnings, including tokenizer validation warnings, into training results and adapter manifests.
 
 Not production-ready yet:
 
