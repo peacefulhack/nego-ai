@@ -107,6 +107,23 @@ func TestCheckReportsNativeKQuantCompatibility(t *testing.T) {
 	}
 }
 
+func TestCheckReportsNativeQwenAttentionKeyLengthCompatibility(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "qwen.gguf")
+	if err := os.WriteFile(path, testQwenAttentionKeyLengthGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Check(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.NativeReadiness == nil || !report.NativeReadiness.Ready {
+		t.Fatalf("expected native readiness: %#v", report.NativeReadiness)
+	}
+	if !backendCompatible(report.Backends, "native") {
+		t.Fatalf("expected native backend compatibility: %#v", report.Backends)
+	}
+}
+
 func TestCheckReportsNativeMissingTensors(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "model.gguf")
 	if err := os.WriteFile(path, testIncompleteNativeGGUF(t), 0o644); err != nil {
@@ -239,6 +256,25 @@ func testNativeKQuantGGUF(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
+func testQwenAttentionKeyLengthGGUF(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	writeGGUFHeader(t, &buf, 3, 13, 11)
+	writeGGUFStringKV(t, &buf, "general.architecture", "qwen2")
+	writeGGUFUint32KV(t, &buf, "general.file_type", 0)
+	writeGGUFUint32KV(t, &buf, "qwen2.context_length", 128)
+	writeGGUFUint32KV(t, &buf, "qwen2.embedding_length", 10)
+	writeGGUFUint32KV(t, &buf, "qwen2.block_count", 1)
+	writeGGUFUint32KV(t, &buf, "qwen2.feed_forward_length", 20)
+	writeGGUFUint32KV(t, &buf, "qwen2.attention.head_count", 3)
+	writeGGUFUint32KV(t, &buf, "qwen2.attention.head_count_kv", 1)
+	writeGGUFUint32KV(t, &buf, "qwen2.attention.key_length", 4)
+	writeGGUFUint32KV(t, &buf, "qwen2.attention.value_length", 4)
+	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
+	writeTinyQwenNativeTensorManifest(t, &buf, 0)
+	return buf.Bytes()
+}
+
 func testUnsupportedRequiredNativeGGUF(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -254,6 +290,23 @@ func testUnsupportedRequiredNativeGGUF(t *testing.T) []byte {
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
 	writeTinyNativeTensorManifestWithTypeOverride(t, &buf, "blk.0.attn_q.weight", 24)
 	return buf.Bytes()
+}
+
+func writeTinyQwenNativeTensorManifest(t *testing.T, buf *bytes.Buffer, typ uint32) {
+	t.Helper()
+	writeGGUFTensor(t, buf, "token_embd.weight", []uint64{10, 2}, typ, 0)
+	writeGGUFTensor(t, buf, "output_norm.weight", []uint64{10}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.attn_norm.weight", []uint64{10}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.attn_q.weight", []uint64{10, 12}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.attn_q_norm.weight", []uint64{4}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.attn_k.weight", []uint64{10, 4}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.attn_k_norm.weight", []uint64{4}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.attn_v.weight", []uint64{10, 4}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.attn_output.weight", []uint64{12, 10}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.ffn_norm.weight", []uint64{10}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.ffn_gate.weight", []uint64{10, 20}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.ffn_up.weight", []uint64{10, 20}, typ, 0)
+	writeGGUFTensor(t, buf, "blk.0.ffn_down.weight", []uint64{20, 10}, typ, 0)
 }
 
 func writeTinyNativeTensorManifest(t *testing.T, buf *bytes.Buffer, typ uint32) {

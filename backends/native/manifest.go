@@ -93,12 +93,12 @@ func validateKnownTensorShapes(available map[string]modelinfo.GGUFTensor, spec M
 	}
 	for _, block := range names.Blocks {
 		expect(block.AttentionNorm, spec.EmbeddingLength)
-		expect(block.AttentionQ, spec.EmbeddingLength, spec.EmbeddingLength)
-		expect(block.AttentionQNorm, spec.EmbeddingLength/spec.AttentionHeadCount)
-		expect(block.AttentionK, spec.EmbeddingLength, kvProjectionLength(spec))
-		expect(block.AttentionKNorm, spec.EmbeddingLength/spec.AttentionHeadCount)
-		expect(block.AttentionV, spec.EmbeddingLength, kvProjectionLength(spec))
-		expect(block.AttentionOut, spec.EmbeddingLength, spec.EmbeddingLength)
+		expect(block.AttentionQ, spec.EmbeddingLength, qProjectionLength(spec))
+		expect(block.AttentionQNorm, specAttentionKeyLength(spec))
+		expect(block.AttentionK, spec.EmbeddingLength, kvKeyProjectionLength(spec))
+		expect(block.AttentionKNorm, specAttentionKeyLength(spec))
+		expect(block.AttentionV, spec.EmbeddingLength, kvValueProjectionLength(spec))
+		expect(block.AttentionOut, attentionOutputInputLength(spec), spec.EmbeddingLength)
 		expect(block.FFNNorm, spec.EmbeddingLength)
 		expect(block.FFNGate, spec.EmbeddingLength, spec.FeedForwardLength)
 		expect(block.FFNUp, spec.EmbeddingLength, spec.FeedForwardLength)
@@ -119,6 +119,18 @@ func sameShape(got []uint64, want []uint64) bool {
 	return true
 }
 
-func kvProjectionLength(spec ModelSpec) uint64 {
-	return spec.EmbeddingLength / spec.AttentionHeadCount * spec.KVHeadCount
+func qProjectionLength(spec ModelSpec) uint64 {
+	return specAttentionKeyLength(spec) * spec.AttentionHeadCount
+}
+
+func kvKeyProjectionLength(spec ModelSpec) uint64 {
+	return specAttentionKeyLength(spec) * spec.KVHeadCount
+}
+
+func kvValueProjectionLength(spec ModelSpec) uint64 {
+	return specAttentionValueLength(spec) * spec.KVHeadCount
+}
+
+func attentionOutputInputLength(spec ModelSpec) uint64 {
+	return specAttentionValueLength(spec) * spec.AttentionHeadCount
 }

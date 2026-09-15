@@ -59,10 +59,11 @@ Implemented:
 24. Runtime CLI commands expose `--no-cache-tensors` as a direct lower-memory native backend option.
 25. Runtime CLI commands print model-loading progress before potentially slow backend initialization.
 26. Native GGUF raw tensor reads use a configurable `max_tensor_read_bytes` safety limit.
+27. Native GGUF spec, readiness, memory, and manifest checks honor `attention.key_length` / `attention.value_length` metadata for Qwen-style projection dimensions.
 
 Not production-ready yet:
 
-1. Real Qwen/Llama compatibility for common downloaded GGUF models.
+1. Full real-world Qwen/Llama compatibility validation for common downloaded GGUF models.
 2. Compatibility validation for mixed K-quant variants such as Q4_K_M and Q5_K_M in real model files.
 3. Optimized CPU execution, batching, and memory planning.
 4. GPU execution.

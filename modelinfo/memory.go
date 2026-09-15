@@ -86,7 +86,8 @@ func applyGGUFMemory(estimate *MemoryEstimate, info *GGUFInfo, opts MemoryOption
 	if estimate.KVHeadCount == 0 {
 		estimate.KVHeadCount = estimate.AttentionHeadCount
 	}
-	if estimate.AttentionHeadCount > 0 && estimate.EmbeddingLength%estimate.AttentionHeadCount == 0 {
+	estimate.HeadDim = configUint(info.Metadata, info.Architecture+".attention.key_length")
+	if estimate.HeadDim == 0 && estimate.AttentionHeadCount > 0 && estimate.EmbeddingLength%estimate.AttentionHeadCount == 0 {
 		estimate.HeadDim = estimate.EmbeddingLength / estimate.AttentionHeadCount
 	}
 	if stat, err := os.Stat(info.Path); err == nil && stat.Size() > 0 {

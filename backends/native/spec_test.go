@@ -25,7 +25,8 @@ func TestBuildModelSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.FeedForwardLength != 32 || spec.KVHeadCount != 2 || spec.RMSNormEpsilon != 1e-6 {
+	if spec.FeedForwardLength != 32 || spec.KVHeadCount != 2 || spec.AttentionKeyLength != 4 ||
+		spec.AttentionValueLength != 4 || spec.RMSNormEpsilon != 1e-6 {
 		t.Fatalf("unexpected spec: %#v", spec)
 	}
 	if len(names.Blocks) != 2 || names.Blocks[1].FFNDown != "blk.1.ffn_down.weight" {
@@ -52,6 +53,30 @@ func TestBuildModelSpecDefaultsKVHeads(t *testing.T) {
 	}
 }
 
+func TestBuildModelSpecUsesAttentionKeyLengthMetadata(t *testing.T) {
+	info := &modelinfo.GGUFInfo{
+		Architecture:    "qwen2",
+		EmbeddingLength: 10,
+		BlockCount:      1,
+		Metadata: map[string]any{
+			"qwen2.feed_forward_length":              uint32(32),
+			"qwen2.attention.head_count":             uint32(3),
+			"qwen2.attention.head_count_kv":          uint32(1),
+			"qwen2.attention.key_length":             uint32(4),
+			"qwen2.attention.value_length":           uint32(4),
+			"qwen2.rope.freq_base":                   float32(1000000),
+			"qwen2.attention.layer_norm_rms_epsilon": float32(1e-6),
+		},
+	}
+	spec, _, err := buildModelSpec(info)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.AttentionKeyLength != 4 || spec.AttentionValueLength != 4 {
+		t.Fatalf("unexpected attention lengths: %#v", spec)
+	}
+}
+
 func TestBuildModelSpecRejectsInvalidDimensions(t *testing.T) {
 	tests := []struct {
 		name string
@@ -72,6 +97,11 @@ func TestBuildModelSpecRejectsInvalidDimensions(t *testing.T) {
 			name: "bad kv heads",
 			info: specInfo(16, 4, 3),
 			want: "KV",
+		},
+		{
+			name: "different key value lengths",
+			info: specInfoWithLengths(10, 3, 1, 4, 5),
+			want: "separate value",
 		},
 	}
 	for _, tc := range tests {
@@ -95,4 +125,11 @@ func specInfo(embed, heads, kvHeads uint64) *modelinfo.GGUFInfo {
 			"llama.attention.head_count_kv": kvHeads,
 		},
 	}
+}
+
+func specInfoWithLengths(embed, heads, kvHeads, keyLength, valueLength uint64) *modelinfo.GGUFInfo {
+	info := specInfo(embed, heads, kvHeads)
+	info.Metadata["llama.attention.key_length"] = keyLength
+	info.Metadata["llama.attention.value_length"] = valueLength
+	return info
 }

@@ -23,13 +23,15 @@ type NativeRuntimeReadiness struct {
 }
 
 type nativeSpec struct {
-	architecture       string
-	embeddingLength    uint64
-	blockCount         uint64
-	feedForwardLength  uint64
-	attentionHeadCount uint64
-	kvHeadCount        uint64
-	ropeTheta          float64
+	architecture         string
+	embeddingLength      uint64
+	blockCount           uint64
+	feedForwardLength    uint64
+	attentionHeadCount   uint64
+	kvHeadCount          uint64
+	attentionKeyLength   uint64
+	attentionValueLength uint64
+	ropeTheta            float64
 }
 
 type nativeBlockTensorNames struct {
@@ -87,16 +89,24 @@ func nativeRuntimeReadiness(info *Info) *NativeRuntimeReadiness {
 
 func buildNativeReadinessSpec(info *GGUFInfo) (nativeSpec, []string) {
 	spec := nativeSpec{
-		architecture:       info.Architecture,
-		embeddingLength:    info.EmbeddingLength,
-		blockCount:         info.BlockCount,
-		feedForwardLength:  metadataUint(info.Metadata, nativeMetadataKey(info.Architecture, "feed_forward_length")),
-		attentionHeadCount: metadataUint(info.Metadata, nativeMetadataKey(info.Architecture, "attention.head_count")),
-		kvHeadCount:        metadataUint(info.Metadata, nativeMetadataKey(info.Architecture, "attention.head_count_kv")),
-		ropeTheta:          metadataFloatDefault(info.Metadata, nativeMetadataKey(info.Architecture, "rope.freq_base"), 10000),
+		architecture:         info.Architecture,
+		embeddingLength:      info.EmbeddingLength,
+		blockCount:           info.BlockCount,
+		feedForwardLength:    metadataUint(info.Metadata, nativeMetadataKey(info.Architecture, "feed_forward_length")),
+		attentionHeadCount:   metadataUint(info.Metadata, nativeMetadataKey(info.Architecture, "attention.head_count")),
+		kvHeadCount:          metadataUint(info.Metadata, nativeMetadataKey(info.Architecture, "attention.head_count_kv")),
+		attentionKeyLength:   metadataUint(info.Metadata, nativeMetadataKey(info.Architecture, "attention.key_length")),
+		attentionValueLength: metadataUint(info.Metadata, nativeMetadataKey(info.Architecture, "attention.value_length")),
+		ropeTheta:            metadataFloatDefault(info.Metadata, nativeMetadataKey(info.Architecture, "rope.freq_base"), 10000),
 	}
 	if spec.kvHeadCount == 0 {
 		spec.kvHeadCount = spec.attentionHeadCount
+	}
+	if spec.attentionKeyLength == 0 && spec.attentionHeadCount > 0 && spec.embeddingLength%spec.attentionHeadCount == 0 {
+		spec.attentionKeyLength = spec.embeddingLength / spec.attentionHeadCount
+	}
+	if spec.attentionValueLength == 0 {
+		spec.attentionValueLength = spec.attentionKeyLength
 	}
 	var issues []string
 	require := func(ok bool, message string) {
@@ -112,8 +122,13 @@ func buildNativeReadinessSpec(info *GGUFInfo) (nativeSpec, []string) {
 	}
 	require(spec.feedForwardLength > 0, "missing "+nativeMetadataKey(spec.architecture, "feed_forward_length"))
 	require(spec.attentionHeadCount > 0, "missing "+nativeMetadataKey(spec.architecture, "attention.head_count"))
-	if spec.embeddingLength > 0 && spec.attentionHeadCount > 0 && spec.embeddingLength%spec.attentionHeadCount != 0 {
+	if spec.embeddingLength > 0 && spec.attentionHeadCount > 0 && spec.attentionKeyLength == 0 && spec.embeddingLength%spec.attentionHeadCount != 0 {
 		issues = append(issues, fmt.Sprintf("embedding length %d is not divisible by attention head count %d", spec.embeddingLength, spec.attentionHeadCount))
+	}
+	require(spec.attentionKeyLength > 0, "missing "+nativeMetadataKey(spec.architecture, "attention.key_length"))
+	require(spec.attentionValueLength > 0, "missing "+nativeMetadataKey(spec.architecture, "attention.value_length"))
+	if spec.attentionKeyLength > 0 && spec.attentionValueLength > 0 && spec.attentionKeyLength != spec.attentionValueLength {
+		issues = append(issues, fmt.Sprintf("attention key length %d and value length %d differ; separate value dimensions are not supported yet", spec.attentionKeyLength, spec.attentionValueLength))
 	}
 	if spec.attentionHeadCount > 0 && (spec.kvHeadCount == 0 || spec.attentionHeadCount%spec.kvHeadCount != 0) {
 		issues = append(issues, fmt.Sprintf("attention head count %d is not divisible by KV head count %d", spec.attentionHeadCount, spec.kvHeadCount))
@@ -244,16 +259,18 @@ func nativeShapeMismatches(info *GGUFInfo, spec nativeSpec, names nativeTensorNa
 	if _, ok := available[names.output]; ok {
 		expect(names.output, spec.embeddingLength, 0)
 	}
-	headDim := spec.embeddingLength / spec.attentionHeadCount
-	kvProjection := headDim * spec.kvHeadCount
+	qProjection := spec.attentionKeyLength * spec.attentionHeadCount
+	kvKeyProjection := spec.attentionKeyLength * spec.kvHeadCount
+	kvValueProjection := spec.attentionValueLength * spec.kvHeadCount
+	attentionOutputInput := spec.attentionValueLength * spec.attentionHeadCount
 	for _, block := range names.blocks {
 		expect(block.attentionNorm, spec.embeddingLength)
-		expect(block.attentionQ, spec.embeddingLength, spec.embeddingLength)
-		expect(block.attentionQNorm, headDim)
-		expect(block.attentionK, spec.embeddingLength, kvProjection)
-		expect(block.attentionKNorm, headDim)
-		expect(block.attentionV, spec.embeddingLength, kvProjection)
-		expect(block.attentionOut, spec.embeddingLength, spec.embeddingLength)
+		expect(block.attentionQ, spec.embeddingLength, qProjection)
+		expect(block.attentionQNorm, spec.attentionKeyLength)
+		expect(block.attentionK, spec.embeddingLength, kvKeyProjection)
+		expect(block.attentionKNorm, spec.attentionKeyLength)
+		expect(block.attentionV, spec.embeddingLength, kvValueProjection)
+		expect(block.attentionOut, attentionOutputInput, spec.embeddingLength)
 		expect(block.ffnNorm, spec.embeddingLength)
 		expect(block.ffnGate, spec.embeddingLength, spec.feedForwardLength)
 		expect(block.ffnUp, spec.embeddingLength, spec.feedForwardLength)

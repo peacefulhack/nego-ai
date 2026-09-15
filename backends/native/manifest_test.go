@@ -69,6 +69,42 @@ func TestBuildTensorManifestReportsShapeMismatch(t *testing.T) {
 	}
 }
 
+func TestBuildTensorManifestUsesAttentionKeyLengthMetadata(t *testing.T) {
+	spec := ModelSpec{
+		Architecture:         "qwen2",
+		EmbeddingLength:      10,
+		BlockCount:           1,
+		FeedForwardLength:    20,
+		AttentionHeadCount:   3,
+		KVHeadCount:          1,
+		AttentionKeyLength:   4,
+		AttentionValueLength: 4,
+		RopeTheta:            1000000,
+	}
+	names := tensorNames(spec)
+	info := &modelinfo.GGUFInfo{
+		Tensors: []modelinfo.GGUFTensor{
+			{Name: names.TokenEmbedding, Shape: []uint64{10, 16}},
+			{Name: names.OutputNorm, Shape: []uint64{10}},
+			{Name: names.Blocks[0].AttentionNorm, Shape: []uint64{10}},
+			{Name: names.Blocks[0].AttentionQ, Shape: []uint64{10, 12}},
+			{Name: names.Blocks[0].AttentionQNorm, Shape: []uint64{4}},
+			{Name: names.Blocks[0].AttentionK, Shape: []uint64{10, 4}},
+			{Name: names.Blocks[0].AttentionKNorm, Shape: []uint64{4}},
+			{Name: names.Blocks[0].AttentionV, Shape: []uint64{10, 4}},
+			{Name: names.Blocks[0].AttentionOut, Shape: []uint64{12, 10}},
+			{Name: names.Blocks[0].FFNNorm, Shape: []uint64{10}},
+			{Name: names.Blocks[0].FFNGate, Shape: []uint64{10, 20}},
+			{Name: names.Blocks[0].FFNUp, Shape: []uint64{10, 20}},
+			{Name: names.Blocks[0].FFNDown, Shape: []uint64{20, 10}},
+		},
+	}
+	report := buildTensorManifest(info, spec, names)
+	if !report.Ready() {
+		t.Fatalf("expected Qwen-style manifest to be ready: %#v", report)
+	}
+}
+
 func TestModelExposesTensorManifest(t *testing.T) {
 	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {

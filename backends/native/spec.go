@@ -8,15 +8,17 @@ import (
 )
 
 type ModelSpec struct {
-	Architecture       string
-	ContextLength      uint64
-	EmbeddingLength    uint64
-	BlockCount         uint64
-	FeedForwardLength  uint64
-	AttentionHeadCount uint64
-	KVHeadCount        uint64
-	RopeTheta          float64
-	RMSNormEpsilon     float32
+	Architecture         string
+	ContextLength        uint64
+	EmbeddingLength      uint64
+	BlockCount           uint64
+	FeedForwardLength    uint64
+	AttentionHeadCount   uint64
+	KVHeadCount          uint64
+	AttentionKeyLength   uint64
+	AttentionValueLength uint64
+	RopeTheta            float64
+	RMSNormEpsilon       float32
 }
 
 type BlockTensorNames struct {
@@ -45,18 +47,26 @@ func buildModelSpec(info *modelinfo.GGUFInfo) (ModelSpec, TensorNames, error) {
 		return ModelSpec{}, TensorNames{}, fmt.Errorf("gguf info is nil")
 	}
 	spec := ModelSpec{
-		Architecture:       info.Architecture,
-		ContextLength:      info.ContextLength,
-		EmbeddingLength:    info.EmbeddingLength,
-		BlockCount:         info.BlockCount,
-		FeedForwardLength:  metadataUint(info.Metadata, info.Architecture+".feed_forward_length"),
-		AttentionHeadCount: metadataUint(info.Metadata, info.Architecture+".attention.head_count"),
-		KVHeadCount:        metadataUint(info.Metadata, info.Architecture+".attention.head_count_kv"),
-		RopeTheta:          metadataFloat(info.Metadata, info.Architecture+".rope.freq_base", 10000),
-		RMSNormEpsilon:     float32(metadataFloat(info.Metadata, info.Architecture+".attention.layer_norm_rms_epsilon", 1e-5)),
+		Architecture:         info.Architecture,
+		ContextLength:        info.ContextLength,
+		EmbeddingLength:      info.EmbeddingLength,
+		BlockCount:           info.BlockCount,
+		FeedForwardLength:    metadataUint(info.Metadata, info.Architecture+".feed_forward_length"),
+		AttentionHeadCount:   metadataUint(info.Metadata, info.Architecture+".attention.head_count"),
+		KVHeadCount:          metadataUint(info.Metadata, info.Architecture+".attention.head_count_kv"),
+		AttentionKeyLength:   metadataUint(info.Metadata, info.Architecture+".attention.key_length"),
+		AttentionValueLength: metadataUint(info.Metadata, info.Architecture+".attention.value_length"),
+		RopeTheta:            metadataFloat(info.Metadata, info.Architecture+".rope.freq_base", 10000),
+		RMSNormEpsilon:       float32(metadataFloat(info.Metadata, info.Architecture+".attention.layer_norm_rms_epsilon", 1e-5)),
 	}
 	if spec.KVHeadCount == 0 {
 		spec.KVHeadCount = spec.AttentionHeadCount
+	}
+	if spec.AttentionKeyLength == 0 && spec.AttentionHeadCount > 0 && spec.EmbeddingLength%spec.AttentionHeadCount == 0 {
+		spec.AttentionKeyLength = spec.EmbeddingLength / spec.AttentionHeadCount
+	}
+	if spec.AttentionValueLength == 0 {
+		spec.AttentionValueLength = spec.AttentionKeyLength
 	}
 	if err := spec.validate(); err != nil {
 		return ModelSpec{}, TensorNames{}, err
@@ -80,8 +90,19 @@ func (s ModelSpec) validate() error {
 	if s.AttentionHeadCount == 0 {
 		return fmt.Errorf("native model attention head count is missing")
 	}
-	if s.EmbeddingLength%s.AttentionHeadCount != 0 {
+	if s.AttentionKeyLength == 0 && s.EmbeddingLength%s.AttentionHeadCount != 0 {
 		return fmt.Errorf("embedding length %d is not divisible by attention head count %d", s.EmbeddingLength, s.AttentionHeadCount)
+	}
+	keyLength := specAttentionKeyLength(s)
+	valueLength := specAttentionValueLength(s)
+	if keyLength == 0 {
+		return fmt.Errorf("native model attention key length is missing")
+	}
+	if valueLength == 0 {
+		return fmt.Errorf("native model attention value length is missing")
+	}
+	if keyLength != valueLength {
+		return fmt.Errorf("native model attention key length %d and value length %d differ; separate value dimensions are not supported yet", keyLength, valueLength)
 	}
 	if s.KVHeadCount == 0 || s.AttentionHeadCount%s.KVHeadCount != 0 {
 		return fmt.Errorf("attention head count %d is not divisible by KV head count %d", s.AttentionHeadCount, s.KVHeadCount)
@@ -96,6 +117,23 @@ func (s ModelSpec) validate() error {
 		return fmt.Errorf("native model RMSNorm epsilon must be finite and non-negative")
 	}
 	return nil
+}
+
+func specAttentionKeyLength(spec ModelSpec) uint64 {
+	if spec.AttentionKeyLength > 0 {
+		return spec.AttentionKeyLength
+	}
+	if spec.AttentionHeadCount > 0 && spec.EmbeddingLength%spec.AttentionHeadCount == 0 {
+		return spec.EmbeddingLength / spec.AttentionHeadCount
+	}
+	return 0
+}
+
+func specAttentionValueLength(spec ModelSpec) uint64 {
+	if spec.AttentionValueLength > 0 {
+		return spec.AttentionValueLength
+	}
+	return specAttentionKeyLength(spec)
 }
 
 func tensorNames(spec ModelSpec) TensorNames {

@@ -47,3 +47,21 @@ func TestEstimateGGUFMemoryIncludesFloat32RuntimeCache(t *testing.T) {
 		t.Fatalf("unexpected total: %#v", estimate)
 	}
 }
+
+func TestEstimateGGUFMemoryUsesAttentionKeyLengthMetadata(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "qwen.gguf")
+	if err := os.WriteFile(path, testQwenAttentionKeyLengthGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	estimate, err := EstimateMemory(path, MemoryOptions{ContextLength: 4, KVBytes: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if estimate.HeadDim != 4 {
+		t.Fatalf("HeadDim = %d, want 4: %#v", estimate.HeadDim, estimate)
+	}
+	wantKV := uint64(4 * 1 * 1 * 4 * 2 * 4)
+	if estimate.KVCacheBytes != wantKV {
+		t.Fatalf("KVCacheBytes = %d, want %d: %#v", estimate.KVCacheBytes, wantKV, estimate)
+	}
+}

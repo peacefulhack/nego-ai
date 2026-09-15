@@ -29,7 +29,11 @@ func multiHeadAttentionWithCacheFloat32(input []float32, weights AttentionWeight
 	if len(input) != int(spec.EmbeddingLength) {
 		return nil, fmt.Errorf("multi-head attention input length %d does not match embedding length %d", len(input), spec.EmbeddingLength)
 	}
-	headDim, err := attentionHeadDim(spec)
+	keyHeadDim, err := attentionKeyHeadDim(spec)
+	if err != nil {
+		return nil, err
+	}
+	valueHeadDim, err := attentionValueHeadDim(spec)
 	if err != nil {
 		return nil, err
 	}
@@ -45,15 +49,15 @@ func multiHeadAttentionWithCacheFloat32(input []float32, weights AttentionWeight
 	if err != nil {
 		return nil, fmt.Errorf("v projection: %w", err)
 	}
-	qHeads, err := splitHeads(q, int(spec.AttentionHeadCount), headDim)
+	qHeads, err := splitHeads(q, int(spec.AttentionHeadCount), keyHeadDim)
 	if err != nil {
 		return nil, err
 	}
-	kHeads, err := splitHeads(k, int(spec.KVHeadCount), headDim)
+	kHeads, err := splitHeads(k, int(spec.KVHeadCount), keyHeadDim)
 	if err != nil {
 		return nil, err
 	}
-	vHeads, err := splitHeads(v, int(spec.KVHeadCount), headDim)
+	vHeads, err := splitHeads(v, int(spec.KVHeadCount), valueHeadDim)
 	if err != nil {
 		return nil, err
 	}
@@ -105,11 +109,11 @@ func multiHeadAttentionWithCacheFloat32(input []float32, weights AttentionWeight
 			if err != nil {
 				return nil, err
 			}
-			keys, err = selectCachedKVHead(cacheKeys, kvHead, headDim)
+			keys, err = selectCachedKVHead(cacheKeys, kvHead, keyHeadDim)
 			if err != nil {
 				return nil, err
 			}
-			values, err = selectCachedKVHead(cacheValues, kvHead, headDim)
+			values, err = selectCachedKVHead(cacheValues, kvHead, valueHeadDim)
 			if err != nil {
 				return nil, err
 			}
@@ -154,15 +158,26 @@ func selectCachedKVHead(vectors [][]float32, kvHead int, headDim int) ([][]float
 	return out, nil
 }
 
-func attentionHeadDim(spec ModelSpec) (int, error) {
-	if spec.AttentionHeadCount == 0 || spec.EmbeddingLength%spec.AttentionHeadCount != 0 {
-		return 0, fmt.Errorf("invalid attention dimensions: embedding=%d heads=%d", spec.EmbeddingLength, spec.AttentionHeadCount)
+func attentionKeyHeadDim(spec ModelSpec) (int, error) {
+	keyLength := specAttentionKeyLength(spec)
+	if spec.AttentionHeadCount == 0 || keyLength == 0 {
+		return 0, fmt.Errorf("invalid attention key dimensions: heads=%d key_length=%d", spec.AttentionHeadCount, keyLength)
 	}
-	headDim := spec.EmbeddingLength / spec.AttentionHeadCount
-	if headDim == 0 || headDim > uint64(int(^uint(0)>>1)) {
-		return 0, fmt.Errorf("attention head dimension %d is invalid on this runtime", headDim)
+	if keyLength > uint64(int(^uint(0)>>1)) {
+		return 0, fmt.Errorf("attention key dimension %d is invalid on this runtime", keyLength)
 	}
-	return int(headDim), nil
+	return int(keyLength), nil
+}
+
+func attentionValueHeadDim(spec ModelSpec) (int, error) {
+	valueLength := specAttentionValueLength(spec)
+	if spec.AttentionHeadCount == 0 || valueLength == 0 {
+		return 0, fmt.Errorf("invalid attention value dimensions: heads=%d value_length=%d", spec.AttentionHeadCount, valueLength)
+	}
+	if valueLength > uint64(int(^uint(0)>>1)) {
+		return 0, fmt.Errorf("attention value dimension %d is invalid on this runtime", valueLength)
+	}
+	return int(valueLength), nil
 }
 
 func splitHeads(values []float32, heads int, headDim int) ([][]float32, error) {

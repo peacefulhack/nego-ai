@@ -14,7 +14,7 @@ func NewDecodeState(spec ModelSpec) (*DecodeState, error) {
 	if spec.KVHeadCount > uint64(int(^uint(0)>>1)) {
 		return nil, fmt.Errorf("kv head count %d overflows this runtime", spec.KVHeadCount)
 	}
-	headDim, err := attentionHeadDim(spec)
+	headDim, err := attentionKeyHeadDim(spec)
 	if err != nil {
 		return nil, err
 	}
