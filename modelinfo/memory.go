@@ -30,6 +30,10 @@ func EstimateMemory(path string, opts MemoryOptions) (*MemoryEstimate, error) {
 	if err != nil {
 		return nil, err
 	}
+	return estimateMemoryInfo(info, opts), nil
+}
+
+func estimateMemoryInfo(info *Info, opts MemoryOptions) *MemoryEstimate {
 	estimate := &MemoryEstimate{
 		Path:   info.Path,
 		Format: artifactFormat(info),
@@ -51,7 +55,7 @@ func EstimateMemory(path string, opts MemoryOptions) (*MemoryEstimate, error) {
 	} else {
 		estimate.TotalBytes = total
 	}
-	return estimate, nil
+	return estimate
 }
 
 func applyHFMemory(estimate *MemoryEstimate, info *Info, opts MemoryOptions) {
@@ -172,4 +176,20 @@ func firstPositive(values ...uint64) uint64 {
 		}
 	}
 	return 0
+}
+
+func usefulMemoryEstimate(estimate *MemoryEstimate) bool {
+	if estimate == nil {
+		return false
+	}
+	return estimate.ContextLength > 0 ||
+		estimate.EmbeddingLength > 0 ||
+		estimate.BlockCount > 0 ||
+		estimate.AttentionHeadCount > 0 ||
+		estimate.KVHeadCount > 0 ||
+		estimate.HeadDim > 0 ||
+		estimate.WeightBytes > 0 ||
+		estimate.KVCacheBytes > 0 ||
+		estimate.RuntimeBytes > 0 ||
+		estimate.TotalBytes > 0
 }

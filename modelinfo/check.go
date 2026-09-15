@@ -16,6 +16,7 @@ type CheckReport struct {
 	Generation      *GenerationConfig       `json:"generation,omitempty"`
 	NativeAdapter   *NativeAdapterInfo      `json:"native_adapter,omitempty"`
 	NativeReadiness *NativeRuntimeReadiness `json:"native_readiness,omitempty"`
+	Memory          *MemoryEstimate         `json:"memory,omitempty"`
 	Artifact        *Artifact               `json:"artifact,omitempty"`
 	Backends        []BackendCompatibility  `json:"backends"`
 	Warnings        []string                `json:"warnings,omitempty"`
@@ -56,6 +57,9 @@ func checkInfo(info *Info) (*CheckReport, error) {
 		report.RuntimeFile = runtimeFile
 	}
 	report.NativeReadiness = nativeRuntimeReadiness(info)
+	if memory := estimateMemoryInfo(info, MemoryOptions{}); usefulMemoryEstimate(memory) {
+		report.Memory = memory
+	}
 	report.Backends = backendCompatibility(report, info)
 	report.Warnings = checkWarnings(report, info)
 	report.Artifact = resolveArtifact(info, report)

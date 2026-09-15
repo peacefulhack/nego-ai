@@ -6,7 +6,7 @@ This page tracks what Nego can do today and what still blocks a pure-Go AI model
 
 1. Download Hugging Face-style model files and GGUF runtime files.
 2. Cache downloads and list, inspect, or remove local model registry entries.
-3. Inspect model directories, model cards, config files, generation defaults, tokenizer files, safetensors metadata, GGUF metadata, and rough memory needs.
+3. Inspect model directories, model cards, config files, generation defaults, tokenizer files, safetensors metadata, GGUF metadata, backend readiness, and rough memory needs.
 4. Load safetensors F32/F16/BF16 tensors into float32 buffers for native runtime development.
 5. Map Hugging Face Qwen/Llama safetensors tensor names into native weight manifests.
 6. Load Hugging Face safetensors directories through the experimental `native-hf` backend.
@@ -61,6 +61,7 @@ Implemented:
 26. Native GGUF raw tensor reads use a configurable `max_tensor_read_bytes` safety limit.
 27. Native GGUF spec, readiness, memory, and manifest checks honor `attention.key_length` / `attention.value_length` metadata for Qwen-style projection dimensions.
 28. Pure-Go runtime backends can cap decoded float32 tensor cache memory with `max_tensor_cache_bytes` / `--max-tensor-cache-bytes`.
+29. `nego check` and `modelinfo.Check` include a quick local memory summary when model dimensions are available.
 
 Not production-ready yet:
 

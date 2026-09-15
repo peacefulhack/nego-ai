@@ -103,7 +103,7 @@ nego models list --status
 nego memory ./models/qwen3 --context 4096
 ```
 
-`nego memory` includes local weight size, KV cache, and an approximate decoded float32 tensor cache used by the experimental native runtime.
+`nego check` includes a quick memory summary when local dimensions are available. `nego memory` provides the more detailed estimate with configurable context length, local weight size, KV cache, and approximate decoded float32 tensor cache used by the experimental native runtime.
 
 `nego run`, `nego chat`, and `nego serve` automatically use local `generation_config.json`
 defaults for `max_new_tokens`, `temperature`, `top_k`, `top_p`, `repetition_penalty`,

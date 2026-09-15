@@ -32,6 +32,9 @@ func TestCheckReportsGGUFCompatibility(t *testing.T) {
 	if !backendCompatible(report.Backends, "native") {
 		t.Fatalf("expected native compatibility: %#v", report.Backends)
 	}
+	if report.Memory == nil || report.Memory.TotalBytes == 0 || report.Memory.RuntimeBytes == 0 {
+		t.Fatalf("expected memory estimate: %#v", report.Memory)
+	}
 }
 
 func TestCheckReportsNativeUnsupportedTensorTypes(t *testing.T) {

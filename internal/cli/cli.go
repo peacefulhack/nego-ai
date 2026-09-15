@@ -2521,6 +2521,9 @@ func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 			fmt.Fprintf(w, "  Parameters:   %d\n", report.Artifact.ParameterCount)
 		}
 	}
+	if report.Memory != nil {
+		writeCheckMemory(w, report.Memory)
+	}
 	fmt.Fprintln(w, "Backends:")
 	for _, backend := range report.Backends {
 		status := "no"
@@ -2539,6 +2542,23 @@ func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 			fmt.Fprintf(w, "  - %s\n", warning)
 		}
 	}
+}
+
+func writeCheckMemory(w io.Writer, estimate *modelinfo.MemoryEstimate) {
+	fmt.Fprintln(w, "Memory:")
+	if estimate.WeightBytes > 0 {
+		fmt.Fprintf(w, "  Weights:      %s\n", humanBytesUint(estimate.WeightBytes))
+	}
+	if estimate.KVCacheBytes > 0 {
+		fmt.Fprintf(w, "  KV cache:     %s\n", humanBytesUint(estimate.KVCacheBytes))
+	}
+	if estimate.RuntimeBytes > 0 {
+		fmt.Fprintf(w, "  Runtime:      %s\n", humanBytesUint(estimate.RuntimeBytes))
+	}
+	if estimate.TotalBytes > 0 {
+		fmt.Fprintf(w, "  Total:        %s\n", humanBytesUint(estimate.TotalBytes))
+	}
+	writeLimitedStringList(w, "  Notes:", estimate.Notes, 2)
 }
 
 func writeNativeReadiness(w io.Writer, readiness *modelinfo.NativeRuntimeReadiness) {

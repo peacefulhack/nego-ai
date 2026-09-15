@@ -718,7 +718,7 @@ func TestCheckCommandReportsCompatibility(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Native readiness:", "Ready:        yes", "Artifact:", "Format:       gguf", "Run:          native", "Train:        native-token-bias", "Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
+	for _, want := range []string{"Native readiness:", "Ready:        yes", "Artifact:", "Format:       gguf", "Run:          native", "Train:        native-token-bias", "Memory:", "Runtime:", "Total:", "Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output:\n%s", want, out)
 		}
@@ -784,11 +784,14 @@ func TestCheckCommandJSON(t *testing.T) {
 		NativeReadiness struct {
 			Ready bool `json:"ready"`
 		} `json:"native_readiness"`
+		Memory struct {
+			TotalBytes uint64 `json:"total_bytes"`
+		} `json:"memory"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !body.ChatTemplate || body.Artifact.Format != "gguf" || body.Artifact.RecommendedRunBackend == "" || len(body.Backends) == 0 || !body.NativeReadiness.Ready {
+	if !body.ChatTemplate || body.Artifact.Format != "gguf" || body.Artifact.RecommendedRunBackend == "" || len(body.Backends) == 0 || !body.NativeReadiness.Ready || body.Memory.TotalBytes == 0 {
 		t.Fatalf("unexpected check json: %s", stdout.String())
 	}
 }
