@@ -5089,22 +5089,37 @@ type runComparison struct {
 }
 
 type runComparisonItem struct {
-	ID          string `json:"id"`
-	Command     string `json:"command"`
-	Backend     string `json:"backend,omitempty"`
-	Target      string `json:"target,omitempty"`
-	Status      string `json:"status"`
-	DurationMS  int64  `json:"duration_ms"`
-	OutputChars int    `json:"output_chars,omitempty"`
-	TrainRows   int    `json:"train_rows,omitempty"`
-	EvalRows    int    `json:"eval_rows,omitempty"`
+	ID           string                     `json:"id"`
+	Command      string                     `json:"command"`
+	Backend      string                     `json:"backend,omitempty"`
+	Target       string                     `json:"target,omitempty"`
+	Status       string                     `json:"status"`
+	DurationMS   int64                      `json:"duration_ms"`
+	OutputChars  int                        `json:"output_chars,omitempty"`
+	TrainRows    int                        `json:"train_rows,omitempty"`
+	EvalRows     int                        `json:"eval_rows,omitempty"`
+	EvalCoverage *runComparisonEvalCoverage `json:"eval_coverage,omitempty"`
 }
 
 type runComparisonDelta struct {
-	DurationMS  int64 `json:"duration_ms"`
-	OutputChars int   `json:"output_chars,omitempty"`
-	TrainRows   int   `json:"train_rows,omitempty"`
-	EvalRows    int   `json:"eval_rows,omitempty"`
+	DurationMS               int64   `json:"duration_ms"`
+	OutputChars              int     `json:"output_chars,omitempty"`
+	TrainRows                int     `json:"train_rows,omitempty"`
+	EvalRows                 int     `json:"eval_rows,omitempty"`
+	EvalCoveragePercentage   float64 `json:"eval_coverage_percentage,omitempty"`
+	UniqueCoveragePercentage float64 `json:"unique_coverage_percentage,omitempty"`
+}
+
+type runComparisonEvalCoverage struct {
+	Rows                     int     `json:"rows"`
+	Tokens                   int     `json:"tokens"`
+	CoveredTokens            int     `json:"covered_tokens"`
+	Coverage                 float64 `json:"coverage"`
+	CoveragePercentage       float64 `json:"coverage_percentage"`
+	UniqueTokens             int     `json:"unique_tokens"`
+	CoveredUniqueTokens      int     `json:"covered_unique_tokens"`
+	UniqueCoverage           float64 `json:"unique_coverage"`
+	UniqueCoveragePercentage float64 `json:"unique_coverage_percentage"`
 }
 
 func compareRuns(baseline, candidate runs.Entry) runComparison {
@@ -5114,10 +5129,12 @@ func compareRuns(baseline, candidate runs.Entry) runComparison {
 		Baseline:  base,
 		Candidate: next,
 		Delta: runComparisonDelta{
-			DurationMS:  next.DurationMS - base.DurationMS,
-			OutputChars: next.OutputChars - base.OutputChars,
-			TrainRows:   next.TrainRows - base.TrainRows,
-			EvalRows:    next.EvalRows - base.EvalRows,
+			DurationMS:               next.DurationMS - base.DurationMS,
+			OutputChars:              next.OutputChars - base.OutputChars,
+			TrainRows:                next.TrainRows - base.TrainRows,
+			EvalRows:                 next.EvalRows - base.EvalRows,
+			EvalCoveragePercentage:   runCoveragePercentage(next.EvalCoverage) - runCoveragePercentage(base.EvalCoverage),
+			UniqueCoveragePercentage: runUniqueCoveragePercentage(next.EvalCoverage) - runUniqueCoveragePercentage(base.EvalCoverage),
 		},
 	}
 }
@@ -5139,8 +5156,26 @@ func runComparisonItemFromEntry(entry runs.Entry) runComparisonItem {
 	if entry.Training != nil {
 		item.TrainRows = entry.Training.TrainRows
 		item.EvalRows = entry.Training.EvalRows
+		item.EvalCoverage = runComparisonEvalCoverageFromEntry(entry.Training.EvalCoverage)
 	}
 	return item
+}
+
+func runComparisonEvalCoverageFromEntry(coverage *runs.EvalCoverage) *runComparisonEvalCoverage {
+	if coverage == nil {
+		return nil
+	}
+	return &runComparisonEvalCoverage{
+		Rows:                     coverage.Rows,
+		Tokens:                   coverage.Tokens,
+		CoveredTokens:            coverage.CoveredTokens,
+		Coverage:                 coverage.Coverage,
+		CoveragePercentage:       coverage.Coverage * 100,
+		UniqueTokens:             coverage.UniqueTokens,
+		CoveredUniqueTokens:      coverage.CoveredUniqueTokens,
+		UniqueCoverage:           coverage.UniqueCoverage,
+		UniqueCoveragePercentage: coverage.UniqueCoverage * 100,
+	}
 }
 
 func runEntryStatus(entry runs.Entry) string {
@@ -5164,6 +5199,11 @@ func writeRunsComparison(w io.Writer, comparison runComparison) {
 	if comparison.Baseline.EvalRows > 0 || comparison.Candidate.EvalRows > 0 {
 		fmt.Fprintf(w, "Eval rows:      %d -> %d (%+d)\n", comparison.Baseline.EvalRows, comparison.Candidate.EvalRows, comparison.Delta.EvalRows)
 	}
+	if comparison.Baseline.EvalCoverage != nil || comparison.Candidate.EvalCoverage != nil {
+		fmt.Fprintln(w, "Eval coverage:")
+		fmt.Fprintf(w, "  Tokens:       %s -> %s (%+.2f pp)\n", formatRunCoverage(comparison.Baseline.EvalCoverage), formatRunCoverage(comparison.Candidate.EvalCoverage), comparison.Delta.EvalCoveragePercentage)
+		fmt.Fprintf(w, "  Unique tokens: %s -> %s (%+.2f pp)\n", formatRunUniqueCoverage(comparison.Baseline.EvalCoverage), formatRunUniqueCoverage(comparison.Candidate.EvalCoverage), comparison.Delta.UniqueCoveragePercentage)
+	}
 }
 
 func writeRunComparisonItem(w io.Writer, label string, item runComparisonItem) {
@@ -5178,6 +5218,34 @@ func signedDurationMS(value int64) string {
 		return fmt.Sprintf("+%dms", value)
 	}
 	return fmt.Sprintf("%dms", value)
+}
+
+func runCoveragePercentage(coverage *runComparisonEvalCoverage) float64 {
+	if coverage == nil {
+		return 0
+	}
+	return coverage.CoveragePercentage
+}
+
+func runUniqueCoveragePercentage(coverage *runComparisonEvalCoverage) float64 {
+	if coverage == nil {
+		return 0
+	}
+	return coverage.UniqueCoveragePercentage
+}
+
+func formatRunCoverage(coverage *runComparisonEvalCoverage) string {
+	if coverage == nil {
+		return "not available"
+	}
+	return fmt.Sprintf("%d/%d %.2f%%", coverage.CoveredTokens, coverage.Tokens, coverage.CoveragePercentage)
+}
+
+func formatRunUniqueCoverage(coverage *runComparisonEvalCoverage) string {
+	if coverage == nil {
+		return "not available"
+	}
+	return fmt.Sprintf("%d/%d %.2f%%", coverage.CoveredUniqueTokens, coverage.UniqueTokens, coverage.UniqueCoveragePercentage)
 }
 
 func writeRunInfo(w io.Writer, entry runs.Entry) {

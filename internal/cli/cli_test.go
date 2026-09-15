@@ -1387,8 +1387,48 @@ func TestRunsListAndShow(t *testing.T) {
 
 func TestRunsCompare(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
-	baseline := runs.Entry{ID: "base", Command: "run", Backend: "native", Path: "model.gguf", Output: "hello", DurationMS: 20}
-	candidate := runs.Entry{ID: "next", Command: "run", Backend: "native", Path: "model.gguf", Output: "hello world", DurationMS: 12}
+	baseline := runs.Entry{
+		ID:         "base",
+		Command:    "run",
+		Backend:    "native",
+		Path:       "model.gguf",
+		Output:     "hello",
+		DurationMS: 20,
+		Training: &runs.Training{
+			TrainRows: 2,
+			EvalRows:  1,
+			EvalCoverage: &runs.EvalCoverage{
+				Rows:                1,
+				Tokens:              4,
+				CoveredTokens:       2,
+				Coverage:            0.5,
+				UniqueTokens:        3,
+				CoveredUniqueTokens: 1,
+				UniqueCoverage:      1.0 / 3.0,
+			},
+		},
+	}
+	candidate := runs.Entry{
+		ID:         "next",
+		Command:    "run",
+		Backend:    "native",
+		Path:       "model.gguf",
+		Output:     "hello world",
+		DurationMS: 12,
+		Training: &runs.Training{
+			TrainRows: 3,
+			EvalRows:  1,
+			EvalCoverage: &runs.EvalCoverage{
+				Rows:                1,
+				Tokens:              4,
+				CoveredTokens:       4,
+				Coverage:            1,
+				UniqueTokens:        3,
+				CoveredUniqueTokens: 3,
+				UniqueCoverage:      1,
+			},
+		},
+	}
 	if err := runs.Append(logPath, baseline); err != nil {
 		t.Fatal(err)
 	}
@@ -1400,7 +1440,13 @@ func TestRunsCompare(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Run comparison") || !strings.Contains(stdout.String(), "Duration delta: -8ms") || !strings.Contains(stdout.String(), "Output chars:") {
+	if !strings.Contains(stdout.String(), "Run comparison") ||
+		!strings.Contains(stdout.String(), "Duration delta: -8ms") ||
+		!strings.Contains(stdout.String(), "Output chars:") ||
+		!strings.Contains(stdout.String(), "Train rows:") ||
+		!strings.Contains(stdout.String(), "Eval coverage:") ||
+		!strings.Contains(stdout.String(), "+50.00 pp") ||
+		!strings.Contains(stdout.String(), "+66.67 pp") {
 		t.Fatalf("unexpected compare output: %q", stdout.String())
 	}
 
@@ -1416,6 +1462,12 @@ func TestRunsCompare(t *testing.T) {
 	}
 	if comparison.Baseline.ID != "base" || comparison.Candidate.ID != "next" || comparison.Delta.DurationMS != -8 || comparison.Delta.OutputChars != 6 {
 		t.Fatalf("unexpected comparison: %#v", comparison)
+	}
+	if comparison.Baseline.EvalCoverage == nil || comparison.Candidate.EvalCoverage == nil {
+		t.Fatalf("expected eval coverage comparison: %#v", comparison)
+	}
+	if comparison.Delta.EvalCoveragePercentage != 50 || int(comparison.Delta.UniqueCoveragePercentage*100) != 6666 {
+		t.Fatalf("unexpected coverage delta: %#v", comparison.Delta)
 	}
 }
 
