@@ -850,6 +850,8 @@ func runTrain(args []string, stdout, stderr io.Writer) int {
 			return runTrainCapabilities(args[1:], stdout, stderr)
 		case "native":
 			return runTrainNative(args[1:], stdout, stderr)
+		case "latest":
+			return runTrainLatest(args[1:], stdout, stderr)
 		case "help", "-h", "--help":
 			trainUsage(stdout)
 			return 0
@@ -1595,6 +1597,77 @@ func sensitiveTrainingArg(key string) bool {
 		strings.Contains(key, "password")
 }
 
+func runTrainLatest(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	var baseModel string
+	fs := flag.NewFlagSet("train latest", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.StringVar(&baseModel, "base-model", "", "only include native training outputs for this base model")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) > 1 {
+		fmt.Fprintln(stderr, "usage: nego train latest [outputs-dir] [flags]")
+		return 2
+	}
+	root := "./outputs"
+	if len(positionals) == 1 {
+		root = positionals[0]
+	}
+	entry, err := training.LatestNativeManifest(training.NativeManifestDiscoveryOptions{
+		Root:      root,
+		BaseModel: baseModel,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 4
+	}
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(entry)
+		return 0
+	}
+	writeLatestNativeTraining(stdout, entry)
+	return 0
+}
+
+func writeLatestNativeTraining(w io.Writer, entry training.NativeManifestEntry) {
+	manifest := entry.Manifest
+	fmt.Fprintln(w, "Latest native training output")
+	fmt.Fprintf(w, "Path:          %s\n", entry.Path)
+	fmt.Fprintf(w, "Manifest:      %s\n", entry.ManifestPath)
+	fmt.Fprintf(w, "Base model:    %s\n", manifest.BaseModel)
+	if manifest.Method != "" {
+		fmt.Fprintf(w, "Method:        %s\n", manifest.Method)
+	}
+	if manifest.RecommendedBackend != "" {
+		fmt.Fprintf(w, "Backend:       %s\n", manifest.RecommendedBackend)
+	}
+	if manifest.AdapterPath != "" {
+		adapterPath := manifest.AdapterPath
+		if !filepath.IsAbs(adapterPath) {
+			adapterPath = filepath.Join(entry.Path, filepath.FromSlash(adapterPath))
+		}
+		fmt.Fprintf(w, "Adapter:       %s\n", adapterPath)
+	}
+	if !entry.CreatedAt.IsZero() {
+		fmt.Fprintf(w, "Created:       %s\n", entry.CreatedAt.Format(time.RFC3339))
+	} else if !entry.ModifiedAt.IsZero() {
+		fmt.Fprintf(w, "Modified:      %s\n", entry.ModifiedAt.Format(time.RFC3339))
+	}
+	if manifest.TrainRows > 0 || manifest.EvalRows > 0 {
+		fmt.Fprintf(w, "Rows:          train %d / eval %d\n", manifest.TrainRows, manifest.EvalRows)
+	}
+	if manifest.EvalCoverage != nil {
+		fmt.Fprintf(w, "Eval coverage: %d/%d tokens (%.2f%%)\n", manifest.EvalCoverage.CoveredTokens, manifest.EvalCoverage.Tokens, manifest.EvalCoverage.Coverage*100)
+	}
+	fmt.Fprintln(w, "Run:")
+	fmt.Fprintf(w, "  nego run %s \"Hello\" --max-tokens 32\n", quoteCommandArg(entry.Path))
+	fmt.Fprintln(w, "Chat:")
+	fmt.Fprintf(w, "  nego chat %s \"Hello\" --max-tokens 32\n", quoteCommandArg(entry.Path))
+}
+
 func trainUsage(w io.Writer) {
 	fmt.Fprintln(w, "usage:")
 	fmt.Fprintln(w, "  nego train init --base-model <dir> --train-file <file> --out <job.json> [flags]")
@@ -1602,6 +1675,7 @@ func trainUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nego train validate <job.json> [flags]")
 	fmt.Fprintln(w, "  nego train capabilities <model-path> [flags]")
 	fmt.Fprintln(w, "  nego train native <model-path> --train-file <file> [--out <dir>] [flags]")
+	fmt.Fprintln(w, "  nego train latest [outputs-dir] [flags]")
 	fmt.Fprintln(w, "  nego train <job.json> [flags]")
 }
 

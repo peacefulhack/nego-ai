@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gakon/nego-ai/modelinfo"
 )
@@ -479,6 +480,82 @@ func TestNativeManifestRejectsEscapingAdapterPath(t *testing.T) {
 	manifest.RuntimeOptions = map[string]string{"adapter_path": "../adapter.json"}
 	if err := manifest.Validate(); err == nil || !strings.Contains(err.Error(), "cannot escape") {
 		t.Fatalf("expected escaping runtime option error, got %v", err)
+	}
+}
+
+func TestLatestNativeManifestFindsNewestOutput(t *testing.T) {
+	dir := t.TempDir()
+	missingEntries, err := ListNativeManifests(NativeManifestDiscoveryOptions{Root: filepath.Join(dir, "missing")})
+	if err != nil || len(missingEntries) != 0 {
+		t.Fatalf("missing root entries=%#v err=%v", missingEntries, err)
+	}
+	oldDir := filepath.Join(dir, "old")
+	newDir := filepath.Join(dir, "new")
+	otherDir := filepath.Join(dir, "other")
+	invalidDir := filepath.Join(dir, "invalid")
+	if err := os.MkdirAll(invalidDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(invalidDir, "manifest.json"), []byte(`{"type":"not-nego"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	largeDir := filepath.Join(dir, "large")
+	if err := os.MkdirAll(largeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(largeDir, "manifest.json"), bytes.Repeat([]byte("x"), maxNativeManifestBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeNativeManifestForDiscovery(t, oldDir, "./models/qwen3", "2026-01-01T00:00:00Z")
+	writeNativeManifestForDiscovery(t, newDir, "./models/qwen3", "2026-01-02T00:00:00Z")
+	writeNativeManifestForDiscovery(t, otherDir, "./models/other", "2026-01-03T00:00:00Z")
+
+	entries, err := ListNativeManifests(NativeManifestDiscoveryOptions{Root: dir, BaseModel: "./models/qwen3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %#v", entries)
+	}
+	if entries[0].Path != newDir || entries[1].Path != oldDir {
+		t.Fatalf("unexpected order: %#v", entries)
+	}
+
+	latest, err := LatestNativeManifest(NativeManifestDiscoveryOptions{Root: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.Path != otherDir {
+		t.Fatalf("expected latest other dir, got %#v", latest)
+	}
+}
+
+func writeNativeManifestForDiscovery(t *testing.T, dir, baseModel, createdAt string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	created, err := time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := NativeManifest{
+		Version:            1,
+		Type:               "nego-native-adapter",
+		BaseModel:          baseModel,
+		AdapterPath:        "adapter.json",
+		Method:             "token-bias",
+		DatasetFormat:      "completion",
+		RecommendedBackend: "native",
+		RuntimeOptions:     map[string]string{"adapter_path": "adapter.json"},
+		CreatedAt:          created,
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

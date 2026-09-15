@@ -2226,6 +2226,71 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	}
 }
 
+func TestTrainLatestCommandShowsNewestNativeOutput(t *testing.T) {
+	dir := t.TempDir()
+	oldDir := filepath.Join(dir, "outputs", "old")
+	newDir := filepath.Join(dir, "outputs", "new")
+	writeCLINativeManifest(t, oldDir, "./models/qwen3", "2026-01-01T00:00:00Z")
+	writeCLINativeManifest(t, newDir, "./models/qwen3", "2026-01-02T00:00:00Z")
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "latest", filepath.Join(dir, "outputs")}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Latest native training output", "Path:", newDir, "Base model:", "nego run", "nego chat"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"train", "latest", filepath.Join(dir, "outputs"), "--base-model", "./models/qwen3", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var entry training.NativeManifestEntry
+	if err := json.Unmarshal(stdout.Bytes(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Path != newDir || entry.Manifest.BaseModel != "./models/qwen3" {
+		t.Fatalf("unexpected entry: %#v", entry)
+	}
+}
+
+func writeCLINativeManifest(t *testing.T, dir, baseModel, createdAt string) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	created, err := time.Parse(time.RFC3339, createdAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := training.NativeManifest{
+		Version:            1,
+		Type:               "nego-native-adapter",
+		BaseModel:          baseModel,
+		AdapterPath:        "adapter.json",
+		Method:             "token-bias",
+		DatasetFormat:      "completion",
+		TrainRows:          1,
+		EvalRows:           1,
+		RecommendedBackend: "native",
+		RuntimeOptions:     map[string]string{"adapter_path": "adapter.json"},
+		CreatedAt:          created,
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "manifest.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestTrainNativeCommandWritesRunLog(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	dir := t.TempDir()

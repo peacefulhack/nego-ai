@@ -204,6 +204,21 @@ func TestRootConvenienceAPIs(t *testing.T) {
 	if !result.DryRun || result.UpdatedTokens == 0 {
 		t.Fatalf("unexpected training result: %#v", result)
 	}
+	adapterDir := filepath.Join(dir, "adapter-real")
+	if err := os.MkdirAll(adapterDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{"version":1,"type":"nego-native-adapter","base_model":"` + filepath.ToSlash(modelPath) + `","adapter_path":"adapter.json","method":"token-bias","recommended_backend":"native","runtime_options":{"adapter_path":"adapter.json"},"created_at":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(adapterDir, "manifest.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := LatestNativeTrainingManifest(NativeTrainingManifestDiscoveryOptions{Root: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.Path != adapterDir || latest.Manifest.BaseModel == "" {
+		t.Fatalf("unexpected latest manifest: %#v", latest)
+	}
 
 	tokDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tokDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":1},"unk_token":"hello"}}`), 0o644); err != nil {

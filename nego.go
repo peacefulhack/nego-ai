@@ -25,6 +25,9 @@ type ModelTokenizerReport = modelinfo.TokenizerReport
 type TrainingAssessment = training.Assessment
 type NativeTrainingOptions = training.NativeOptions
 type NativeTrainingResult = training.NativeResult
+type NativeTrainingManifest = training.NativeManifest
+type NativeTrainingManifestEntry = training.NativeManifestEntry
+type NativeTrainingManifestDiscoveryOptions = training.NativeManifestDiscoveryOptions
 type Tokenizer = tokenizer.Tokenizer
 type TokenizerTextCodec = tokenizer.TextCodec
 type TokenizerCheckCase = tokenizer.CheckCase
@@ -68,6 +71,14 @@ func AssessTraining(baseModel string) (TrainingAssessment, error) {
 
 func TrainNative(ctx context.Context, opts NativeTrainingOptions) (NativeTrainingResult, error) {
 	return training.RunNative(ctx, opts)
+}
+
+func ListNativeTrainingManifests(opts NativeTrainingManifestDiscoveryOptions) ([]NativeTrainingManifestEntry, error) {
+	return training.ListNativeManifests(opts)
+}
+
+func LatestNativeTrainingManifest(opts NativeTrainingManifestDiscoveryOptions) (NativeTrainingManifestEntry, error) {
+	return training.LatestNativeManifest(opts)
 }
 
 func LoadTokenizer(path string) (*Tokenizer, error) {

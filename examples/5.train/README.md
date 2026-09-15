@@ -74,13 +74,22 @@ manifest.json
 README.md
 ```
 
-7. Chat with the trained adapter output:
+7. Find the latest native adapter output:
+
+```bash
+go run ./cmd/nego train latest ./outputs --base-model ./models/qwen3
+```
+
+This prints the adapter output path plus ready-to-run `nego run` and
+`nego chat` commands.
+
+8. Chat with the trained adapter output:
 
 ```bash
 go run ./cmd/nego chat ./outputs/qwen3-token-bias "Say hello in Indonesian." --max-tokens 16
 ```
 
-8. Inspect and package the trained adapter:
+9. Inspect and package the trained adapter:
 
 ```bash
 go run ./cmd/nego inspect ./outputs/qwen3-token-bias

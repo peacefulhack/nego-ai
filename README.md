@@ -106,6 +106,10 @@ result, err := nego.TrainNative(ctx, nego.NativeTrainingOptions{
     DatasetFormat: "completion",
     OutputDir:     "./outputs/qwen3-token-bias",
 })
+latest, err := nego.LatestNativeTrainingManifest(nego.NativeTrainingManifestDiscoveryOptions{
+    Root:      "./outputs",
+    BaseModel: "./models/qwen3",
+})
 ```
 
 ```bash
@@ -370,6 +374,7 @@ nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dat
 nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --tokenize-check examples/5.train/tokenizer-fixtures.json --dry-run
 nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --out ./outputs/qwen3-token-bias --log runs.jsonl
 nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --out ./outputs/qwen3-token-bias
+nego train latest ./outputs --base-model ./models/qwen3
 nego run --native ./models/qwen3-gguf "Hello" --adapter ./outputs/qwen3-token-bias/adapter.json --max-tokens 16
 ```
 
@@ -400,6 +405,7 @@ eval coverage and without storing dataset row contents.
 ```bash
 nego inspect ./outputs/qwen3-token-bias
 nego check ./outputs/qwen3-token-bias
+nego train latest ./outputs --base-model ./models/qwen3
 nego config run ./outputs/qwen3-token-bias --out configs/qwen3-token-bias.json --prompt "Hello" --log runs.jsonl
 nego run -f configs/qwen3-token-bias.json
 nego chat -f configs/qwen3-token-bias.json
