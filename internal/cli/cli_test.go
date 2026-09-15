@@ -469,6 +469,19 @@ func TestTokenizeCommand(t *testing.T) {
 	}
 }
 
+func TestTokenizeCommandSupportsGGUF(t *testing.T) {
+	modelPath := fakeTokenizerGGUF(t)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"tokenize", modelPath, "hello"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "0 1" {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
 func TestTokensCommand(t *testing.T) {
 	dir := t.TempDir()
 	writeCLITokenizer(t, dir)
@@ -479,6 +492,20 @@ func TestTokensCommand(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	if strings.TrimSpace(stdout.String()) != "3" {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
+func TestTokensCommandSupportsGGUFDirectory(t *testing.T) {
+	modelPath := fakeTokenizerGGUF(t)
+	dir := filepath.Dir(modelPath)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"tokens", dir, "hello"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "2" {
 		t.Fatalf("unexpected output: %q", stdout.String())
 	}
 }
@@ -2613,6 +2640,27 @@ func fakeInspectGGUF(t *testing.T) string {
 	writeInspectGGUFBoolKV(t, &buf, "tokenizer.ggml.add_eos_token", false)
 	writeInspectGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
 	writeInspectTinyNativeTensorManifest(t, &buf)
+	path := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func fakeTokenizerGGUF(t *testing.T) string {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteString("GGUF")
+	for _, value := range []any{uint32(3), uint64(0), uint64(5)} {
+		if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeInspectGGUFStringKV(t, &buf, "tokenizer.ggml.model", "llama")
+	writeInspectGGUFUint32KV(t, &buf, "tokenizer.ggml.bos_token_id", 0)
+	writeInspectGGUFUint32KV(t, &buf, "tokenizer.ggml.eos_token_id", 2)
+	writeInspectGGUFBoolKV(t, &buf, "tokenizer.ggml.add_bos_token", true)
+	writeInspectGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<s>", "hello", "</s>"})
 	path := filepath.Join(t.TempDir(), "model.gguf")
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)

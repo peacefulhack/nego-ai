@@ -1787,7 +1787,7 @@ func runTokenize(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego tokenize <model-path> <text> [flags]")
 		return 2
 	}
-	tok, err := tokenizer.Load(positionals[0])
+	tok, err := loadCLITokenizer(positionals[0])
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
@@ -1816,7 +1816,7 @@ func runTokens(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego tokens <model-path> <text>")
 		return 2
 	}
-	tok, err := tokenizer.Load(args[0])
+	tok, err := loadCLITokenizer(args[0])
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
@@ -1872,7 +1872,7 @@ func runContext(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego context <model-path> <text> [flags]")
 		return 2
 	}
-	tok, err := tokenizer.Load(modelPath)
+	tok, err := loadCLITokenizer(modelPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
@@ -1917,6 +1917,61 @@ type contextBudgetResult struct {
 	MaxContext int  `json:"max_context,omitempty"`
 	Remaining  int  `json:"remaining,omitempty"`
 	Fits       bool `json:"fits"`
+}
+
+type textTokenizer interface {
+	Encode(text string) ([]int, error)
+	Count(text string) (int, error)
+}
+
+type ggufTextTokenizer struct {
+	vocab *modelinfo.GGUFVocab
+}
+
+func (t ggufTextTokenizer) Encode(text string) ([]int, error) {
+	return t.vocab.Encode(text, t.vocab.DefaultEncodeOptions())
+}
+
+func (t ggufTextTokenizer) Count(text string) (int, error) {
+	ids, err := t.Encode(text)
+	if err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
+func loadCLITokenizer(path string) (textTokenizer, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		if strings.EqualFold(filepath.Ext(path), ".gguf") {
+			return loadGGUFCLITokenizer(path)
+		}
+		return tokenizer.Load(path)
+	}
+	tokenizerPath := filepath.Join(path, "tokenizer.json")
+	if _, err := os.Stat(tokenizerPath); err == nil {
+		return tokenizer.Load(path)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	if runtimeFile, err := modelinfo.FindRuntimeFile(path, "gguf"); err == nil {
+		return loadGGUFCLITokenizer(runtimeFile.Path)
+	}
+	return tokenizer.Load(path)
+}
+
+func loadGGUFCLITokenizer(path string) (textTokenizer, error) {
+	vocab, err := modelinfo.InspectGGUFVocab(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(vocab.Tokens) == 0 {
+		return nil, fmt.Errorf("GGUF tokenizer %s does not contain tokens", path)
+	}
+	return ggufTextTokenizer{vocab: vocab}, nil
 }
 
 func buildPromptMessages(system string, users, assistants []string) []chattemplate.Message {

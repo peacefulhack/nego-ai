@@ -115,6 +115,7 @@ and stop strings unless explicit CLI flags or config-file values are provided.
 nego tokenize ./models/qwen3 "hello world"
 nego tokens ./models/qwen3 "hello world"
 nego context ./models/qwen3 "hello world" --max-context 4096
+nego tokenize ./models/model.gguf "hello world"
 ```
 
 ```go
@@ -122,6 +123,7 @@ ids, err := tok.EncodeBatch([]string{"hello", "world"})
 ```
 
 The tokenizer helper supports WordLevel vocab maps, added tokens, BPE merge rules, and Unigram/SentencePiece-style vocab arrays for development workflows.
+The CLI also falls back to GGUF vocabulary metadata when a model path has no `tokenizer.json`.
 
 ## Prompt rendering
 
@@ -198,7 +200,7 @@ Current status:
 - Loads per-block native runtime weights from GGUF tensor storage.
 - Reads GGUF tokenizer vocabulary and BPE merge metadata in Go.
 - Honors GGUF tokenizer `add_bos_token` and `add_eos_token` defaults in native prompt encoding.
-- Encodes and decodes text with a GGUF vocabulary tokenizer path.
+- Encodes and decodes text with a GGUF vocabulary tokenizer path, including CLI `tokenize`, `tokens`, and context counting.
 - Decodes GGUF token IDs into text for native generation plumbing.
 - Reads raw GGUF tensor bytes in Go.
 - Guards raw GGUF tensor reads with a configurable `max_tensor_read_bytes` limit.

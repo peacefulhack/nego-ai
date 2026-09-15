@@ -67,6 +67,7 @@ Implemented:
 32. GGUF tokenizer inspection reads pre-tokenizer, whitespace, EOT, and EOM metadata used by common converted model files.
 33. `nego check` reports GGUF tokenizer model, pre-tokenizer, vocab size, special token IDs, and tokenizer defaults.
 34. Native GGUF readiness warns when parsed pre-tokenizer metadata may still need token-ID validation before training or output comparisons.
+35. `nego tokenize`, `nego tokens`, and `nego context` can use GGUF vocabulary metadata when `tokenizer.json` is not present.
 
 Not production-ready yet:
 
