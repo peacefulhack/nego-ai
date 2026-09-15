@@ -1,6 +1,8 @@
 package chattemplate
 
 import (
+	"bytes"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +42,34 @@ func TestLoadTemplateFromTokenizerConfig(t *testing.T) {
 	}
 }
 
+func TestLoadTemplateFromGGUF(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(path, testTemplateGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	template, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if template.Source != "<|im_start|>{{ role }}" {
+		t.Fatalf("unexpected template: %#v", template)
+	}
+}
+
+func TestLoadTemplateFromGGUFDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.gguf"), testTemplateGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	template, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if template.Source != "<|im_start|>{{ role }}" {
+		t.Fatalf("unexpected template: %#v", template)
+	}
+}
+
 func TestRenderFallback(t *testing.T) {
 	prompt, err := (&Template{}).Render([]Message{{Role: RoleUser, Content: "Hello"}}, Options{AddGenerationPrompt: true})
 	if err != nil {
@@ -47,5 +77,31 @@ func TestRenderFallback(t *testing.T) {
 	}
 	if prompt != "USER: Hello\nASSISTANT: " {
 		t.Fatalf("prompt = %q", prompt)
+	}
+}
+
+func testTemplateGGUF(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteString("GGUF")
+	writeTemplateGGUFValues(t, &buf, uint32(3), uint64(0), uint64(1))
+	writeTemplateGGUFString(t, &buf, "tokenizer.chat_template")
+	writeTemplateGGUFValues(t, &buf, uint32(8))
+	writeTemplateGGUFString(t, &buf, "<|im_start|>{{ role }}")
+	return []byte(buf.String())
+}
+
+func writeTemplateGGUFString(t *testing.T, b *bytes.Buffer, value string) {
+	t.Helper()
+	writeTemplateGGUFValues(t, b, uint64(len(value)))
+	b.WriteString(value)
+}
+
+func writeTemplateGGUFValues(t *testing.T, b *bytes.Buffer, values ...any) {
+	t.Helper()
+	for _, value := range values {
+		if err := binary.Write(b, binary.LittleEndian, value); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

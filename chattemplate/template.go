@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/gakon/nego-ai/modelinfo"
 )
 
 type Role string
@@ -37,6 +39,9 @@ func Load(path string) (*Template, error) {
 		return nil, err
 	}
 	if info, err := os.Stat(root); err == nil && !info.IsDir() {
+		if strings.EqualFold(filepath.Ext(root), ".gguf") {
+			return loadGGUFTemplate(root)
+		}
 		data, err := os.ReadFile(root)
 		if err != nil {
 			return nil, err
@@ -52,7 +57,21 @@ func Load(path string) (*Template, error) {
 	if err != nil {
 		return nil, err
 	}
+	if source != "" {
+		return &Template{Path: filepath.Join(root, "tokenizer_config.json"), Source: source}, nil
+	}
+	if runtimeFile, err := modelinfo.FindRuntimeFile(root, "gguf"); err == nil {
+		return loadGGUFTemplate(runtimeFile.Path)
+	}
 	return &Template{Path: filepath.Join(root, "tokenizer_config.json"), Source: source}, nil
+}
+
+func loadGGUFTemplate(path string) (*Template, error) {
+	info, err := modelinfo.InspectGGUF(path)
+	if err != nil {
+		return &Template{Path: path}, nil
+	}
+	return &Template{Path: path, Source: info.ChatTemplate}, nil
 }
 
 func (t *Template) Render(messages []Message, opts Options) (string, error) {
