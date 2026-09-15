@@ -23,6 +23,24 @@ func TestCheckReportsGGUFCompatibility(t *testing.T) {
 	if !report.ChatTemplate || report.ContextLength != 4096 || report.Quantization != "mostly_q4_k_m" {
 		t.Fatalf("unexpected report: %#v", report)
 	}
+	if report.Tokenizer == nil ||
+		report.Tokenizer.Model != "llama" ||
+		report.Tokenizer.PreTokenizer != "llama-bpe" ||
+		report.Tokenizer.VocabSize != 2 {
+		t.Fatalf("unexpected tokenizer report: %#v", report.Tokenizer)
+	}
+	if report.Tokenizer.BOSTokenID == nil ||
+		*report.Tokenizer.BOSTokenID != 0 ||
+		report.Tokenizer.EOSTokenID == nil ||
+		*report.Tokenizer.EOSTokenID != 1 {
+		t.Fatalf("unexpected tokenizer special IDs: %#v", report.Tokenizer)
+	}
+	if report.Tokenizer.AddBOS == nil ||
+		!*report.Tokenizer.AddBOS ||
+		report.Tokenizer.AddEOS == nil ||
+		*report.Tokenizer.AddEOS {
+		t.Fatalf("unexpected tokenizer defaults: %#v", report.Tokenizer)
+	}
 	if !backendCompatible(report.Backends, "llama.cpp") {
 		t.Fatalf("expected llama.cpp compatibility: %#v", report.Backends)
 	}
@@ -199,7 +217,7 @@ func TestCheckReportsNativeAdapterArtifact(t *testing.T) {
 func testGGUF(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer
-	writeGGUFHeader(t, &buf, 3, 11, 10)
+	writeGGUFHeader(t, &buf, 3, 11, 16)
 	writeGGUFStringKV(t, &buf, "general.architecture", "llama")
 	writeGGUFUint32KV(t, &buf, "general.file_type", 15)
 	writeGGUFUint32KV(t, &buf, "llama.context_length", 4096)
@@ -209,6 +227,12 @@ func testGGUF(t *testing.T) []byte {
 	writeGGUFUint32KV(t, &buf, "llama.attention.head_count", 2)
 	writeGGUFUint32KV(t, &buf, "llama.attention.head_count_kv", 1)
 	writeGGUFStringKV(t, &buf, "tokenizer.chat_template", "[INST] {{ message }} [/INST]")
+	writeGGUFStringKV(t, &buf, "tokenizer.ggml.model", "llama")
+	writeGGUFStringKV(t, &buf, "tokenizer.ggml.pre", "llama-bpe")
+	writeGGUFUint32KV(t, &buf, "tokenizer.ggml.bos_token_id", 0)
+	writeGGUFUint32KV(t, &buf, "tokenizer.ggml.eos_token_id", 1)
+	writeGGUFBoolKV(t, &buf, "tokenizer.ggml.add_bos_token", true)
+	writeGGUFBoolKV(t, &buf, "tokenizer.ggml.add_eos_token", false)
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
 	writeTinyNativeTensorManifest(t, &buf, 1)
 	return buf.Bytes()

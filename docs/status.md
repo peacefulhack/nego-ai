@@ -65,6 +65,7 @@ Implemented:
 30. Native training results, adapter manifests, and generated adapter READMEs persist the base model memory estimate when available.
 31. Native GGUF prompt and training tokenization honor `tokenizer.ggml.add_bos_token` / `add_eos_token` defaults.
 32. GGUF tokenizer inspection reads pre-tokenizer, whitespace, EOT, and EOM metadata used by common converted model files.
+33. `nego check` reports GGUF tokenizer model, pre-tokenizer, vocab size, special token IDs, and tokenizer defaults.
 
 Not production-ready yet:
 

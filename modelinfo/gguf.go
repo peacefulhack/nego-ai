@@ -418,6 +418,54 @@ func metadataUint(metadata map[string]any, key string) uint64 {
 	return 0
 }
 
+func metadataOptionalUint32(metadata map[string]any, key string) *uint32 {
+	switch value := metadata[key].(type) {
+	case uint8:
+		out := uint32(value)
+		return &out
+	case uint16:
+		out := uint32(value)
+		return &out
+	case uint32:
+		out := value
+		return &out
+	case uint64:
+		if value <= uint64(^uint32(0)) {
+			out := uint32(value)
+			return &out
+		}
+	case int8:
+		if value >= 0 {
+			out := uint32(value)
+			return &out
+		}
+	case int16:
+		if value >= 0 {
+			out := uint32(value)
+			return &out
+		}
+	case int32:
+		if value >= 0 {
+			out := uint32(value)
+			return &out
+		}
+	case int64:
+		if value >= 0 && value <= int64(^uint32(0)) {
+			out := uint32(value)
+			return &out
+		}
+	}
+	return nil
+}
+
+func metadataOptionalBool(metadata map[string]any, key string) *bool {
+	value, ok := metadata[key].(bool)
+	if !ok {
+		return nil
+	}
+	return &value
+}
+
 func metadataArrayLen(metadata map[string]any, key string) uint64 {
 	switch value := metadata[key].(type) {
 	case GGUFArray:

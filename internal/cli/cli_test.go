@@ -718,7 +718,25 @@ func TestCheckCommandReportsCompatibility(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"Native readiness:", "Ready:        yes", "Artifact:", "Format:       gguf", "Run:          native", "Train:        native-token-bias", "Memory:", "Runtime:", "Total:", "Backends:", "llama.cpp: yes", "Chat template: yes", "Context:       4096"} {
+	for _, want := range []string{
+		"Native readiness:",
+		"Ready:        yes",
+		"Artifact:",
+		"Format:       gguf",
+		"Run:          native",
+		"Train:        native-token-bias",
+		"Memory:",
+		"Runtime:",
+		"Total:",
+		"Backends:",
+		"llama.cpp: yes",
+		"Chat template: yes",
+		"Tokenizer:",
+		"Pre-tokenizer: llama-bpe",
+		"Special IDs:  bos=0, eos=1",
+		"Defaults:     add_bos=yes, add_eos=no",
+		"Context:       4096",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output:\n%s", want, out)
 		}
@@ -787,11 +805,28 @@ func TestCheckCommandJSON(t *testing.T) {
 		Memory struct {
 			TotalBytes uint64 `json:"total_bytes"`
 		} `json:"memory"`
+		Tokenizer struct {
+			Format       string  `json:"format"`
+			PreTokenizer string  `json:"pre_tokenizer"`
+			BOSTokenID   *uint32 `json:"bos_token_id"`
+			AddBOS       *bool   `json:"add_bos_token"`
+		} `json:"tokenizer"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !body.ChatTemplate || body.Artifact.Format != "gguf" || body.Artifact.RecommendedRunBackend == "" || len(body.Backends) == 0 || !body.NativeReadiness.Ready || body.Memory.TotalBytes == 0 {
+	if !body.ChatTemplate ||
+		body.Artifact.Format != "gguf" ||
+		body.Artifact.RecommendedRunBackend == "" ||
+		len(body.Backends) == 0 ||
+		!body.NativeReadiness.Ready ||
+		body.Memory.TotalBytes == 0 ||
+		body.Tokenizer.Format != "gguf" ||
+		body.Tokenizer.PreTokenizer != "llama-bpe" ||
+		body.Tokenizer.BOSTokenID == nil ||
+		*body.Tokenizer.BOSTokenID != 0 ||
+		body.Tokenizer.AddBOS == nil ||
+		!*body.Tokenizer.AddBOS {
 		t.Fatalf("unexpected check json: %s", stdout.String())
 	}
 }
@@ -2554,7 +2589,7 @@ func fakeInspectGGUF(t *testing.T) string {
 	t.Helper()
 	var buf bytes.Buffer
 	buf.WriteString("GGUF")
-	for _, value := range []any{uint32(3), uint64(11), uint64(10)} {
+	for _, value := range []any{uint32(3), uint64(11), uint64(16)} {
 		if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
 			t.Fatal(err)
 		}
@@ -2568,6 +2603,12 @@ func fakeInspectGGUF(t *testing.T) string {
 	writeInspectGGUFUint32KV(t, &buf, "llama.attention.head_count", 2)
 	writeInspectGGUFUint32KV(t, &buf, "llama.attention.head_count_kv", 1)
 	writeInspectGGUFStringKV(t, &buf, "tokenizer.chat_template", "[INST] {{ message }} [/INST]")
+	writeInspectGGUFStringKV(t, &buf, "tokenizer.ggml.model", "llama")
+	writeInspectGGUFStringKV(t, &buf, "tokenizer.ggml.pre", "llama-bpe")
+	writeInspectGGUFUint32KV(t, &buf, "tokenizer.ggml.bos_token_id", 0)
+	writeInspectGGUFUint32KV(t, &buf, "tokenizer.ggml.eos_token_id", 1)
+	writeInspectGGUFBoolKV(t, &buf, "tokenizer.ggml.add_bos_token", true)
+	writeInspectGGUFBoolKV(t, &buf, "tokenizer.ggml.add_eos_token", false)
 	writeInspectGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello"})
 	writeInspectTinyNativeTensorManifest(t, &buf)
 	path := filepath.Join(t.TempDir(), "model.gguf")
@@ -2608,6 +2649,21 @@ func writeInspectGGUFUint32KV(t *testing.T, buf *bytes.Buffer, key string, value
 		t.Fatal(err)
 	}
 	if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeInspectGGUFBoolKV(t *testing.T, buf *bytes.Buffer, key string, value bool) {
+	t.Helper()
+	writeInspectGGUFString(t, buf, key)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(7)); err != nil {
+		t.Fatal(err)
+	}
+	raw := uint8(0)
+	if value {
+		raw = 1
+	}
+	if err := binary.Write(buf, binary.LittleEndian, raw); err != nil {
 		t.Fatal(err)
 	}
 }

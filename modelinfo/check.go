@@ -14,12 +14,30 @@ type CheckReport struct {
 	ContextLength   uint64                  `json:"context_length,omitempty"`
 	Quantization    string                  `json:"quantization,omitempty"`
 	Generation      *GenerationConfig       `json:"generation,omitempty"`
+	Tokenizer       *TokenizerReport        `json:"tokenizer,omitempty"`
 	NativeAdapter   *NativeAdapterInfo      `json:"native_adapter,omitempty"`
 	NativeReadiness *NativeRuntimeReadiness `json:"native_readiness,omitempty"`
 	Memory          *MemoryEstimate         `json:"memory,omitempty"`
 	Artifact        *Artifact               `json:"artifact,omitempty"`
 	Backends        []BackendCompatibility  `json:"backends"`
 	Warnings        []string                `json:"warnings,omitempty"`
+}
+
+type TokenizerReport struct {
+	Format                 string  `json:"format,omitempty"`
+	Model                  string  `json:"model,omitempty"`
+	PreTokenizer           string  `json:"pre_tokenizer,omitempty"`
+	VocabSize              uint64  `json:"vocab_size,omitempty"`
+	BOSTokenID             *uint32 `json:"bos_token_id,omitempty"`
+	EOSTokenID             *uint32 `json:"eos_token_id,omitempty"`
+	UNKTokenID             *uint32 `json:"unk_token_id,omitempty"`
+	PADTokenID             *uint32 `json:"pad_token_id,omitempty"`
+	EOTTokenID             *uint32 `json:"eot_token_id,omitempty"`
+	EOMTokenID             *uint32 `json:"eom_token_id,omitempty"`
+	AddBOS                 *bool   `json:"add_bos_token,omitempty"`
+	AddEOS                 *bool   `json:"add_eos_token,omitempty"`
+	AddSpacePrefix         *bool   `json:"add_space_prefix,omitempty"`
+	RemoveExtraWhitespaces *bool   `json:"remove_extra_whitespaces,omitempty"`
 }
 
 type BackendCompatibility struct {
@@ -52,6 +70,7 @@ func checkInfo(info *Info) (*CheckReport, error) {
 	if info.GGUF != nil {
 		report.ContextLength = info.GGUF.ContextLength
 		report.Quantization = info.GGUF.Quantization
+		report.Tokenizer = ggufTokenizerReport(info.GGUF)
 	}
 	if runtimeFile, err := FindRuntimeFile(info.Path, "gguf", "onnx"); err == nil {
 		report.RuntimeFile = runtimeFile
@@ -64,6 +83,36 @@ func checkInfo(info *Info) (*CheckReport, error) {
 	report.Warnings = checkWarnings(report, info)
 	report.Artifact = resolveArtifact(info, report)
 	return report, nil
+}
+
+func ggufTokenizerReport(info *GGUFInfo) *TokenizerReport {
+	if info == nil {
+		return nil
+	}
+	report := &TokenizerReport{
+		Format:                 "gguf",
+		Model:                  metadataString(info.Metadata, "tokenizer.ggml.model"),
+		PreTokenizer:           metadataString(info.Metadata, "tokenizer.ggml.pre"),
+		VocabSize:              info.VocabSize,
+		BOSTokenID:             metadataOptionalUint32(info.Metadata, "tokenizer.ggml.bos_token_id"),
+		EOSTokenID:             metadataOptionalUint32(info.Metadata, "tokenizer.ggml.eos_token_id"),
+		UNKTokenID:             metadataOptionalUint32(info.Metadata, "tokenizer.ggml.unknown_token_id"),
+		PADTokenID:             metadataOptionalUint32(info.Metadata, "tokenizer.ggml.padding_token_id"),
+		EOTTokenID:             metadataOptionalUint32(info.Metadata, "tokenizer.ggml.eot_token_id"),
+		EOMTokenID:             metadataOptionalUint32(info.Metadata, "tokenizer.ggml.eom_token_id"),
+		AddBOS:                 metadataOptionalBool(info.Metadata, "tokenizer.ggml.add_bos_token"),
+		AddEOS:                 metadataOptionalBool(info.Metadata, "tokenizer.ggml.add_eos_token"),
+		AddSpacePrefix:         metadataOptionalBool(info.Metadata, "tokenizer.ggml.add_space_prefix"),
+		RemoveExtraWhitespaces: metadataOptionalBool(info.Metadata, "tokenizer.ggml.remove_extra_whitespaces"),
+	}
+	if report.Model == "" && report.PreTokenizer == "" && report.VocabSize == 0 &&
+		report.BOSTokenID == nil && report.EOSTokenID == nil && report.UNKTokenID == nil &&
+		report.PADTokenID == nil && report.EOTTokenID == nil && report.EOMTokenID == nil &&
+		report.AddBOS == nil && report.AddEOS == nil && report.AddSpacePrefix == nil &&
+		report.RemoveExtraWhitespaces == nil {
+		return nil
+	}
+	return report
 }
 
 func hasChatTemplate(info *Info) bool {

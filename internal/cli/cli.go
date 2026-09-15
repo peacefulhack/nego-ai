@@ -2504,6 +2504,9 @@ func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 	} else {
 		fmt.Fprintln(w, "Chat template: no")
 	}
+	if report.Tokenizer != nil {
+		writeTokenizerReport(w, report.Tokenizer)
+	}
 	if report.NativeAdapter != nil {
 		writeNativeAdapterInfo(w, report.NativeAdapter)
 	}
@@ -2548,6 +2551,58 @@ func writeCheckReport(w io.Writer, report *modelinfo.CheckReport) {
 			fmt.Fprintf(w, "  - %s\n", warning)
 		}
 	}
+}
+
+func writeTokenizerReport(w io.Writer, report *modelinfo.TokenizerReport) {
+	fmt.Fprintln(w, "Tokenizer:")
+	if report.Format != "" {
+		fmt.Fprintf(w, "  Format:       %s\n", report.Format)
+	}
+	if report.Model != "" {
+		fmt.Fprintf(w, "  Model:        %s\n", report.Model)
+	}
+	if report.PreTokenizer != "" {
+		fmt.Fprintf(w, "  Pre-tokenizer: %s\n", report.PreTokenizer)
+	}
+	if report.VocabSize > 0 {
+		fmt.Fprintf(w, "  Vocab size:   %d\n", report.VocabSize)
+	}
+	if values := tokenizerSpecialIDs(report); len(values) > 0 {
+		fmt.Fprintf(w, "  Special IDs:  %s\n", strings.Join(values, ", "))
+	}
+	if values := tokenizerDefaults(report); len(values) > 0 {
+		fmt.Fprintf(w, "  Defaults:     %s\n", strings.Join(values, ", "))
+	}
+}
+
+func tokenizerSpecialIDs(report *modelinfo.TokenizerReport) []string {
+	var out []string
+	appendID := func(name string, value *uint32) {
+		if value != nil {
+			out = append(out, fmt.Sprintf("%s=%d", name, *value))
+		}
+	}
+	appendID("bos", report.BOSTokenID)
+	appendID("eos", report.EOSTokenID)
+	appendID("unk", report.UNKTokenID)
+	appendID("pad", report.PADTokenID)
+	appendID("eot", report.EOTTokenID)
+	appendID("eom", report.EOMTokenID)
+	return out
+}
+
+func tokenizerDefaults(report *modelinfo.TokenizerReport) []string {
+	var out []string
+	appendBool := func(name string, value *bool) {
+		if value != nil {
+			out = append(out, fmt.Sprintf("%s=%s", name, yesNo(*value)))
+		}
+	}
+	appendBool("add_bos", report.AddBOS)
+	appendBool("add_eos", report.AddEOS)
+	appendBool("add_space_prefix", report.AddSpacePrefix)
+	appendBool("remove_extra_whitespaces", report.RemoveExtraWhitespaces)
+	return out
 }
 
 func writeCheckMemory(w io.Writer, estimate *modelinfo.MemoryEstimate) {
