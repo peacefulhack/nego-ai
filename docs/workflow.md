@@ -214,6 +214,7 @@ Check token length before training:
 
 ```bash
 nego dataset tokens data/completion.shuffled.jsonl --model ./models/qwen3 --format completion --max-context 4096
+nego dataset tokens data/completion.shuffled.jsonl --model ./models/model.gguf --format completion --max-context 4096
 ```
 
 Filter rows for a subset:

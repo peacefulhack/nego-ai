@@ -564,6 +564,24 @@ func TestTokensCommandSupportsGGUFDirectory(t *testing.T) {
 	}
 }
 
+func TestDatasetTokensCommandSupportsGGUF(t *testing.T) {
+	dir := t.TempDir()
+	dataPath := filepath.Join(dir, "data.jsonl")
+	if err := os.WriteFile(dataPath, []byte(`{"prompt":"hello","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	modelPath := fakeTokenizerGGUF(t)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"dataset", "tokens", dataPath, "--model", modelPath, "--format", "completion", "--max-context", "4"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Tokens:       min 3 / avg 3.0 / max 3 / total 3") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+}
+
 func TestContextCommand(t *testing.T) {
 	dir := t.TempDir()
 	writeCLITokenizer(t, dir)
@@ -2714,7 +2732,7 @@ func fakeTokenizerGGUF(t *testing.T) string {
 	writeInspectGGUFUint32KV(t, &buf, "tokenizer.ggml.bos_token_id", 0)
 	writeInspectGGUFUint32KV(t, &buf, "tokenizer.ggml.eos_token_id", 2)
 	writeInspectGGUFBoolKV(t, &buf, "tokenizer.ggml.add_bos_token", true)
-	writeInspectGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<s>", "hello", "</s>"})
+	writeInspectGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<s>", "hello", "</s>", "\nhello"})
 	path := filepath.Join(t.TempDir(), "model.gguf")
 	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
 		t.Fatal(err)

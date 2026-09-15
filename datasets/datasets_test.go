@@ -218,6 +218,22 @@ func TestAnalyzeTokenBudgetChatRows(t *testing.T) {
 	}
 }
 
+func TestAnalyzeTokenBudgetWithTokenizer(t *testing.T) {
+	dir := t.TempDir()
+	rows := []Row{{"prompt": "hello", "completion": "world"}}
+	report, err := AnalyzeTokenBudgetWithTokenizer(rows, TokenBudgetOptions{
+		ModelPath:  dir,
+		Format:     "completion",
+		MaxContext: 1,
+	}, fixedTokenCounter(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Valid || report.OverLimit != 1 || report.TotalTokens != 2 {
+		t.Fatalf("unexpected report: %#v", report)
+	}
+}
+
 func TestRenderTrainingRowsCompletion(t *testing.T) {
 	rendered, err := RenderTrainingRows([]Row{{"prompt": "hi", "completion": "hello"}}, RenderOptions{Format: "auto"})
 	if err != nil {
@@ -226,6 +242,12 @@ func TestRenderTrainingRowsCompletion(t *testing.T) {
 	if len(rendered) != 1 || rendered[0].Row != 1 || rendered[0].Format != "completion" || rendered[0].Text != "hi\nhello" {
 		t.Fatalf("unexpected rendered rows: %#v", rendered)
 	}
+}
+
+type fixedTokenCounter int
+
+func (c fixedTokenCounter) Count(string) (int, error) {
+	return int(c), nil
 }
 
 func TestRenderTrainingRowsChatUsesModelTemplate(t *testing.T) {

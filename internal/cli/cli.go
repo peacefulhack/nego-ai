@@ -4432,7 +4432,7 @@ func runDatasetTokens(args []string, stdout, stderr io.Writer) int {
 	var top int
 	fs := flag.NewFlagSet("dataset tokens", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(&modelPath, "model", "", "model directory containing tokenizer.json")
+	fs.StringVar(&modelPath, "model", "", "model path containing tokenizer.json or GGUF vocabulary metadata")
 	fs.StringVar(&format, "format", "auto", "dataset format: auto, chat, completion, or instruction")
 	fs.IntVar(&maxContext, "max-context", 0, "maximum allowed context tokens")
 	fs.IntVar(&top, "top", 5, "number of longest rows to show")
@@ -4450,11 +4450,16 @@ func runDatasetTokens(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
-	report, err := datasets.AnalyzeTokenBudget(rows, datasets.TokenBudgetOptions{
+	tok, err := loadCLITokenizer(modelPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	report, err := datasets.AnalyzeTokenBudgetWithTokenizer(rows, datasets.TokenBudgetOptions{
 		ModelPath:  modelPath,
 		Format:     format,
 		MaxContext: maxContext,
-	})
+	}, tok)
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1

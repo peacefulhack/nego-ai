@@ -303,6 +303,7 @@ nego dataset inspect data.jsonl
 nego dataset quality data.jsonl --format chat --key messages
 nego dataset validate data.jsonl --format chat
 nego dataset tokens data.jsonl --model ./models/qwen3 --format chat --max-context 4096
+nego dataset tokens data.jsonl --model ./models/model.gguf --format completion --max-context 4096
 nego dataset render data.jsonl --model ./models/qwen3 --format chat --n 3
 nego dataset convert data.csv --out data.jsonl --select prompt,completion --require prompt,completion
 nego dataset filter data.jsonl --where split=train --out train-only.jsonl

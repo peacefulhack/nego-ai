@@ -15,6 +15,10 @@ type TokenBudgetOptions struct {
 	MaxContext int
 }
 
+type TokenCounter interface {
+	Count(text string) (int, error)
+}
+
 type TokenBudgetReport struct {
 	Format        string           `json:"format"`
 	Rows          int              `json:"rows"`
@@ -49,6 +53,17 @@ type RenderedTrainingText struct {
 }
 
 func AnalyzeTokenBudget(rows []Row, opts TokenBudgetOptions) (TokenBudgetReport, error) {
+	if strings.TrimSpace(opts.ModelPath) == "" {
+		return TokenBudgetReport{}, fmt.Errorf("model path is required")
+	}
+	tok, err := tokenizer.Load(opts.ModelPath)
+	if err != nil {
+		return TokenBudgetReport{}, err
+	}
+	return AnalyzeTokenBudgetWithTokenizer(rows, opts, tok)
+}
+
+func AnalyzeTokenBudgetWithTokenizer(rows []Row, opts TokenBudgetOptions, tok TokenCounter) (TokenBudgetReport, error) {
 	format := normalizeFormat(opts.Format)
 	if format == "" {
 		format = "auto"
@@ -59,9 +74,8 @@ func AnalyzeTokenBudget(rows []Row, opts TokenBudgetOptions) (TokenBudgetReport,
 	if strings.TrimSpace(opts.ModelPath) == "" {
 		return TokenBudgetReport{}, fmt.Errorf("model path is required")
 	}
-	tok, err := tokenizer.Load(opts.ModelPath)
-	if err != nil {
-		return TokenBudgetReport{}, err
+	if tok == nil {
+		return TokenBudgetReport{}, fmt.Errorf("token counter is required")
 	}
 	template, err := chattemplate.Load(opts.ModelPath)
 	if err != nil {
