@@ -1974,7 +1974,7 @@ func TestTrainCapabilitiesCommand(t *testing.T) {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "Training capabilities") || !strings.Contains(out, "token-bias") || !strings.Contains(out, "native-lora") {
+	if !strings.Contains(out, "Training capabilities") || !strings.Contains(out, "Memory:") || !strings.Contains(out, "Total:") || !strings.Contains(out, "token-bias") || !strings.Contains(out, "native-lora") {
 		t.Fatalf("unexpected output: %q", out)
 	}
 }

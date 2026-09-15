@@ -575,6 +575,9 @@ func TestAssessReportsTrainingCapabilities(t *testing.T) {
 	if !methodStatus(report.Methods, "native-lora", MethodPlanned) {
 		t.Fatalf("expected planned native-lora support: %#v", report.Methods)
 	}
+	if report.Memory == nil || report.Memory.TotalBytes == 0 {
+		t.Fatalf("expected memory estimate: %#v", report.Memory)
+	}
 }
 
 func TestValidateRejectsInvalidDatasetFormat(t *testing.T) {

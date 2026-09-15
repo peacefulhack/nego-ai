@@ -1373,6 +1373,9 @@ func printTrainingAssessment(w io.Writer, report training.Assessment) {
 			fmt.Fprintf(w, "Model type:     %s\n", report.Artifact.ModelType)
 		}
 	}
+	if report.Memory != nil {
+		writeCheckMemory(w, report.Memory)
+	}
 	fmt.Fprintln(w, "Methods:")
 	for _, method := range report.Methods {
 		status := string(method.Status)
