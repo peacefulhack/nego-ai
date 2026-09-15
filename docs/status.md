@@ -81,6 +81,7 @@ Implemented:
 46. Native token-bias training reports eval token coverage when an eval dataset is provided.
 47. The root `nego` package exposes tokenizer loading and fixture check helpers for app workflows.
 48. Numbered examples include a local-only chat walkthrough that uses the downloaded model path.
+49. Native training run logs store eval token coverage aggregates without dataset row contents.
 
 Not production-ready yet:
 

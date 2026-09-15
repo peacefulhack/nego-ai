@@ -2178,9 +2178,13 @@ func TestTrainNativeCommandWritesRunLog(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	dir := t.TempDir()
 	trainFile := filepath.Join(dir, "train.jsonl")
+	evalFile := filepath.Join(dir, "test.jsonl")
 	outputDir := filepath.Join(dir, "adapter")
 	logPath := filepath.Join(dir, "runs.jsonl")
 	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"secret completion"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evalFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
@@ -2190,6 +2194,8 @@ func TestTrainNativeCommandWritesRunLog(t *testing.T) {
 		modelPath,
 		"--train-file",
 		trainFile,
+		"--eval-file",
+		evalFile,
 		"--dataset-format",
 		"completion",
 		"--max-context",
@@ -2210,7 +2216,7 @@ func TestTrainNativeCommandWritesRunLog(t *testing.T) {
 		t.Fatalf("unexpected entries: %#v", entries)
 	}
 	info := entries[0].Training
-	if info.Method != "token-bias" || info.DatasetFormat != "completion" || info.TrainRows != 1 || info.AdapterPath == "" {
+	if info.Method != "token-bias" || info.DatasetFormat != "completion" || info.TrainRows != 1 || info.EvalRows != 1 || info.AdapterPath == "" || info.EvalCoverage == nil {
 		t.Fatalf("unexpected training info: %#v", info)
 	}
 	raw, err := os.ReadFile(logPath)
@@ -2227,7 +2233,7 @@ func TestTrainNativeCommandWritesRunLog(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("show code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "Training:") || !strings.Contains(stdout.String(), "Train rows:    1") {
+	if !strings.Contains(stdout.String(), "Training:") || !strings.Contains(stdout.String(), "Train rows:    1") || !strings.Contains(stdout.String(), "Eval coverage:") {
 		t.Fatalf("unexpected runs show output: %q", stdout.String())
 	}
 }

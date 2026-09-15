@@ -394,8 +394,8 @@ trained adapter can be inspected or reused by local tooling. You can run a
 native training output directory directly. Native training output includes
 training provenance and top updated tokens so you can sanity-check what the
 dataset reinforced.
-Pass `--log runs.jsonl` to record a training experiment summary without storing
-dataset row contents.
+Pass `--log runs.jsonl` to record a training experiment summary with aggregate
+eval coverage and without storing dataset row contents.
 
 ```bash
 nego inspect ./outputs/qwen3-token-bias

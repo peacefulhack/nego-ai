@@ -1261,6 +1261,7 @@ func nativeTrainingLogEntry(result training.NativeResult, baseModel, trainFile, 
 			EvalRows:      result.EvalRows,
 			DuplicateRows: result.DuplicateRows,
 			VocabSize:     result.VocabSize,
+			EvalCoverage:  trainingRunEvalCoverage(result.EvalCoverage),
 			TopTokenIDs:   topTokenIDs,
 		},
 	}
@@ -1268,6 +1269,21 @@ func nativeTrainingLogEntry(result training.NativeResult, baseModel, trainFile, 
 		entry.Error = trainErr.Error()
 	}
 	return entry
+}
+
+func trainingRunEvalCoverage(summary *training.NativeEvalSummary) *runs.EvalCoverage {
+	if summary == nil {
+		return nil
+	}
+	return &runs.EvalCoverage{
+		Rows:                summary.Rows,
+		Tokens:              summary.Tokens,
+		CoveredTokens:       summary.CoveredTokens,
+		Coverage:            summary.Coverage,
+		UniqueTokens:        summary.UniqueTokens,
+		CoveredUniqueTokens: summary.CoveredUniqueTokens,
+		UniqueCoverage:      summary.UniqueCoverage,
+	}
 }
 
 func firstPositive(values ...int) int {
@@ -5247,6 +5263,16 @@ func writeTrainingRunInfo(w io.Writer, info runs.Training) {
 	}
 	if info.VocabSize > 0 {
 		fmt.Fprintf(w, "  Vocab size:    %d\n", info.VocabSize)
+	}
+	if info.EvalCoverage != nil {
+		fmt.Fprintf(w, "  Eval coverage: %d/%d tokens (%.2f%%), %d/%d unique (%.2f%%)\n",
+			info.EvalCoverage.CoveredTokens,
+			info.EvalCoverage.Tokens,
+			info.EvalCoverage.Coverage*100,
+			info.EvalCoverage.CoveredUniqueTokens,
+			info.EvalCoverage.UniqueTokens,
+			info.EvalCoverage.UniqueCoverage*100,
+		)
 	}
 	if len(info.TopTokenIDs) > 0 {
 		fmt.Fprintf(w, "  Top token IDs: %s\n", joinInts(info.TopTokenIDs))
