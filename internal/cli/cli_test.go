@@ -2572,6 +2572,54 @@ func TestShareManifestCommandDetectsNativeAdapter(t *testing.T) {
 	}
 }
 
+func TestShareCheckCommandReportsNativeAdapterTokenizer(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `{
+		"version":1,
+		"type":"nego-native-adapter",
+		"base_model":"./models/qwen3",
+		"adapter_path":"adapter.json",
+		"recommended_backend":"native-hf",
+		"method":"token-bias",
+		"tokenizer":{"format":"gguf","model":"llama","pre_tokenizer":"llama-bpe","vocab_size":10},
+		"updated_tokens":2,
+		"top_tokens":[{"id":1,"text":"secret-token","count":3,"bias":0.1}]
+	}`
+	if err := os.WriteFile(filepath.Join(modelDir, "manifest.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "adapter.json"), []byte(`{"version":1,"type":"token_bias","vocab_size":10,"bias":{"1":0.1}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"share", "check", modelDir}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"Native adapter:", "Backend:        native-hf", "Tokenizer:", "Pre-tokenizer: llama-bpe"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in stdout %q", want, stdout.String())
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"share", "check", modelDir, "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "secret-token") {
+		t.Fatalf("share check JSON should not include token text: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"pre_tokenizer":"llama-bpe"`) {
+		t.Fatalf("expected tokenizer metadata in JSON: %s", stdout.String())
+	}
+}
+
 func TestSharePackageCommand(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "model")

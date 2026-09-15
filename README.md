@@ -409,8 +409,8 @@ nego share upload username/qwen3-lora ./outputs/qwen3-lora README.md --token $HF
 ```
 
 When the path is a Nego native adapter output, share manifests automatically
-include sanitized adapter metadata from `manifest.json`; token text is omitted
-from the share manifest.
+include sanitized adapter metadata from `manifest.json`, including tokenizer
+metadata when available; token text is omitted from the share manifest.
 
 `nego share check` reports files that are too large for inline uploads. `nego share upload` currently supports regular inline Hub commit uploads. Large model files that require Hugging Face LFS/Xet upload are still planned.
 

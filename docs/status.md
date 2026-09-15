@@ -77,6 +77,7 @@ Implemented:
 42. The root `nego` package exposes convenience helpers for model inspection, artifact resolution, training assessment, and native training.
 43. Native training results, adapter manifests, and generated adapter READMEs persist GGUF tokenizer metadata when available.
 44. `nego train native --tokenize-check` validates tokenizer fixtures before training starts.
+45. Native adapter share manifests preserve tokenizer metadata while omitting token text.
 
 Not production-ready yet:
 

@@ -44,6 +44,7 @@ type NativeAdapterInfo struct {
 	Method             string                         `json:"method,omitempty"`
 	DatasetFormat      string                         `json:"dataset_format,omitempty"`
 	RecommendedBackend string                         `json:"recommended_backend,omitempty"`
+	Tokenizer          *modelinfo.TokenizerReport     `json:"tokenizer,omitempty"`
 	VocabSize          int                            `json:"vocab_size,omitempty"`
 	UpdatedTokens      int                            `json:"updated_tokens,omitempty"`
 	TrainTokens        int                            `json:"train_tokens,omitempty"`
@@ -255,6 +256,7 @@ func shareNativeAdapterInfo(info *modelinfo.NativeAdapterInfo) *NativeAdapterInf
 		Method:             info.Method,
 		DatasetFormat:      info.DatasetFormat,
 		RecommendedBackend: info.RecommendedBackend,
+		Tokenizer:          info.Tokenizer,
 		VocabSize:          info.VocabSize,
 		UpdatedTokens:      info.UpdatedTokens,
 		TrainTokens:        info.TrainTokens,

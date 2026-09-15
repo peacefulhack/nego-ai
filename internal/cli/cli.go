@@ -696,6 +696,21 @@ func printShareCheck(w io.Writer, report *share.CheckReport) {
 	if report.ArtifactType != "" {
 		fmt.Fprintf(w, "Artifact:      %s\n", report.ArtifactType)
 	}
+	if report.NativeAdapter != nil {
+		fmt.Fprintln(w, "Native adapter:")
+		if report.NativeAdapter.RecommendedBackend != "" {
+			fmt.Fprintf(w, "  Backend:        %s\n", report.NativeAdapter.RecommendedBackend)
+		}
+		if report.NativeAdapter.Method != "" {
+			fmt.Fprintf(w, "  Method:         %s\n", report.NativeAdapter.Method)
+		}
+		if report.NativeAdapter.UpdatedTokens > 0 {
+			fmt.Fprintf(w, "  Updated tokens: %d\n", report.NativeAdapter.UpdatedTokens)
+		}
+		if report.NativeAdapter.Tokenizer != nil {
+			writeTokenizerReport(w, report.NativeAdapter.Tokenizer)
+		}
+	}
 	fmt.Fprintf(w, "Files:         %d\n", report.Files)
 	fmt.Fprintf(w, "Size:          %s\n", humanBytes(report.TotalSize))
 	fmt.Fprintf(w, "Inline limit:  %s\n", humanBytes(report.MaxInlineSize))
