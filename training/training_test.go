@@ -1,6 +1,7 @@
 package training
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -586,6 +587,23 @@ func TestAssessReportsTrainingCapabilities(t *testing.T) {
 	}
 }
 
+func TestAssessReportsGGUFTokenizer(t *testing.T) {
+	modelPath := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(modelPath, tokenizerGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err := Assess(modelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Tokenizer == nil ||
+		report.Tokenizer.Format != "gguf" ||
+		report.Tokenizer.Model != "llama" ||
+		report.Tokenizer.VocabSize != 2 {
+		t.Fatalf("unexpected tokenizer report: %#v", report.Tokenizer)
+	}
+}
+
 func TestValidateRejectsInvalidDatasetFormat(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "model")
@@ -669,6 +687,50 @@ func minimalGGUF(t *testing.T) []byte {
 	binary.LittleEndian.PutUint64(data[8:], 0)
 	binary.LittleEndian.PutUint64(data[16:], 0)
 	return data
+}
+
+func tokenizerGGUF(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	buf.WriteString("GGUF")
+	for _, value := range []any{uint32(3), uint64(0), uint64(2)} {
+		if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTrainingGGUFStringKV(t, &buf, "tokenizer.ggml.model", "llama")
+	writeTrainingGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<s>", "hello"})
+	return buf.Bytes()
+}
+
+func writeTrainingGGUFStringKV(t *testing.T, buf *bytes.Buffer, key, value string) {
+	t.Helper()
+	writeTrainingGGUFString(t, buf, key)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(8)); err != nil {
+		t.Fatal(err)
+	}
+	writeTrainingGGUFString(t, buf, value)
+}
+
+func writeTrainingGGUFStringArrayKV(t *testing.T, buf *bytes.Buffer, key string, values []string) {
+	t.Helper()
+	writeTrainingGGUFString(t, buf, key)
+	for _, value := range []any{uint32(9), uint32(8), uint64(len(values))} {
+		if err := binary.Write(buf, binary.LittleEndian, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, value := range values {
+		writeTrainingGGUFString(t, buf, value)
+	}
+}
+
+func writeTrainingGGUFString(t *testing.T, buf *bytes.Buffer, value string) {
+	t.Helper()
+	if err := binary.Write(buf, binary.LittleEndian, uint64(len(value))); err != nil {
+		t.Fatal(err)
+	}
+	buf.WriteString(value)
 }
 
 func minimalSafetensors(t *testing.T) []byte {

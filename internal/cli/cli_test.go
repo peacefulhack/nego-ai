@@ -2115,6 +2115,22 @@ func TestTrainCapabilitiesCommand(t *testing.T) {
 	}
 }
 
+func TestTrainCapabilitiesCommandReportsGGUFTokenizer(t *testing.T) {
+	modelPath := fakeTokenizerGGUF(t)
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"train", "capabilities", modelPath}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Training capabilities", "Tokenizer:", "Format:       gguf", "Model:        llama", "Vocab size:   4"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	dir := t.TempDir()

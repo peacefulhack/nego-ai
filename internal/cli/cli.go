@@ -1380,6 +1380,9 @@ func printTrainingAssessment(w io.Writer, report training.Assessment) {
 	if report.Memory != nil {
 		writeCheckMemory(w, report.Memory)
 	}
+	if report.Tokenizer != nil {
+		writeTokenizerReport(w, report.Tokenizer)
+	}
 	fmt.Fprintln(w, "Methods:")
 	for _, method := range report.Methods {
 		status := string(method.Status)

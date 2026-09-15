@@ -25,11 +25,12 @@ type MethodSupport struct {
 }
 
 type Assessment struct {
-	BaseModel string                    `json:"base_model"`
-	Artifact  *modelinfo.Artifact       `json:"artifact,omitempty"`
-	Memory    *modelinfo.MemoryEstimate `json:"memory,omitempty"`
-	Methods   []MethodSupport           `json:"methods"`
-	Warnings  []string                  `json:"warnings,omitempty"`
+	BaseModel string                     `json:"base_model"`
+	Artifact  *modelinfo.Artifact        `json:"artifact,omitempty"`
+	Memory    *modelinfo.MemoryEstimate  `json:"memory,omitempty"`
+	Tokenizer *modelinfo.TokenizerReport `json:"tokenizer,omitempty"`
+	Methods   []MethodSupport            `json:"methods"`
+	Warnings  []string                   `json:"warnings,omitempty"`
 }
 
 func Assess(baseModel string) (Assessment, error) {
@@ -48,6 +49,7 @@ func Assess(baseModel string) (Assessment, error) {
 	artifact := check.Artifact
 	report.Artifact = artifact
 	report.Memory = check.Memory
+	report.Tokenizer = check.Tokenizer
 	report.Methods = []MethodSupport{
 		tokenBiasSupport(baseModel, artifact),
 		nativeLoRASupport(artifact),

@@ -71,6 +71,7 @@ Implemented:
 36. `nego tokenize check` validates tokenization fixtures with expected token IDs and decoded text for local tokenizer regression checks.
 37. GGUF decode skip-special handling recognizes common special token strings even when the special token ID is zero.
 38. Dataset token-budget checks can use an injected token counter, and the CLI uses that path for GGUF vocabulary fallback.
+39. `nego train capabilities` includes tokenizer diagnostics when the inspected model exposes GGUF tokenizer metadata.
 
 Not production-ready yet:
 
