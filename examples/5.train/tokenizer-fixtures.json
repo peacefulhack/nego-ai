@@ -1,0 +1,9 @@
+{
+  "cases": [
+    {
+      "name": "hello round trip",
+      "text": "hello",
+      "decoded": "hello"
+    }
+  ]
+}

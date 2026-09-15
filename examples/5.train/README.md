@@ -27,7 +27,21 @@ go run ./cmd/nego dataset render examples/5.train/train.jsonl --model ./models/q
 go run ./cmd/nego dataset tokens examples/5.train/train.jsonl --model ./models/qwen3 --format completion --max-context 4096
 ```
 
-4. Dry-run native training before writing adapter files:
+4. Optionally validate tokenizer fixture cases before training:
+
+```bash
+go run ./cmd/nego train native ./models/qwen3 \
+  --train-file examples/5.train/train.jsonl \
+  --dataset-format completion \
+  --tokenize-check examples/5.train/tokenizer-fixtures.json \
+  --dry-run
+```
+
+The fixture file can check token IDs with `tokens` or `ids`, or round-trip
+decode output with `decoded`. Token IDs are model-specific, so keep fixture
+files beside the model or dataset they validate.
+
+5. Dry-run native training before writing adapter files:
 
 ```bash
 go run ./cmd/nego train native ./models/qwen3 \
@@ -41,7 +55,7 @@ go run ./cmd/nego train native ./models/qwen3 \
 The dry run prints row counts, token budget, planned updated tokens, and top
 tokens reinforced by the dataset.
 
-5. Write a pure-Go native token-bias adapter:
+6. Write a pure-Go native token-bias adapter:
 
 ```bash
 go run ./cmd/nego train native ./models/qwen3 \
@@ -60,13 +74,13 @@ manifest.json
 README.md
 ```
 
-6. Chat with the trained adapter output:
+7. Chat with the trained adapter output:
 
 ```bash
 go run ./cmd/nego chat ./outputs/qwen3-token-bias "Say hello in Indonesian." --max-tokens 16
 ```
 
-7. Inspect and package the trained adapter:
+8. Inspect and package the trained adapter:
 
 ```bash
 go run ./cmd/nego inspect ./outputs/qwen3-token-bias

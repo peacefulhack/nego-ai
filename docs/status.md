@@ -76,6 +76,7 @@ Implemented:
 41. Native training propagates backend readiness warnings, including tokenizer validation warnings, into training results and adapter manifests.
 42. The root `nego` package exposes convenience helpers for model inspection, artifact resolution, training assessment, and native training.
 43. Native training results, adapter manifests, and generated adapter READMEs persist GGUF tokenizer metadata when available.
+44. `nego train native --tokenize-check` validates tokenizer fixtures before training starts.
 
 Not production-ready yet:
 

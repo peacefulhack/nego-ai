@@ -1083,6 +1083,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	var jsonOutput bool
 	var dryRun bool
 	var logPath string
+	var tokenizeCheckPath string
 	var dedupeKeys repeatedFlag
 	var dedupeTrim bool
 	var dedupeFold bool
@@ -1100,6 +1101,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
 	fs.BoolVar(&dryRun, "dry-run", false, "validate and preview native training without writing output files")
 	fs.StringVar(&logPath, "log", "", "append training result to JSONL run log")
+	fs.StringVar(&tokenizeCheckPath, "tokenize-check", "", "tokenizer fixture JSON file to validate before native training")
 	fs.Var(&dedupeKeys, "dedupe-key", "field used to warn about duplicate training rows, repeatable")
 	fs.BoolVar(&dedupeTrim, "dedupe-trim-space", false, "trim string fields before duplicate training row checks")
 	fs.BoolVar(&dedupeFold, "dedupe-ignore-case", false, "case-fold string fields before duplicate training row checks")
@@ -1115,6 +1117,23 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	var progress func(training.NativeProgress)
 	if !jsonOutput {
 		progress = nativeTrainingProgressPrinter(stderr)
+	}
+	var tokenizeCheck tokenizeCheckResult
+	if tokenizeCheckPath != "" {
+		var err error
+		tokenizeCheck, err = runTrainingTokenizeCheck(positionals[0], tokenizeCheckPath, jsonOutput, stderr)
+		if err != nil {
+			if jsonOutput {
+				_ = json.NewEncoder(stdout).Encode(map[string]any{
+					"success":        false,
+					"error":          err.Error(),
+					"tokenize_check": tokenizeCheck,
+				})
+			} else {
+				fmt.Fprintf(stderr, "nego: %v\n", err)
+			}
+			return 1
+		}
 	}
 	started := time.Now().UTC()
 	result, err := training.RunNative(context.Background(), training.NativeOptions{
@@ -1148,6 +1167,9 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 			"success": err == nil,
 			"result":  result,
 		}
+		if tokenizeCheckPath != "" {
+			body["tokenize_check"] = tokenizeCheck
+		}
 		if err != nil {
 			body["error"] = err.Error()
 		}
@@ -1161,6 +1183,31 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func runTrainingTokenizeCheck(modelPath, fixturePath string, jsonOutput bool, stderr io.Writer) (tokenizeCheckResult, error) {
+	if !jsonOutput {
+		fmt.Fprintf(stderr, "Checking tokenizer fixtures: %s\n", fixturePath)
+	}
+	tok, err := loadCLITokenizer(modelPath)
+	if err != nil {
+		return tokenizeCheckResult{}, err
+	}
+	cases, err := readTokenizeCheckCases(fixturePath)
+	if err != nil {
+		return tokenizeCheckResult{}, err
+	}
+	result := runTokenizeCheckCases(tok, cases)
+	if result.Failed > 0 {
+		if !jsonOutput {
+			writeTokenizeCheckResult(stderr, result)
+		}
+		return result, fmt.Errorf("tokenizer check failed: %d/%d cases failed", result.Failed, result.Total)
+	}
+	if !jsonOutput {
+		fmt.Fprintf(stderr, "Tokenizer check passed: %d/%d\n", result.Passed, result.Total)
+	}
+	return result, nil
 }
 
 func nativeTrainingLogEntry(result training.NativeResult, baseModel, trainFile, evalFile, datasetFormat, outputDir, method string, learningRate float64, epochs, maxContext int, dryRun bool, started time.Time, trainErr error) runs.Entry {
@@ -1998,31 +2045,9 @@ func loadGGUFCLITokenizer(path string) (textTokenizer, error) {
 
 const maxTokenizeCheckBytes = 8 << 20
 
-type tokenizeCheckCase struct {
-	Name    string  `json:"name,omitempty"`
-	Text    string  `json:"text"`
-	Tokens  []int   `json:"tokens,omitempty"`
-	IDs     []int   `json:"ids,omitempty"`
-	Decoded *string `json:"decoded,omitempty"`
-}
-
-type tokenizeCheckCaseResult struct {
-	Name            string   `json:"name,omitempty"`
-	Text            string   `json:"text"`
-	Tokens          []int    `json:"tokens,omitempty"`
-	ExpectedTokens  []int    `json:"expected_tokens,omitempty"`
-	Decoded         string   `json:"decoded,omitempty"`
-	ExpectedDecoded *string  `json:"expected_decoded,omitempty"`
-	Passed          bool     `json:"passed"`
-	Errors          []string `json:"errors,omitempty"`
-}
-
-type tokenizeCheckResult struct {
-	Passed int                       `json:"passed"`
-	Failed int                       `json:"failed"`
-	Total  int                       `json:"total"`
-	Cases  []tokenizeCheckCaseResult `json:"cases"`
-}
+type tokenizeCheckCase = tokenizer.CheckCase
+type tokenizeCheckCaseResult = tokenizer.CheckCaseResult
+type tokenizeCheckResult = tokenizer.CheckResult
 
 func runTokenizeCheck(args []string, stdout, stderr io.Writer) int {
 	var jsonOutput bool
@@ -2074,7 +2099,7 @@ func readTokenizeCheckCases(path string) ([]tokenizeCheckCase, error) {
 	}
 	var cases []tokenizeCheckCase
 	if err := json.Unmarshal(data, &cases); err == nil {
-		return validateTokenizeCheckCases(cases)
+		return tokenizer.ValidateCheckCases(cases)
 	}
 	var wrapped struct {
 		Cases []tokenizeCheckCase `json:"cases"`
@@ -2082,84 +2107,11 @@ func readTokenizeCheckCases(path string) ([]tokenizeCheckCase, error) {
 	if err := json.Unmarshal(data, &wrapped); err != nil {
 		return nil, fmt.Errorf("parse tokenize check fixture: %w", err)
 	}
-	return validateTokenizeCheckCases(wrapped.Cases)
-}
-
-func validateTokenizeCheckCases(cases []tokenizeCheckCase) ([]tokenizeCheckCase, error) {
-	if len(cases) == 0 {
-		return nil, fmt.Errorf("tokenize check fixture has no cases")
-	}
-	for i, c := range cases {
-		if len(c.Tokens) == 0 && len(c.IDs) == 0 && c.Decoded == nil {
-			return nil, fmt.Errorf("tokenize check case %d must set tokens, ids, or decoded", i+1)
-		}
-	}
-	return cases, nil
+	return tokenizer.ValidateCheckCases(wrapped.Cases)
 }
 
 func runTokenizeCheckCases(tok textTokenizer, cases []tokenizeCheckCase) tokenizeCheckResult {
-	result := tokenizeCheckResult{Total: len(cases), Cases: make([]tokenizeCheckCaseResult, 0, len(cases))}
-	for i, c := range cases {
-		name := c.Name
-		if name == "" {
-			name = fmt.Sprintf("case %d", i+1)
-		}
-		caseResult := tokenizeCheckCaseResult{
-			Name:            name,
-			Text:            c.Text,
-			ExpectedTokens:  expectedTokenIDs(c),
-			ExpectedDecoded: c.Decoded,
-			Passed:          true,
-		}
-		ids, err := tok.Encode(c.Text)
-		if err != nil {
-			caseResult.Passed = false
-			caseResult.Errors = append(caseResult.Errors, "encode: "+err.Error())
-		} else {
-			caseResult.Tokens = ids
-			if len(caseResult.ExpectedTokens) > 0 && !equalInts(ids, caseResult.ExpectedTokens) {
-				caseResult.Passed = false
-				caseResult.Errors = append(caseResult.Errors, fmt.Sprintf("tokens got %v want %v", ids, caseResult.ExpectedTokens))
-			}
-			decoded, err := tok.Decode(ids)
-			if err != nil {
-				caseResult.Passed = false
-				caseResult.Errors = append(caseResult.Errors, "decode: "+err.Error())
-			} else {
-				caseResult.Decoded = decoded
-				if c.Decoded != nil && decoded != *c.Decoded {
-					caseResult.Passed = false
-					caseResult.Errors = append(caseResult.Errors, fmt.Sprintf("decoded got %q want %q", decoded, *c.Decoded))
-				}
-			}
-		}
-		if caseResult.Passed {
-			result.Passed++
-		} else {
-			result.Failed++
-		}
-		result.Cases = append(result.Cases, caseResult)
-	}
-	return result
-}
-
-func expectedTokenIDs(c tokenizeCheckCase) []int {
-	if len(c.Tokens) > 0 {
-		return c.Tokens
-	}
-	return c.IDs
-}
-
-func equalInts(left, right []int) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-	return true
+	return tokenizer.CheckCases(tok, cases)
 }
 
 func writeTokenizeCheckResult(w io.Writer, result tokenizeCheckResult) {

@@ -359,6 +359,7 @@ Native token-bias adapter training is available as an early pure-Go path for GGU
 ```bash
 nego train capabilities ./models/qwen3
 nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --dry-run --dedupe-key prompt --dedupe-key completion --dedupe-trim-space
+nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --tokenize-check examples/5.train/tokenizer-fixtures.json --dry-run
 nego train native ./models/qwen3 --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --out ./outputs/qwen3-token-bias --log runs.jsonl
 nego train native ./models/qwen3-gguf --train-file examples/5.train/train.jsonl --dataset-format completion --max-context 4096 --out ./outputs/qwen3-token-bias
 nego run --native ./models/qwen3-gguf "Hello" --adapter ./outputs/qwen3-token-bias/adapter.json --max-tokens 16
@@ -378,6 +379,7 @@ This writes a small token-bias adapter from the dataset. Full LoRA/backprop trai
 If the base model can be tokenized but local generation is not ready yet, native training still completes and reports a runtime readiness warning.
 Native training results and adapter manifests include the base model memory estimate when available.
 When GGUF tokenizer metadata is available, native training results and adapter manifests also persist the tokenizer format, model, pre-tokenizer, special IDs, and tokenizer defaults.
+Pass `--tokenize-check` to validate tokenizer fixture cases before native training starts.
 The output directory also includes `manifest.json` and `README.md` so the
 trained adapter can be inspected or reused by local tooling. You can run a
 native training output directory directly. Native training output includes

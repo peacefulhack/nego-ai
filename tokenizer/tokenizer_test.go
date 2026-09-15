@@ -218,6 +218,51 @@ func TestBatchHelpers(t *testing.T) {
 	}
 }
 
+func TestCheckCases(t *testing.T) {
+	dir := t.TempDir()
+	writeTokenizer(t, dir, `{
+		"model": {
+			"type": "WordLevel",
+			"vocab": {
+				"hello": 1,
+				"Ġworld": 2
+			}
+		}
+	}`)
+
+	tok, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded := "hello world"
+	result := CheckCases(tok, []CheckCase{{
+		Name:    "hello world",
+		Text:    "hello world",
+		Tokens:  []int{1, 2},
+		Decoded: &decoded,
+	}})
+	if result.Passed != 1 || result.Failed != 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+
+	result = CheckCases(tok, []CheckCase{{
+		Text:   "hello world",
+		Tokens: []int{2, 1},
+	}})
+	if result.Passed != 0 || result.Failed != 1 || len(result.Cases[0].Errors) == 0 {
+		t.Fatalf("expected failed fixture: %#v", result)
+	}
+}
+
+func TestValidateCheckCases(t *testing.T) {
+	if _, err := ValidateCheckCases(nil); err == nil {
+		t.Fatal("expected empty fixture error")
+	}
+	if _, err := ValidateCheckCases([]CheckCase{{Text: "hello"}}); err == nil {
+		t.Fatal("expected missing expectation error")
+	}
+}
+
 func writeTokenizer(t *testing.T, dir, body string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(body), 0o644); err != nil {

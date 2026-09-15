@@ -2311,6 +2311,62 @@ func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
 	}
 }
 
+func TestTrainNativeCommandRunsTokenizerFixtureCheck(t *testing.T) {
+	modelPath := fakeTokenizerGGUF(t)
+	dir := t.TempDir()
+	trainFile := filepath.Join(dir, "train.jsonl")
+	fixturePath := filepath.Join(dir, "tokenizer-fixtures.json")
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixturePath, []byte(`{"cases":[{"name":"hello","text":"hello","tokens":[0,1],"decoded":"hello"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--dataset-format",
+		"completion",
+		"--dry-run",
+		"--tokenize-check",
+		fixturePath,
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Checking tokenizer fixtures:") || !strings.Contains(stderr.String(), "Tokenizer check passed: 1/1") {
+		t.Fatalf("expected tokenizer preflight output, got stderr=%q", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Native training dry run passed") {
+		t.Fatalf("unexpected output: %q", stdout.String())
+	}
+
+	if err := os.WriteFile(fixturePath, []byte(`[{"text":"hello","tokens":[1]}]`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--dataset-format",
+		"completion",
+		"--dry-run",
+		"--tokenize-check",
+		fixturePath,
+	}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "Tokenizer check") || !strings.Contains(stderr.String(), "tokenizer check failed") {
+		t.Fatalf("expected tokenizer check failure, code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestTrainNativeCommandFailsOnDuplicateRows(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	dir := t.TempDir()
