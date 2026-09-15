@@ -45,6 +45,7 @@ func TestBuildManifestDetectsNativeAdapter(t *testing.T) {
 		"recommended_backend":"native-hf",
 		"method":"token-bias",
 		"dataset_format":"completion",
+		"eval_coverage":{"rows":1,"tokens":2,"covered_tokens":1,"coverage":0.5,"unique_tokens":2,"covered_unique_tokens":1,"unique_coverage":0.5},
 		"tokenizer":{"format":"gguf","model":"llama","pre_tokenizer":"llama-bpe","vocab_size":10},
 		"vocab_size":10,
 		"updated_tokens":1,
@@ -69,6 +70,9 @@ func TestBuildManifestDetectsNativeAdapter(t *testing.T) {
 	}
 	if manifest.NativeAdapter.Tokenizer == nil || manifest.NativeAdapter.Tokenizer.Format != "gguf" || manifest.NativeAdapter.Tokenizer.PreTokenizer != "llama-bpe" {
 		t.Fatalf("unexpected tokenizer metadata: %#v", manifest.NativeAdapter.Tokenizer)
+	}
+	if manifest.NativeAdapter.EvalCoverage == nil || manifest.NativeAdapter.EvalCoverage.CoveredTokens != 1 {
+		t.Fatalf("unexpected eval coverage: %#v", manifest.NativeAdapter.EvalCoverage)
 	}
 	if manifest.NativeAdapter.TopTokens[0].Text != "" {
 		t.Fatalf("share manifest should not include token text: %#v", manifest.NativeAdapter.TopTokens)

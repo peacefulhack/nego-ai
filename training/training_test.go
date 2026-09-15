@@ -224,6 +224,7 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models", "qwen3-gguf")
 	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	evalFile := filepath.Join(dir, "data", "test.jsonl")
 	outputDir := filepath.Join(dir, "outputs", "qwen3-adapter")
 	if err := os.MkdirAll(modelDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -231,7 +232,7 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(modelDir, "model.gguf"), minimalGGUF(t), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0,"▁world":1,"later":2},"unk_token":"hello"}}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0,"▁world":1,"later":2,"▁later":3},"unk_token":"hello"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
@@ -240,10 +241,14 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello world"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(evalFile, []byte(`{"prompt":"hi","completion":"hello later"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := RunNative(context.Background(), NativeOptions{
 		BaseModel:     modelDir,
 		TrainFile:     trainFile,
+		EvalFile:      evalFile,
 		DatasetFormat: "completion",
 		OutputDir:     outputDir,
 		Epochs:        2,
@@ -258,6 +263,9 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	}
 	if result.Memory == nil || result.Memory.TotalBytes == 0 {
 		t.Fatalf("expected base memory estimate: %#v", result.Memory)
+	}
+	if result.EvalCoverage == nil || result.EvalCoverage.Tokens != 2 || result.EvalCoverage.CoveredTokens != 1 {
+		t.Fatalf("unexpected eval coverage: %#v", result.EvalCoverage)
 	}
 	if result.TopTokens[0].Text != "hello" || result.TopTokens[0].Count != 2 {
 		t.Fatalf("unexpected top tokens: %#v", result.TopTokens)
@@ -279,7 +287,7 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.AdapterPath != "adapter.json" || manifest.RuntimeOptions["adapter_path"] != "adapter.json" || len(manifest.TopTokens) != 2 || manifest.BaseMemory == nil {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
-	if manifest.LearningRate != 0.2 || manifest.Epochs != 2 || manifest.MaxContext != 8 || manifest.TrainRows != 1 || manifest.BaseFormat != "gguf" {
+	if manifest.LearningRate != 0.2 || manifest.Epochs != 2 || manifest.MaxContext != 8 || manifest.TrainRows != 1 || manifest.EvalRows != 1 || manifest.BaseFormat != "gguf" || manifest.EvalCoverage == nil {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
 	if !warningsContain(manifest.Warnings, "native generation is not ready yet") {
@@ -308,6 +316,9 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "Base memory estimate:") {
 		t.Fatalf("expected README memory estimate: %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "Eval coverage:") {
+		t.Fatalf("expected README eval coverage: %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "Warnings:") || !strings.Contains(string(readme), "native generation is not ready yet") {
 		t.Fatalf("expected README warning: %s", string(readme))

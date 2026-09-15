@@ -25,6 +25,7 @@ type NativeAdapterInfo struct {
 	TrainRows          int                  `json:"train_rows,omitempty"`
 	EvalRows           int                  `json:"eval_rows,omitempty"`
 	DuplicateRows      int                  `json:"duplicate_rows,omitempty"`
+	EvalCoverage       *NativeAdapterEval   `json:"eval_coverage,omitempty"`
 	BaseFormat         string               `json:"base_format,omitempty"`
 	Tokenizer          *TokenizerReport     `json:"tokenizer,omitempty"`
 	RecommendedBackend string               `json:"recommended_backend,omitempty"`
@@ -44,6 +45,16 @@ type NativeAdapterToken struct {
 	Text  string  `json:"text,omitempty"`
 	Count int     `json:"count"`
 	Bias  float32 `json:"bias"`
+}
+
+type NativeAdapterEval struct {
+	Rows                int     `json:"rows"`
+	Tokens              int     `json:"tokens"`
+	CoveredTokens       int     `json:"covered_tokens"`
+	Coverage            float64 `json:"coverage"`
+	UniqueTokens        int     `json:"unique_tokens"`
+	CoveredUniqueTokens int     `json:"covered_unique_tokens"`
+	UniqueCoverage      float64 `json:"unique_coverage"`
 }
 
 func InspectNativeAdapter(path string) (*NativeAdapterInfo, error) {

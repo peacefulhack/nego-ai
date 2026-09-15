@@ -2585,6 +2585,7 @@ func TestShareCheckCommandReportsNativeAdapterTokenizer(t *testing.T) {
 		"adapter_path":"adapter.json",
 		"recommended_backend":"native-hf",
 		"method":"token-bias",
+		"eval_coverage":{"rows":1,"tokens":2,"covered_tokens":1,"coverage":0.5,"unique_tokens":2,"covered_unique_tokens":1,"unique_coverage":0.5},
 		"tokenizer":{"format":"gguf","model":"llama","pre_tokenizer":"llama-bpe","vocab_size":10},
 		"updated_tokens":2,
 		"top_tokens":[{"id":1,"text":"secret-token","count":3,"bias":0.1}]
@@ -2600,7 +2601,7 @@ func TestShareCheckCommandReportsNativeAdapterTokenizer(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
-	for _, want := range []string{"Native adapter:", "Backend:        native-hf", "Tokenizer:", "Pre-tokenizer: llama-bpe"} {
+	for _, want := range []string{"Native adapter:", "Backend:        native-hf", "Eval coverage: 1/2 tokens", "Tokenizer:", "Pre-tokenizer: llama-bpe"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("expected %q in stdout %q", want, stdout.String())
 		}

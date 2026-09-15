@@ -707,6 +707,9 @@ func printShareCheck(w io.Writer, report *share.CheckReport) {
 		if report.NativeAdapter.UpdatedTokens > 0 {
 			fmt.Fprintf(w, "  Updated tokens: %d\n", report.NativeAdapter.UpdatedTokens)
 		}
+		if report.NativeAdapter.EvalCoverage != nil {
+			printNativeAdapterEvalCoverage(w, report.NativeAdapter.EvalCoverage)
+		}
 		if report.NativeAdapter.Tokenizer != nil {
 			writeTokenizerReport(w, report.NativeAdapter.Tokenizer)
 		}
@@ -1343,6 +1346,9 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	if result.EvalBudget != nil {
 		printTrainingTokenBudget(w, "Eval budget", result.EvalBudget)
 	}
+	if result.EvalCoverage != nil {
+		printNativeEvalCoverage(w, result.EvalCoverage)
+	}
 	fmt.Fprintf(w, "Train tokens:   %d\n", result.TrainTokens)
 	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
 	if result.Memory != nil {
@@ -1375,6 +1381,17 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	for _, warning := range result.Warnings {
 		fmt.Fprintf(w, "Warning:        %s\n", warning)
 	}
+}
+
+func printNativeEvalCoverage(w io.Writer, summary *training.NativeEvalSummary) {
+	fmt.Fprintf(w, "Eval coverage:  %d/%d tokens (%.2f%%), %d/%d unique (%.2f%%)\n",
+		summary.CoveredTokens,
+		summary.Tokens,
+		summary.Coverage*100,
+		summary.CoveredUniqueTokens,
+		summary.UniqueTokens,
+		summary.UniqueCoverage*100,
+	)
 }
 
 func nativeTrainingRunCommand(result training.NativeResult) string {
@@ -2522,7 +2539,21 @@ func writeNativeAdapterInfo(w io.Writer, info *modelinfo.NativeAdapterInfo) {
 	if info.UpdatedTokens > 0 {
 		fmt.Fprintf(w, "  Tokens:       %d updated\n", info.UpdatedTokens)
 	}
+	if info.EvalCoverage != nil {
+		printNativeAdapterEvalCoverage(w, info.EvalCoverage)
+	}
 	printNativeAdapterTopTokens(w, info.TopTokens)
+}
+
+func printNativeAdapterEvalCoverage(w io.Writer, summary *modelinfo.NativeAdapterEval) {
+	fmt.Fprintf(w, "  Eval coverage: %d/%d tokens (%.2f%%), %d/%d unique (%.2f%%)\n",
+		summary.CoveredTokens,
+		summary.Tokens,
+		summary.Coverage*100,
+		summary.CoveredUniqueTokens,
+		summary.UniqueTokens,
+		summary.UniqueCoverage*100,
+	)
 }
 
 func printNativeTrainingTopTokens(w io.Writer, tokens []training.NativeTokenSummary) {

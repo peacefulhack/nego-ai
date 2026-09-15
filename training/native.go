@@ -65,6 +65,7 @@ type NativeResult struct {
 	DuplicateRows int                        `json:"duplicate_rows,omitempty"`
 	TrainBudget   *TokenBudgetSummary        `json:"train_budget,omitempty"`
 	EvalBudget    *TokenBudgetSummary        `json:"eval_budget,omitempty"`
+	EvalCoverage  *NativeEvalSummary         `json:"eval_coverage,omitempty"`
 	TrainTokens   int                        `json:"train_tokens"`
 	VocabSize     int                        `json:"vocab_size"`
 	UpdatedTokens int                        `json:"updated_tokens"`
@@ -92,6 +93,7 @@ type NativeManifest struct {
 	TrainRows          int                        `json:"train_rows,omitempty"`
 	EvalRows           int                        `json:"eval_rows,omitempty"`
 	DuplicateRows      int                        `json:"duplicate_rows,omitempty"`
+	EvalCoverage       *NativeEvalSummary         `json:"eval_coverage,omitempty"`
 	BaseFormat         string                     `json:"base_format,omitempty"`
 	BaseMemory         *modelinfo.MemoryEstimate  `json:"base_memory,omitempty"`
 	Tokenizer          *modelinfo.TokenizerReport `json:"tokenizer,omitempty"`
@@ -112,6 +114,16 @@ type NativeTokenSummary struct {
 	Text  string  `json:"text,omitempty"`
 	Count int     `json:"count"`
 	Bias  float32 `json:"bias"`
+}
+
+type NativeEvalSummary struct {
+	Rows                int     `json:"rows"`
+	Tokens              int     `json:"tokens"`
+	CoveredTokens       int     `json:"covered_tokens"`
+	Coverage            float64 `json:"coverage"`
+	UniqueTokens        int     `json:"unique_tokens"`
+	CoveredUniqueTokens int     `json:"covered_unique_tokens"`
+	UniqueCoverage      float64 `json:"unique_coverage"`
 }
 
 func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
@@ -199,9 +211,10 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 			return result, fmt.Errorf("train file %q exceeds token budget: %w", normalized.TrainFile, err)
 		}
 	}
+	var evalRows []datasets.Row
 	if normalized.EvalFile != "" {
 		reportNativeProgress(normalized, NativeProgress{Stage: "read_eval", Message: "reading evaluation dataset"})
-		evalRows, err := datasets.ReadFile(resolvePath("", normalized.EvalFile))
+		evalRows, err = datasets.ReadFile(resolvePath("", normalized.EvalFile))
 		if err != nil {
 			return result, fmt.Errorf("eval file %q is invalid: %w", normalized.EvalFile, err)
 		}
@@ -250,6 +263,14 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.Adapter = adapter
 	result.UpdatedTokens = len(adapter.Bias)
 	result.TopTokens = topNativeTokens(counts, adapter.Bias, tok, 10)
+	if len(evalRows) > 0 {
+		reportNativeProgress(normalized, NativeProgress{Stage: "eval", Message: "checking eval token coverage", RowsTotal: len(evalRows)})
+		coverage, err := nativeEvalCoverage(evalRows, normalized.DatasetFormat, tok, adapter.Bias)
+		if err != nil {
+			return result, fmt.Errorf("eval file %q cannot be scored: %w", normalized.EvalFile, err)
+		}
+		result.EvalCoverage = coverage
+	}
 	result.Warnings = nativeTrainingWarnings(append(append([]string(nil), warnings...), runtimeWarnings...)...)
 	if normalized.DryRun {
 		result.Duration = time.Since(start)
@@ -344,6 +365,7 @@ func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *mode
 		TrainRows:          result.TrainRows,
 		EvalRows:           result.EvalRows,
 		DuplicateRows:      result.DuplicateRows,
+		EvalCoverage:       result.EvalCoverage,
 		BaseFormat:         string(artifact.Format),
 		BaseMemory:         result.Memory,
 		Tokenizer:          result.Tokenizer,
@@ -516,6 +538,9 @@ func writeNativeTrainingReadme(path string, manifest NativeManifest) error {
 	fmt.Fprintf(&b, "Backend: `%s`\n", manifest.RecommendedBackend)
 	if manifest.BaseMemory != nil && manifest.BaseMemory.TotalBytes > 0 {
 		fmt.Fprintf(&b, "Base memory estimate: `%d bytes`\n", manifest.BaseMemory.TotalBytes)
+	}
+	if manifest.EvalCoverage != nil {
+		fmt.Fprintf(&b, "Eval coverage: `%d/%d tokens (%.2f%%)`\n", manifest.EvalCoverage.CoveredTokens, manifest.EvalCoverage.Tokens, manifest.EvalCoverage.Coverage*100)
 	}
 	if manifest.Tokenizer != nil {
 		writeNativeReadmeTokenizer(&b, manifest.Tokenizer)
@@ -749,6 +774,40 @@ func nativeRowsTokenBudget(rows []datasets.Row, format string, tok nativeTrainin
 	summary.LongestRows = datasets.LongestTokenRows(summary.LongestRows, 5)
 	if summary.InvalidRows > 0 || summary.OverLimit > 0 {
 		return summary, fmt.Errorf("over_limit=%d invalid_rows=%d max_context=%d", summary.OverLimit, summary.InvalidRows, maxContext)
+	}
+	return summary, nil
+}
+
+func nativeEvalCoverage(rows []datasets.Row, format string, tok nativeTrainingTokenizer, bias map[int]float32) (*NativeEvalSummary, error) {
+	summary := &NativeEvalSummary{Rows: len(rows)}
+	unique := make(map[int]bool)
+	coveredUnique := make(map[int]bool)
+	for _, row := range rows {
+		text := targetText(row, format)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		ids, err := tok.encode(text)
+		if err != nil {
+			return summary, err
+		}
+		for _, id := range ids {
+			summary.Tokens++
+			unique[id] = true
+			if _, ok := bias[id]; ok {
+				summary.CoveredTokens++
+				coveredUnique[id] = true
+			}
+		}
+	}
+	summary.UniqueTokens = len(unique)
+	summary.CoveredUniqueTokens = len(coveredUnique)
+	if summary.Tokens == 0 {
+		return summary, fmt.Errorf("evaluation dataset produced no target tokens")
+	}
+	summary.Coverage = float64(summary.CoveredTokens) / float64(summary.Tokens)
+	if summary.UniqueTokens > 0 {
+		summary.UniqueCoverage = float64(summary.CoveredUniqueTokens) / float64(summary.UniqueTokens)
 	}
 	return summary, nil
 }

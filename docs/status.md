@@ -78,6 +78,7 @@ Implemented:
 43. Native training results, adapter manifests, and generated adapter READMEs persist GGUF tokenizer metadata when available.
 44. `nego train native --tokenize-check` validates tokenizer fixtures before training starts.
 45. Native adapter share manifests preserve tokenizer metadata while omitting token text.
+46. Native token-bias training reports eval token coverage when an eval dataset is provided.
 
 Not production-ready yet:
 
