@@ -3,6 +3,7 @@ package nativehf
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -32,6 +33,7 @@ func (b Backend) Info() nego.BackendInfo {
 			{Name: "adapter_path", Description: "alias for adapter"},
 			{Name: "experimental_generation", Description: "enable or disable the experimental native-hf generation path"},
 			{Name: "cache_tensors", Description: "cache float32 tensors in memory during generation; set false to reduce RAM use"},
+			{Name: "max_tensor_cache_bytes", Description: "maximum decoded float32 tensor cache bytes per model instance; 0 means unlimited"},
 		},
 	}
 }
@@ -65,16 +67,21 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if err != nil {
 		return nil, err
 	}
+	maxCacheBytes, err := optionUintDefault(opts.Options, "max_tensor_cache_bytes", 0)
+	if err != nil {
+		return nil, err
+	}
 	return &Model{
-		path:      opts.Path,
-		info:      info,
-		spec:      info.HFSpec,
-		store:     store,
-		tokenizer: tok,
-		float32:   make(map[string]cachedFloat32Tensor),
-		cache:     optionBoolDefault(opts.Options, "cache_tensors", true),
-		adapter:   adapter,
-		generate:  optionBoolDefault(opts.Options, "experimental_generation", true),
+		path:       opts.Path,
+		info:       info,
+		spec:       info.HFSpec,
+		store:      store,
+		tokenizer:  tok,
+		float32:    make(map[string]cachedFloat32Tensor),
+		cache:      optionBoolDefault(opts.Options, "cache_tensors", true),
+		cacheLimit: maxCacheBytes,
+		adapter:    adapter,
+		generate:   optionBoolDefault(opts.Options, "experimental_generation", true),
 	}, nil
 }
 
@@ -84,16 +91,18 @@ type cachedFloat32Tensor struct {
 }
 
 type Model struct {
-	path      string
-	info      *modelinfo.Info
-	spec      *modelinfo.HFModelSpec
-	store     *modelinfo.SafetensorsStore
-	tokenizer *tokenizer.Tokenizer
-	float32   map[string]cachedFloat32Tensor
-	tensorMu  sync.Mutex
-	cache     bool
-	adapter   *adapters.TokenBiasAdapter
-	generate  bool
+	path       string
+	info       *modelinfo.Info
+	spec       *modelinfo.HFModelSpec
+	store      *modelinfo.SafetensorsStore
+	tokenizer  *tokenizer.Tokenizer
+	float32    map[string]cachedFloat32Tensor
+	tensorMu   sync.Mutex
+	cache      bool
+	cacheBytes uint64
+	cacheLimit uint64
+	adapter    *adapters.TokenBiasAdapter
+	generate   bool
 }
 
 func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
@@ -226,11 +235,28 @@ func (m *Model) loadTensorFloat32Shared(name string) ([]float32, modelinfo.Safet
 	if !m.cache {
 		return values, tensor, nil
 	}
+	bytes, err := float32TensorBytes(values)
+	if err != nil {
+		return nil, modelinfo.SafetensorsTensor{}, err
+	}
+	if m.cacheLimit > 0 {
+		if m.cacheBytes > m.cacheLimit || bytes > m.cacheLimit-m.cacheBytes {
+			return nil, modelinfo.SafetensorsTensor{}, fmt.Errorf("native-hf decoded tensor cache would exceed max_tensor_cache_bytes: current=%d tensor=%d limit=%d", m.cacheBytes, bytes, m.cacheLimit)
+		}
+	}
 	if m.float32 == nil {
 		m.float32 = make(map[string]cachedFloat32Tensor)
 	}
 	m.float32[name] = cachedFloat32Tensor{values: values, tensor: tensor}
+	m.cacheBytes += bytes
 	return values, tensor, nil
+}
+
+func float32TensorBytes(values []float32) (uint64, error) {
+	if uint64(len(values)) > ^uint64(0)/4 {
+		return 0, fmt.Errorf("decoded float32 tensor byte size overflows")
+	}
+	return uint64(len(values)) * 4, nil
 }
 
 func cloneFloat32(values []float32) []float32 {
@@ -294,6 +320,21 @@ func optionBoolDefault(options map[string]string, key string, fallback bool) boo
 	default:
 		return fallback
 	}
+}
+
+func optionUintDefault(options map[string]string, key string, fallback uint64) (uint64, error) {
+	if len(options) == 0 {
+		return fallback, nil
+	}
+	value := strings.TrimSpace(options[key])
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("option %s must be an unsigned integer", key)
+	}
+	return parsed, nil
 }
 
 func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {

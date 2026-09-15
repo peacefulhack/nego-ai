@@ -2599,6 +2599,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	var splitMode string
 	var flashAttention bool
 	var noCacheTensors bool
+	var maxTensorCacheBytes uint64
 	var native bool
 	var adapterPath string
 	var configFile string
@@ -2624,6 +2625,7 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
 	fs.BoolVar(&noCacheTensors, "no-cache-tensors", false, "disable native decoded tensor cache")
+	fs.Uint64Var(&maxTensorCacheBytes, "max-tensor-cache-bytes", 0, "maximum native decoded tensor cache bytes; 0 means unlimited")
 	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.StringVar(&configFile, "f", "", "run config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
@@ -2718,17 +2720,18 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	options, err := runtimeOptions(cfg.Options, runtimeFlagOptions{
-		threads:        threads,
-		ctxSize:        ctxSize,
-		gpuLayers:      gpuLayers,
-		gpuMode:        gpuMode,
-		mainGPU:        mainGPU,
-		tensorSplit:    tensorSplit,
-		splitMode:      splitMode,
-		flashAttention: flashAttention,
-		noCacheTensors: noCacheTensors,
-		adapterPath:    adapterPath,
-		extraOptions:   extraOptions,
+		threads:             threads,
+		ctxSize:             ctxSize,
+		gpuLayers:           gpuLayers,
+		gpuMode:             gpuMode,
+		mainGPU:             mainGPU,
+		tensorSplit:         tensorSplit,
+		splitMode:           splitMode,
+		flashAttention:      flashAttention,
+		noCacheTensors:      noCacheTensors,
+		maxTensorCacheBytes: maxTensorCacheBytes,
+		adapterPath:         adapterPath,
+		extraOptions:        extraOptions,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -2785,6 +2788,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	var splitMode string
 	var flashAttention bool
 	var noCacheTensors bool
+	var maxTensorCacheBytes uint64
 	var configFile string
 	var logPath string
 	var sessionPath string
@@ -2814,6 +2818,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
 	fs.BoolVar(&noCacheTensors, "no-cache-tensors", false, "disable native decoded tensor cache")
+	fs.Uint64Var(&maxTensorCacheBytes, "max-tensor-cache-bytes", 0, "maximum native decoded tensor cache bytes; 0 means unlimited")
 	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.StringVar(&configFile, "f", "", "chat config file")
 	fs.StringVar(&logPath, "log", "", "append run result to JSONL log")
@@ -2953,17 +2958,18 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 2
 	}
 	options, err := runtimeOptions(cfg.Options, runtimeFlagOptions{
-		threads:        threads,
-		ctxSize:        ctxSize,
-		gpuLayers:      gpuLayers,
-		gpuMode:        gpuMode,
-		mainGPU:        mainGPU,
-		tensorSplit:    tensorSplit,
-		splitMode:      splitMode,
-		flashAttention: flashAttention,
-		noCacheTensors: noCacheTensors,
-		adapterPath:    adapterPath,
-		extraOptions:   extraOptions,
+		threads:             threads,
+		ctxSize:             ctxSize,
+		gpuLayers:           gpuLayers,
+		gpuMode:             gpuMode,
+		mainGPU:             mainGPU,
+		tensorSplit:         tensorSplit,
+		splitMode:           splitMode,
+		flashAttention:      flashAttention,
+		noCacheTensors:      noCacheTensors,
+		maxTensorCacheBytes: maxTensorCacheBytes,
+		adapterPath:         adapterPath,
+		extraOptions:        extraOptions,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
@@ -3464,17 +3470,18 @@ func sensitiveRuntimeOption(key string) bool {
 }
 
 type runtimeFlagOptions struct {
-	threads        int
-	ctxSize        int
-	gpuLayers      int
-	gpuMode        string
-	mainGPU        int
-	tensorSplit    string
-	splitMode      string
-	flashAttention bool
-	noCacheTensors bool
-	adapterPath    string
-	extraOptions   []string
+	threads             int
+	ctxSize             int
+	gpuLayers           int
+	gpuMode             string
+	mainGPU             int
+	tensorSplit         string
+	splitMode           string
+	flashAttention      bool
+	noCacheTensors      bool
+	maxTensorCacheBytes uint64
+	adapterPath         string
+	extraOptions        []string
 }
 
 func normalizeBackendFlag(backend string) string {
@@ -3545,6 +3552,9 @@ func runtimeOptions(base map[string]string, flags runtimeFlagOptions) (map[strin
 	if flags.noCacheTensors {
 		options["cache_tensors"] = "false"
 	}
+	if flags.maxTensorCacheBytes > 0 {
+		options["max_tensor_cache_bytes"] = strconv.FormatUint(flags.maxTensorCacheBytes, 10)
+	}
 	if flags.adapterPath != "" {
 		options["adapter_path"] = flags.adapterPath
 	}
@@ -3610,6 +3620,13 @@ func validateRuntimeOptions(options map[string]string) error {
 			}
 		}
 	}
+	for _, key := range []string{"max_tensor_read_bytes", "max_tensor_cache_bytes"} {
+		if value := options[key]; value != "" {
+			if _, err := strconv.ParseUint(value, 10, 64); err != nil {
+				return fmt.Errorf("%s must be an unsigned integer", key)
+			}
+		}
+	}
 	switch strings.ToLower(strings.TrimSpace(options["gpu"])) {
 	case "", "off", "none", "false", "0", "auto", "full", "all", "true", "1":
 	default:
@@ -3641,6 +3658,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	var splitMode string
 	var flashAttention bool
 	var noCacheTensors bool
+	var maxTensorCacheBytes uint64
 	var native bool
 	var adapterPath string
 	var extraOptions repeatedFlag
@@ -3660,6 +3678,7 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&splitMode, "split-mode", "", "llama.cpp multi-GPU split mode")
 	fs.BoolVar(&flashAttention, "flash-attn", false, "enable llama.cpp flash attention")
 	fs.BoolVar(&noCacheTensors, "no-cache-tensors", false, "disable native decoded tensor cache")
+	fs.Uint64Var(&maxTensorCacheBytes, "max-tensor-cache-bytes", 0, "maximum native decoded tensor cache bytes; 0 means unlimited")
 	fs.StringVar(&adapterPath, "adapter", "", "native adapter JSON")
 	fs.Var(&extraOptions, "option", "backend option key=value, repeatable")
 	parseArgs, positionals := splitFlags(args)
@@ -3684,17 +3703,18 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	options, err := runtimeOptions(nil, runtimeFlagOptions{
-		threads:        threads,
-		ctxSize:        ctxSize,
-		gpuLayers:      gpuLayers,
-		gpuMode:        gpuMode,
-		mainGPU:        mainGPU,
-		tensorSplit:    tensorSplit,
-		splitMode:      splitMode,
-		flashAttention: flashAttention,
-		noCacheTensors: noCacheTensors,
-		adapterPath:    adapterPath,
-		extraOptions:   extraOptions,
+		threads:             threads,
+		ctxSize:             ctxSize,
+		gpuLayers:           gpuLayers,
+		gpuMode:             gpuMode,
+		mainGPU:             mainGPU,
+		tensorSplit:         tensorSplit,
+		splitMode:           splitMode,
+		flashAttention:      flashAttention,
+		noCacheTensors:      noCacheTensors,
+		maxTensorCacheBytes: maxTensorCacheBytes,
+		adapterPath:         adapterPath,
+		extraOptions:        extraOptions,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)

@@ -201,6 +201,7 @@ Current status:
 - Decodes GGUF token IDs into text for native generation plumbing.
 - Reads raw GGUF tensor bytes in Go.
 - Guards raw GGUF tensor reads with a configurable `max_tensor_read_bytes` limit.
+- Can cap decoded float32 tensor cache memory with `max_tensor_cache_bytes` or CLI `--max-tensor-cache-bytes`.
 - Includes early CPU tensor math primitives for F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q8_1, Q2_K, Q3_K, Q4_K, Q5_K, and Q6_K data.
 - Includes RMSNorm, SiLU, and softmax primitives for transformer blocks.
 - Includes residual/vector helpers and RoPE primitives for attention plumbing.
@@ -237,7 +238,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 
 Current status: it loads safetensors metadata, tensor readers, selected F32/F16/BF16 tensors as float32, HF Qwen/Llama weight manifests, tokenizer.json, native adapters, early float32 math primitives, prompt decode state, KV cache history, repeat-penalty/top-k/top-p/temperature sampling, experimental generation, and streaming chat. Full production-quality autoregressive generation for Qwen/Llama models is still in progress.
 
-Native-HF caches float32 tensors per loaded model by default during generation. Use `Options: map[string]string{"cache_tensors": "false"}` when you prefer lower RAM use over speed.
+Native-HF caches float32 tensors per loaded model by default during generation. Use `Options: map[string]string{"cache_tensors": "false"}` when you prefer lower RAM use over speed, or `max_tensor_cache_bytes` to cap the decoded cache.
 
 ## Local llama.cpp runtime
 

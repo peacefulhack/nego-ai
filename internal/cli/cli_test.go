@@ -1560,16 +1560,17 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		"gpu":        "off",
 		"custom":     "value",
 	}, runtimeFlagOptions{
-		threads:        4,
-		ctxSize:        2048,
-		gpuMode:        "full",
-		mainGPU:        1,
-		tensorSplit:    "3,1",
-		splitMode:      "layer",
-		flashAttention: true,
-		noCacheTensors: true,
-		adapterPath:    "adapter.json",
-		extraOptions:   []string{"experimental_generation=true", "custom=override"},
+		threads:             4,
+		ctxSize:             2048,
+		gpuMode:             "full",
+		mainGPU:             1,
+		tensorSplit:         "3,1",
+		splitMode:           "layer",
+		flashAttention:      true,
+		noCacheTensors:      true,
+		maxTensorCacheBytes: 4096,
+		adapterPath:         "adapter.json",
+		extraOptions:        []string{"experimental_generation=true", "custom=override"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1584,6 +1585,7 @@ func TestRuntimeOptionsMergesConfigAndFlags(t *testing.T) {
 		"split_mode":              "layer",
 		"flash_attn":              "true",
 		"cache_tensors":           "false",
+		"max_tensor_cache_bytes":  "4096",
 		"adapter_path":            "adapter.json",
 		"custom":                  "override",
 		"experimental_generation": "true",
@@ -1617,6 +1619,9 @@ func TestValidateRuntimeOptions(t *testing.T) {
 	}
 	if err := validateRuntimeOptions(map[string]string{"flash_attn": "maybe"}); err == nil {
 		t.Fatal("expected invalid flash_attn error")
+	}
+	if err := validateRuntimeOptions(map[string]string{"max_tensor_cache_bytes": "many"}); err == nil {
+		t.Fatal("expected invalid max_tensor_cache_bytes error")
 	}
 }
 

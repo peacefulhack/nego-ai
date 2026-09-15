@@ -37,6 +37,7 @@ func (b Backend) Info() nego.BackendInfo {
 			{Name: "allow_incomplete", Description: "allow loading incomplete GGUF manifests for tensor inspection; generation may still fail"},
 			{Name: "cache_tensors", Description: "cache decoded float32 tensors per model instance; defaults to true"},
 			{Name: "max_tensor_read_bytes", Description: "maximum raw tensor bytes read into memory at once; defaults to 536870912"},
+			{Name: "max_tensor_cache_bytes", Description: "maximum decoded float32 tensor cache bytes per model instance; 0 means unlimited"},
 		},
 	}
 }
@@ -71,6 +72,10 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if err != nil {
 		return nil, err
 	}
+	maxCacheBytes, err := optionUintDefault(opts.Options, "max_tensor_cache_bytes", 0)
+	if err != nil {
+		return nil, err
+	}
 	tensors, err := openTensorStore(modelPath, info, maxReadBytes)
 	if err != nil {
 		return nil, fmt.Errorf("open native tensor store: %w", err)
@@ -81,17 +86,18 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		return nil, err
 	}
 	return &Model{
-		path:         modelPath,
-		info:         info,
-		vocab:        vocab,
-		spec:         spec,
-		names:        tensorNames,
-		manifest:     manifest,
-		tensors:      tensors,
-		float32:      make(map[string]cachedFloat32Tensor),
-		cacheTensors: optionBoolDefault(opts.Options, "cache_tensors", true),
-		adapter:      adapter,
-		promptPath:   promptPath(opts.Path, modelPath, opts.Options),
+		path:          modelPath,
+		info:          info,
+		vocab:         vocab,
+		spec:          spec,
+		names:         tensorNames,
+		manifest:      manifest,
+		tensors:       tensors,
+		float32:       make(map[string]cachedFloat32Tensor),
+		cacheTensors:  optionBoolDefault(opts.Options, "cache_tensors", true),
+		maxCacheBytes: maxCacheBytes,
+		adapter:       adapter,
+		promptPath:    promptPath(opts.Path, modelPath, opts.Options),
 	}, nil
 }
 
@@ -146,18 +152,20 @@ type cachedFloat32Tensor struct {
 }
 
 type Model struct {
-	path         string
-	info         *modelinfo.GGUFInfo
-	vocab        *modelinfo.GGUFVocab
-	spec         ModelSpec
-	names        TensorNames
-	manifest     TensorManifestReport
-	tensors      *tensorStore
-	float32      map[string]cachedFloat32Tensor
-	cacheTensors bool
-	tensorMu     sync.Mutex
-	adapter      *adapters.TokenBiasAdapter
-	promptPath   string
+	path          string
+	info          *modelinfo.GGUFInfo
+	vocab         *modelinfo.GGUFVocab
+	spec          ModelSpec
+	names         TensorNames
+	manifest      TensorManifestReport
+	tensors       *tensorStore
+	float32       map[string]cachedFloat32Tensor
+	cacheTensors  bool
+	cacheBytes    uint64
+	maxCacheBytes uint64
+	tensorMu      sync.Mutex
+	adapter       *adapters.TokenBiasAdapter
+	promptPath    string
 }
 
 func (m *Model) Generate(ctx context.Context, req nego.GenerateRequest) (*nego.GenerateOutput, error) {
@@ -298,11 +306,28 @@ func (m *Model) loadTensorFloat32Shared(name string) ([]float32, modelinfo.GGUFT
 	if !m.cacheTensors {
 		return values, tensor, nil
 	}
+	bytes, err := float32TensorBytes(values)
+	if err != nil {
+		return nil, modelinfo.GGUFTensor{}, err
+	}
+	if m.maxCacheBytes > 0 {
+		if m.cacheBytes > m.maxCacheBytes || bytes > m.maxCacheBytes-m.cacheBytes {
+			return nil, modelinfo.GGUFTensor{}, fmt.Errorf("native decoded tensor cache would exceed max_tensor_cache_bytes: current=%d tensor=%d limit=%d", m.cacheBytes, bytes, m.maxCacheBytes)
+		}
+	}
 	if m.float32 == nil {
 		m.float32 = make(map[string]cachedFloat32Tensor)
 	}
 	m.float32[name] = cachedFloat32Tensor{values: values, tensor: tensor}
+	m.cacheBytes += bytes
 	return values, tensor, nil
+}
+
+func float32TensorBytes(values []float32) (uint64, error) {
+	if uint64(len(values)) > ^uint64(0)/4 {
+		return 0, fmt.Errorf("decoded float32 tensor byte size overflows")
+	}
+	return uint64(len(values)) * 4, nil
 }
 
 func (m *Model) DecodeTokenIDs(ids []int) (string, error) {

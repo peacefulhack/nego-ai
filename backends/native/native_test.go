@@ -76,6 +76,19 @@ func TestLoadRejectsInvalidMaxTensorReadBytes(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidMaxTensorCacheBytes(t *testing.T) {
+	_, err := Backend{}.Load(context.Background(), nego.ModelOptions{
+		Path: fakeGGUF(t),
+		Options: map[string]string{
+			"allow_incomplete":       "true",
+			"max_tensor_cache_bytes": "many",
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "max_tensor_cache_bytes") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestGenerateReportsExperimentalInference(t *testing.T) {
 	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {

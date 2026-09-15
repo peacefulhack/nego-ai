@@ -60,6 +60,7 @@ Implemented:
 25. Runtime CLI commands print model-loading progress before potentially slow backend initialization.
 26. Native GGUF raw tensor reads use a configurable `max_tensor_read_bytes` safety limit.
 27. Native GGUF spec, readiness, memory, and manifest checks honor `attention.key_length` / `attention.value_length` metadata for Qwen-style projection dimensions.
+28. Pure-Go runtime backends can cap decoded float32 tensor cache memory with `max_tensor_cache_bytes` / `--max-tensor-cache-bytes`.
 
 Not production-ready yet:
 

@@ -105,6 +105,36 @@ func TestNativeHFBackendRejectsMissingTensors(t *testing.T) {
 	}
 }
 
+func TestNativeHFBackendHonorsCacheByteLimit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":1,"max_position_embeddings":8,"hidden_size":4,"num_hidden_layers":1,"intermediate_size":8,"num_attention_heads":2,"num_key_value_heads":1,"head_dim":2}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "model.safetensors"), nativeHFSafetensorsFixture(nativeHFTensorNames()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{
+		Path: dir,
+		Options: map[string]string{
+			"experimental_generation": "false",
+			"max_tensor_cache_bytes":  "1",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+
+	_, _, err = model.(*Model).LoadTensorFloat32("model.norm.weight")
+	if err == nil || !strings.Contains(err.Error(), "max_tensor_cache_bytes") {
+		t.Fatalf("unexpected cache limit error: %v", err)
+	}
+}
+
 func nativeHFTensorNames() map[string][]uint64 {
 	return map[string][]uint64{
 		"model.embed_tokens.weight":                      {1, 4},

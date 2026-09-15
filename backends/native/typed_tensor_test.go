@@ -98,6 +98,22 @@ func TestLoadTensorFloat32CanDisableCache(t *testing.T) {
 	}
 }
 
+func TestLoadTensorFloat32HonorsCacheByteLimit(t *testing.T) {
+	options := allowIncompleteOptions()
+	options["max_tensor_cache_bytes"] = "1"
+	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: options})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer model.Close()
+
+	nativeModel := model.(*Model)
+	_, _, err = nativeModel.loadTensorFloat32Shared("token_embd.weight")
+	if err == nil || !strings.Contains(err.Error(), "max_tensor_cache_bytes") {
+		t.Fatalf("unexpected cache limit error: %v", err)
+	}
+}
+
 func TestLoadTensorFloat32RejectsClosedModel(t *testing.T) {
 	model, err := Backend{}.Load(context.Background(), nego.ModelOptions{Path: fakeGGUF(t), Options: allowIncompleteOptions()})
 	if err != nil {
