@@ -68,6 +68,8 @@ Implemented:
 33. `nego check` reports GGUF tokenizer model, pre-tokenizer, vocab size, special token IDs, and tokenizer defaults.
 34. Native GGUF readiness warns when parsed pre-tokenizer metadata may still need token-ID validation before training or output comparisons.
 35. `nego tokenize`, `nego tokens`, and `nego context` can use GGUF vocabulary metadata when `tokenizer.json` is not present.
+36. `nego tokenize check` validates tokenization fixtures with expected token IDs and decoded text for local tokenizer regression checks.
+37. GGUF decode skip-special handling recognizes common special token strings even when the special token ID is zero.
 
 Not production-ready yet:
 
@@ -80,7 +82,7 @@ Not production-ready yet:
 
 ## Next Critical Phases
 
-1. Validate native tokenizer output against known Llama/Qwen tokenizer fixtures.
+1. Add curated Llama/Qwen tokenizer fixture packs for `nego tokenize check`.
 2. Validate native forward math against known tiny Llama/Qwen GGUF and safetensors fixtures.
 3. Run K-quant compatibility tests against small real GGUF fixtures.
 4. Add optimized CPU execution, batching, and memory reuse for larger local models.

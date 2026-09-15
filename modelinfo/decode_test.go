@@ -29,6 +29,17 @@ func TestGGUFVocabDecodeRejectsInvalidID(t *testing.T) {
 	}
 }
 
+func TestGGUFVocabDecodeSkipsKnownSpecialIDZero(t *testing.T) {
+	vocab := &GGUFVocab{Tokens: []string{"<s>", "hello"}}
+	got, err := vocab.Decode([]int{0, 1}, DecodeOptions{SkipSpecial: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "hello" {
+		t.Fatalf("Decode = %q, want hello", got)
+	}
+}
+
 func TestGGUFVocabDecodeRejectsNilVocab(t *testing.T) {
 	_, err := (*GGUFVocab)(nil).Decode([]int{0}, DecodeOptions{})
 	if err == nil || !strings.Contains(err.Error(), "nil") {

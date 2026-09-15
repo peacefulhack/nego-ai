@@ -254,6 +254,19 @@ Show token IDs:
 nego tokenize ./models/qwen3 "Explain Go in simple terms."
 ```
 
+Validate tokenizer regression fixtures:
+
+```json
+[
+  {"name":"hello","text":"hello","tokens":[0,1],"decoded":"hello"}
+]
+```
+
+```bash
+nego tokenize check ./models/qwen3 tokenizer-fixtures.json
+nego tokenize check ./models/qwen3 tokenizer-fixtures.json --json
+```
+
 Check whether a prompt fits a context window:
 
 ```bash

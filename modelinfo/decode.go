@@ -37,10 +37,38 @@ func (v *GGUFVocab) isSpecialToken(id int) bool {
 	if id == int(v.PADTokenID) && v.PADTokenID != 0 {
 		return true
 	}
+	if id == int(v.EOTTokenID) && v.EOTTokenID != 0 {
+		return true
+	}
+	if id == int(v.EOMTokenID) && v.EOMTokenID != 0 {
+		return true
+	}
 	if id < len(v.TokenTypes) && v.TokenTypes[id] == 3 {
 		return true
 	}
+	if id >= 0 && id < len(v.Tokens) && knownSpecialToken(v.Tokens[id]) {
+		return true
+	}
 	return false
+}
+
+func knownSpecialToken(token string) bool {
+	switch token {
+	case "<s>",
+		"</s>",
+		"<bos>",
+		"<eos>",
+		"<pad>",
+		"<|begin_of_text|>",
+		"<|end_of_text|>",
+		"<|endoftext|>",
+		"<|eot_id|>",
+		"<|im_start|>",
+		"<|im_end|>":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeDecodedToken(b *strings.Builder, token string) {

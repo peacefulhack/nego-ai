@@ -404,6 +404,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego cache usage [flags]")
 	fmt.Fprintln(w, "  nego cache gc --yes [flags]")
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
+	fmt.Fprintln(w, "  nego tokenize check <model-path> <fixtures.json> [flags]")
 	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
 	fmt.Fprintln(w, "  nego context <model-path> <text> [flags]")
 	fmt.Fprintln(w, "  nego prompt <model-path> --user <text> [flags]")
@@ -1775,6 +1776,9 @@ func evalUsage(w io.Writer) {
 }
 
 func runTokenize(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "check" {
+		return runTokenizeCheck(args[1:], stdout, stderr)
+	}
 	var jsonOutput bool
 	fs := flag.NewFlagSet("tokenize", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -1921,6 +1925,7 @@ type contextBudgetResult struct {
 
 type textTokenizer interface {
 	Encode(text string) ([]int, error)
+	Decode(ids []int) (string, error)
 	Count(text string) (int, error)
 }
 
@@ -1938,6 +1943,10 @@ func (t ggufTextTokenizer) Count(text string) (int, error) {
 		return 0, err
 	}
 	return len(ids), nil
+}
+
+func (t ggufTextTokenizer) Decode(ids []int) (string, error) {
+	return t.vocab.Decode(ids, modelinfo.DecodeOptions{SkipSpecial: true})
 }
 
 func loadCLITokenizer(path string) (textTokenizer, error) {
@@ -1972,6 +1981,192 @@ func loadGGUFCLITokenizer(path string) (textTokenizer, error) {
 		return nil, fmt.Errorf("GGUF tokenizer %s does not contain tokens", path)
 	}
 	return ggufTextTokenizer{vocab: vocab}, nil
+}
+
+const maxTokenizeCheckBytes = 8 << 20
+
+type tokenizeCheckCase struct {
+	Name    string  `json:"name,omitempty"`
+	Text    string  `json:"text"`
+	Tokens  []int   `json:"tokens,omitempty"`
+	IDs     []int   `json:"ids,omitempty"`
+	Decoded *string `json:"decoded,omitempty"`
+}
+
+type tokenizeCheckCaseResult struct {
+	Name            string   `json:"name,omitempty"`
+	Text            string   `json:"text"`
+	Tokens          []int    `json:"tokens,omitempty"`
+	ExpectedTokens  []int    `json:"expected_tokens,omitempty"`
+	Decoded         string   `json:"decoded,omitempty"`
+	ExpectedDecoded *string  `json:"expected_decoded,omitempty"`
+	Passed          bool     `json:"passed"`
+	Errors          []string `json:"errors,omitempty"`
+}
+
+type tokenizeCheckResult struct {
+	Passed int                       `json:"passed"`
+	Failed int                       `json:"failed"`
+	Total  int                       `json:"total"`
+	Cases  []tokenizeCheckCaseResult `json:"cases"`
+}
+
+func runTokenizeCheck(args []string, stdout, stderr io.Writer) int {
+	var jsonOutput bool
+	fs := flag.NewFlagSet("tokenize check", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if len(positionals) != 2 {
+		fmt.Fprintln(stderr, "usage: nego tokenize check <model-path> <fixtures.json> [flags]")
+		return 2
+	}
+	tok, err := loadCLITokenizer(positionals[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	cases, err := readTokenizeCheckCases(positionals[1])
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	result := runTokenizeCheckCases(tok, cases)
+	if jsonOutput {
+		_ = json.NewEncoder(stdout).Encode(result)
+	} else {
+		writeTokenizeCheckResult(stdout, result)
+	}
+	if result.Failed > 0 {
+		return 1
+	}
+	return 0
+}
+
+func readTokenizeCheckCases(path string) ([]tokenizeCheckCase, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, maxTokenizeCheckBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxTokenizeCheckBytes {
+		return nil, fmt.Errorf("tokenize check fixture %s exceeds %d bytes", path, maxTokenizeCheckBytes)
+	}
+	var cases []tokenizeCheckCase
+	if err := json.Unmarshal(data, &cases); err == nil {
+		return validateTokenizeCheckCases(cases)
+	}
+	var wrapped struct {
+		Cases []tokenizeCheckCase `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &wrapped); err != nil {
+		return nil, fmt.Errorf("parse tokenize check fixture: %w", err)
+	}
+	return validateTokenizeCheckCases(wrapped.Cases)
+}
+
+func validateTokenizeCheckCases(cases []tokenizeCheckCase) ([]tokenizeCheckCase, error) {
+	if len(cases) == 0 {
+		return nil, fmt.Errorf("tokenize check fixture has no cases")
+	}
+	for i, c := range cases {
+		if len(c.Tokens) == 0 && len(c.IDs) == 0 && c.Decoded == nil {
+			return nil, fmt.Errorf("tokenize check case %d must set tokens, ids, or decoded", i+1)
+		}
+	}
+	return cases, nil
+}
+
+func runTokenizeCheckCases(tok textTokenizer, cases []tokenizeCheckCase) tokenizeCheckResult {
+	result := tokenizeCheckResult{Total: len(cases), Cases: make([]tokenizeCheckCaseResult, 0, len(cases))}
+	for i, c := range cases {
+		name := c.Name
+		if name == "" {
+			name = fmt.Sprintf("case %d", i+1)
+		}
+		caseResult := tokenizeCheckCaseResult{
+			Name:            name,
+			Text:            c.Text,
+			ExpectedTokens:  expectedTokenIDs(c),
+			ExpectedDecoded: c.Decoded,
+			Passed:          true,
+		}
+		ids, err := tok.Encode(c.Text)
+		if err != nil {
+			caseResult.Passed = false
+			caseResult.Errors = append(caseResult.Errors, "encode: "+err.Error())
+		} else {
+			caseResult.Tokens = ids
+			if len(caseResult.ExpectedTokens) > 0 && !equalInts(ids, caseResult.ExpectedTokens) {
+				caseResult.Passed = false
+				caseResult.Errors = append(caseResult.Errors, fmt.Sprintf("tokens got %v want %v", ids, caseResult.ExpectedTokens))
+			}
+			decoded, err := tok.Decode(ids)
+			if err != nil {
+				caseResult.Passed = false
+				caseResult.Errors = append(caseResult.Errors, "decode: "+err.Error())
+			} else {
+				caseResult.Decoded = decoded
+				if c.Decoded != nil && decoded != *c.Decoded {
+					caseResult.Passed = false
+					caseResult.Errors = append(caseResult.Errors, fmt.Sprintf("decoded got %q want %q", decoded, *c.Decoded))
+				}
+			}
+		}
+		if caseResult.Passed {
+			result.Passed++
+		} else {
+			result.Failed++
+		}
+		result.Cases = append(result.Cases, caseResult)
+	}
+	return result
+}
+
+func expectedTokenIDs(c tokenizeCheckCase) []int {
+	if len(c.Tokens) > 0 {
+		return c.Tokens
+	}
+	return c.IDs
+}
+
+func equalInts(left, right []int) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func writeTokenizeCheckResult(w io.Writer, result tokenizeCheckResult) {
+	fmt.Fprintln(w, "Tokenizer check")
+	fmt.Fprintf(w, "Passed: %d\n", result.Passed)
+	fmt.Fprintf(w, "Failed: %d\n", result.Failed)
+	fmt.Fprintf(w, "Total:  %d\n", result.Total)
+	if result.Failed == 0 {
+		return
+	}
+	fmt.Fprintln(w, "Failures:")
+	for _, c := range result.Cases {
+		if c.Passed {
+			continue
+		}
+		fmt.Fprintf(w, "  - %s\n", c.Name)
+		for _, message := range c.Errors {
+			fmt.Fprintf(w, "    - %s\n", message)
+		}
+	}
 }
 
 func buildPromptMessages(system string, users, assistants []string) []chattemplate.Message {

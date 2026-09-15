@@ -116,6 +116,7 @@ nego tokenize ./models/qwen3 "hello world"
 nego tokens ./models/qwen3 "hello world"
 nego context ./models/qwen3 "hello world" --max-context 4096
 nego tokenize ./models/model.gguf "hello world"
+nego tokenize check ./models/model.gguf tokenizer-fixtures.json
 ```
 
 ```go
@@ -124,6 +125,7 @@ ids, err := tok.EncodeBatch([]string{"hello", "world"})
 
 The tokenizer helper supports WordLevel vocab maps, added tokens, BPE merge rules, and Unigram/SentencePiece-style vocab arrays for development workflows.
 The CLI also falls back to GGUF vocabulary metadata when a model path has no `tokenizer.json`.
+Tokenizer check fixtures can be a JSON array or `{ "cases": [...] }` with rows like `{"name":"hello","text":"hello","tokens":[0,1],"decoded":"hello"}`.
 
 ## Prompt rendering
 

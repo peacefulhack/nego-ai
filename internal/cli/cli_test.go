@@ -482,6 +482,60 @@ func TestTokenizeCommandSupportsGGUF(t *testing.T) {
 	}
 }
 
+func TestTokenizeCheckCommand(t *testing.T) {
+	modelPath := fakeTokenizerGGUF(t)
+	fixture := filepath.Join(t.TempDir(), "tokenizer-fixtures.json")
+	body := `[
+		{"name":"hello","text":"hello","tokens":[0,1],"decoded":"hello"}
+	]`
+	if err := os.WriteFile(fixture, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"tokenize", "check", modelPath, fixture}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Tokenizer check", "Passed: 1", "Failed: 0", "Total:  1"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
+func TestTokenizeCheckCommandReportsFailuresJSON(t *testing.T) {
+	modelPath := fakeTokenizerGGUF(t)
+	fixture := filepath.Join(t.TempDir(), "tokenizer-fixtures.json")
+	body := `{"cases":[
+		{"name":"hello","text":"hello","ids":[1],"decoded":"bye"}
+	]}`
+	if err := os.WriteFile(fixture, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"tokenize", "check", modelPath, fixture, "--json"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var result struct {
+		Passed int `json:"passed"`
+		Failed int `json:"failed"`
+		Cases  []struct {
+			Passed bool     `json:"passed"`
+			Errors []string `json:"errors"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Passed != 0 || result.Failed != 1 || len(result.Cases) != 1 || result.Cases[0].Passed || len(result.Cases[0].Errors) != 2 {
+		t.Fatalf("unexpected result: %s", stdout.String())
+	}
+}
+
 func TestTokensCommand(t *testing.T) {
 	dir := t.TempDir()
 	writeCLITokenizer(t, dir)
