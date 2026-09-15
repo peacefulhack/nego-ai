@@ -9,7 +9,7 @@ import (
 
 func TestReadGGUFVocabParsesTokenizerMetadata(t *testing.T) {
 	var buf bytes.Buffer
-	writeGGUFHeader(t, &buf, 3, 0, 8)
+	writeGGUFHeader(t, &buf, 3, 0, 10)
 	writeGGUFStringKV(t, &buf, "tokenizer.ggml.model", "llama")
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello", "world"})
 	writeGGUFFloat32ArrayKV(t, &buf, "tokenizer.ggml.scores", []float32{0, -1, -2})
@@ -17,13 +17,15 @@ func TestReadGGUFVocabParsesTokenizerMetadata(t *testing.T) {
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.merges", []string{"h e", "he llo"})
 	writeGGUFUint32KV(t, &buf, "tokenizer.ggml.bos_token_id", 1)
 	writeGGUFUint32KV(t, &buf, "tokenizer.ggml.eos_token_id", 2)
+	writeGGUFBoolKV(t, &buf, "tokenizer.ggml.add_bos_token", true)
+	writeGGUFBoolKV(t, &buf, "tokenizer.ggml.add_eos_token", false)
 	writeGGUFStringKV(t, &buf, "tokenizer.chat_template", "{{ .Prompt }}")
 
 	vocab, err := ReadGGUFVocab(bytes.NewReader(buf.Bytes()), "model.gguf")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if vocab.Model != "llama" || vocab.BOSTokenID != 1 || vocab.EOSTokenID != 2 {
+	if vocab.Model != "llama" || vocab.BOSTokenID != 1 || vocab.EOSTokenID != 2 || !vocab.AddBOS || vocab.AddEOS {
 		t.Fatalf("unexpected vocab metadata: %#v", vocab)
 	}
 	if strings.Join(vocab.Tokens, ",") != "<unk>,hello,world" {
@@ -69,6 +71,21 @@ func TestReadGGUFVocabRejectsWrongArrayType(t *testing.T) {
 	_, err := ReadGGUFVocab(bytes.NewReader(buf.Bytes()), "model.gguf")
 	if err == nil || !strings.Contains(err.Error(), "want string") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func writeGGUFBoolKV(t *testing.T, buf *bytes.Buffer, key string, value bool) {
+	t.Helper()
+	writeGGUFString(t, buf, key)
+	if err := binary.Write(buf, binary.LittleEndian, uint32(7)); err != nil {
+		t.Fatal(err)
+	}
+	raw := uint8(0)
+	if value {
+		raw = 1
+	}
+	if err := binary.Write(buf, binary.LittleEndian, raw); err != nil {
+		t.Fatal(err)
 	}
 }
 

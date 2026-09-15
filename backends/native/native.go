@@ -341,7 +341,7 @@ func (m *Model) EncodeText(text string) ([]int, error) {
 	if m.vocab == nil {
 		return nil, fmt.Errorf("native GGUF vocab is not loaded")
 	}
-	return m.vocab.Encode(text, modelinfo.EncodeOptions{})
+	return m.vocab.Encode(text, m.vocab.DefaultEncodeOptions())
 }
 
 func (m *Model) renderChatPrompt(messages []nego.Message) (string, error) {

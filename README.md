@@ -197,6 +197,7 @@ Current status:
 - Rejects incomplete native GGUF loads by default, with `allow_incomplete=true` available for tensor inspection tooling.
 - Loads per-block native runtime weights from GGUF tensor storage.
 - Reads GGUF tokenizer vocabulary and BPE merge metadata in Go.
+- Honors GGUF tokenizer `add_bos_token` and `add_eos_token` defaults in native prompt encoding.
 - Encodes and decodes text with a GGUF vocabulary tokenizer path.
 - Decodes GGUF token IDs into text for native generation plumbing.
 - Reads raw GGUF tensor bytes in Go.

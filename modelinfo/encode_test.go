@@ -20,6 +20,19 @@ func TestGGUFVocabEncode(t *testing.T) {
 	assertIDs(t, got, want)
 }
 
+func TestGGUFVocabDefaultEncodeOptions(t *testing.T) {
+	vocab := &GGUFVocab{
+		Tokens: []string{"<s>", "</s>", "hello"},
+		AddBOS: true,
+		AddEOS: true,
+	}
+	got, err := vocab.Encode("hello", vocab.DefaultEncodeOptions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertIDs(t, got, []int{0, 2, 1})
+}
+
 func TestGGUFVocabEncodeByteFallback(t *testing.T) {
 	vocab := &GGUFVocab{Tokens: []string{"<unk>", "<0x0A>"}}
 	got, err := vocab.Encode("\n", EncodeOptions{})

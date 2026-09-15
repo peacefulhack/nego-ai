@@ -204,6 +204,23 @@ func TestEncodeTextUsesGGUFVocab(t *testing.T) {
 	}
 }
 
+func TestEncodeTextUsesGGUFDefaultSpecialTokens(t *testing.T) {
+	model := &Model{
+		vocab: &modelinfo.GGUFVocab{
+			Tokens: []string{"<s>", "</s>", "hello"},
+			AddBOS: true,
+			AddEOS: true,
+		},
+	}
+	got, err := model.EncodeText("hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 || got[0] != 0 || got[1] != 2 || got[2] != 1 {
+		t.Fatalf("unexpected ids: %#v", got)
+	}
+}
+
 func TestPromptPathUsesModelDirectoryForGGUFFile(t *testing.T) {
 	dir := t.TempDir()
 	modelPath := filepath.Join(dir, "model.gguf")

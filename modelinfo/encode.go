@@ -11,6 +11,13 @@ type EncodeOptions struct {
 	AddEOS bool
 }
 
+func (v *GGUFVocab) DefaultEncodeOptions() EncodeOptions {
+	if v == nil {
+		return EncodeOptions{}
+	}
+	return EncodeOptions{AddBOS: v.AddBOS, AddEOS: v.AddEOS}
+}
+
 func (v *GGUFVocab) Encode(text string, options EncodeOptions) ([]int, error) {
 	if v == nil {
 		return nil, fmt.Errorf("gguf vocab is nil")

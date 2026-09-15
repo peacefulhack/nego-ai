@@ -647,7 +647,7 @@ type ggufTrainingTokenizer struct {
 }
 
 func (t ggufTrainingTokenizer) encode(text string) ([]int, error) {
-	return t.vocab.Encode(text, modelinfo.EncodeOptions{})
+	return t.vocab.Encode(text, t.vocab.DefaultEncodeOptions())
 }
 
 func (t ggufTrainingTokenizer) decode(ids []int) (string, error) {

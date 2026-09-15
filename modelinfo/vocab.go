@@ -18,6 +18,8 @@ type GGUFVocab struct {
 	EOSTokenID   uint32    `json:"eos_token_id,omitempty"`
 	UNKTokenID   uint32    `json:"unk_token_id,omitempty"`
 	PADTokenID   uint32    `json:"pad_token_id,omitempty"`
+	AddBOS       bool      `json:"add_bos_token,omitempty"`
+	AddEOS       bool      `json:"add_eos_token,omitempty"`
 	ChatTemplate string    `json:"chat_template,omitempty"`
 }
 
@@ -121,6 +123,18 @@ func readGGUFVocabValue(r io.Reader, key string, typ uint32, vocab *GGUFVocab) e
 			return err
 		}
 		vocab.PADTokenID = value
+	case "tokenizer.ggml.add_bos_token":
+		value, err := readGGUFBoolValue(r, typ, key)
+		if err != nil {
+			return err
+		}
+		vocab.AddBOS = value
+	case "tokenizer.ggml.add_eos_token":
+		value, err := readGGUFBoolValue(r, typ, key)
+		if err != nil {
+			return err
+		}
+		vocab.AddEOS = value
 	case "tokenizer.chat_template":
 		value, err := readGGUFStringValue(r, typ, key)
 		if err != nil {
@@ -161,6 +175,19 @@ func readGGUFUint32Value(r io.Reader, typ uint32, key string) (uint32, error) {
 		return uint32(value), nil
 	default:
 		return 0, fmt.Errorf("gguf metadata %q is type %T, want unsigned integer", key, value)
+	}
+}
+
+func readGGUFBoolValue(r io.Reader, typ uint32, key string) (bool, error) {
+	value, err := readGGUFValuePayload(r, typ)
+	if err != nil {
+		return false, fmt.Errorf("read gguf metadata %q: %w", key, err)
+	}
+	switch value := value.(type) {
+	case bool:
+		return value, nil
+	default:
+		return false, fmt.Errorf("gguf metadata %q is type %T, want bool", key, value)
 	}
 }
 

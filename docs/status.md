@@ -63,6 +63,7 @@ Implemented:
 28. Pure-Go runtime backends can cap decoded float32 tensor cache memory with `max_tensor_cache_bytes` / `--max-tensor-cache-bytes`.
 29. `nego check`, `modelinfo.Check`, and `nego train capabilities` include a quick local memory summary when model dimensions are available.
 30. Native training results, adapter manifests, and generated adapter READMEs persist the base model memory estimate when available.
+31. Native GGUF prompt and training tokenization honor `tokenizer.ggml.add_bos_token` / `add_eos_token` defaults.
 
 Not production-ready yet:
 
