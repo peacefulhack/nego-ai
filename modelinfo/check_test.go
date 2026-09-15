@@ -41,6 +41,9 @@ func TestCheckReportsGGUFCompatibility(t *testing.T) {
 		*report.Tokenizer.AddEOS {
 		t.Fatalf("unexpected tokenizer defaults: %#v", report.Tokenizer)
 	}
+	if !containsSubstring(report.NativeReadiness.Warnings, "pre-tokenizer \"llama-bpe\"") {
+		t.Fatalf("expected pre-tokenizer warning: %#v", report.NativeReadiness.Warnings)
+	}
 	if !backendCompatible(report.Backends, "llama.cpp") {
 		t.Fatalf("expected llama.cpp compatibility: %#v", report.Backends)
 	}
@@ -405,6 +408,15 @@ func backendByName(backends []BackendCompatibility, name string) (BackendCompati
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSubstring(values []string, want string) bool {
+	for _, value := range values {
+		if strings.Contains(value, want) {
 			return true
 		}
 	}

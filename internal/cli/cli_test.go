@@ -735,6 +735,8 @@ func TestCheckCommandReportsCompatibility(t *testing.T) {
 		"Pre-tokenizer: llama-bpe",
 		"Special IDs:  bos=0, eos=1",
 		"Defaults:     add_bos=yes, add_eos=no",
+		"Warnings:",
+		"pre-tokenizer \"llama-bpe\"",
 		"Context:       4096",
 	} {
 		if !strings.Contains(out, want) {

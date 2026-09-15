@@ -66,6 +66,7 @@ Implemented:
 31. Native GGUF prompt and training tokenization honor `tokenizer.ggml.add_bos_token` / `add_eos_token` defaults.
 32. GGUF tokenizer inspection reads pre-tokenizer, whitespace, EOT, and EOM metadata used by common converted model files.
 33. `nego check` reports GGUF tokenizer model, pre-tokenizer, vocab size, special token IDs, and tokenizer defaults.
+34. Native GGUF readiness warns when parsed pre-tokenizer metadata may still need token-ID validation before training or output comparisons.
 
 Not production-ready yet:
 
@@ -78,9 +79,10 @@ Not production-ready yet:
 
 ## Next Critical Phases
 
-1. Validate native forward math against known tiny Llama/Qwen GGUF and safetensors fixtures.
-2. Run K-quant compatibility tests against small real GGUF fixtures.
-3. Add optimized CPU execution, batching, and memory reuse for larger local models.
-4. Add GPU execution behind a clean backend interface once CPU correctness is stable.
-5. Add full LoRA/backprop training and optimizer checkpoints for GGUF or safetensors artifacts.
-6. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
+1. Validate native tokenizer output against known Llama/Qwen tokenizer fixtures.
+2. Validate native forward math against known tiny Llama/Qwen GGUF and safetensors fixtures.
+3. Run K-quant compatibility tests against small real GGUF fixtures.
+4. Add optimized CPU execution, batching, and memory reuse for larger local models.
+5. Add GPU execution behind a clean backend interface once CPU correctness is stable.
+6. Add full LoRA/backprop training and optimizer checkpoints for GGUF or safetensors artifacts.
+7. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.

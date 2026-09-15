@@ -312,6 +312,11 @@ func nativeReadinessWarnings(info *Info, readiness *NativeRuntimeReadiness) []st
 	if info != nil && info.GGUF != nil && strings.Contains(strings.ToLower(info.GGUF.Quantization), "_k") {
 		warnings = append(warnings, "K-quant GGUF support is experimental; validate outputs before relying on them")
 	}
+	if info != nil && info.GGUF != nil {
+		if pre := metadataString(info.GGUF.Metadata, "tokenizer.ggml.pre"); pre != "" {
+			warnings = append(warnings, fmt.Sprintf("native GGUF tokenization for pre-tokenizer %q is approximate; validate token IDs before training or comparing outputs", pre))
+		}
+	}
 	if readiness.Ready {
 		warnings = append(warnings, "native pure-Go generation is experimental and not production-quality yet")
 	}

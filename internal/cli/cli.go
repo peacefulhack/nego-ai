@@ -2644,6 +2644,7 @@ func writeNativeReadiness(w io.Writer, readiness *modelinfo.NativeRuntimeReadine
 	writeLimitedStringList(w, "  Unsupported optional:", readiness.UnsupportedOptional, 6)
 	writeLimitedStringList(w, "  Missing:", readiness.MissingTensors, 8)
 	writeLimitedStringList(w, "  Shape issues:", readiness.ShapeMismatches, 8)
+	writeLimitedStringList(w, "  Warnings:", readiness.Warnings, 4)
 }
 
 func writeLimitedStringList(w io.Writer, label string, values []string, limit int) {
