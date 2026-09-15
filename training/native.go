@@ -72,37 +72,39 @@ type NativeResult struct {
 	Duration      time.Duration              `json:"duration"`
 	Artifact      *modelinfo.Artifact        `json:"artifact,omitempty"`
 	Memory        *modelinfo.MemoryEstimate  `json:"memory,omitempty"`
+	Tokenizer     *modelinfo.TokenizerReport `json:"tokenizer,omitempty"`
 	Adapter       *adapters.TokenBiasAdapter `json:"adapter,omitempty"`
 	Warnings      []string                   `json:"warnings,omitempty"`
 }
 
 type NativeManifest struct {
-	Version            int                       `json:"version"`
-	Type               string                    `json:"type"`
-	BaseModel          string                    `json:"base_model"`
-	AdapterPath        string                    `json:"adapter_path"`
-	Method             string                    `json:"method"`
-	DatasetFormat      string                    `json:"dataset_format"`
-	TrainFile          string                    `json:"train_file"`
-	EvalFile           string                    `json:"eval_file,omitempty"`
-	LearningRate       float64                   `json:"learning_rate,omitempty"`
-	Epochs             int                       `json:"epochs,omitempty"`
-	MaxContext         int                       `json:"max_context,omitempty"`
-	TrainRows          int                       `json:"train_rows,omitempty"`
-	EvalRows           int                       `json:"eval_rows,omitempty"`
-	DuplicateRows      int                       `json:"duplicate_rows,omitempty"`
-	BaseFormat         string                    `json:"base_format,omitempty"`
-	BaseMemory         *modelinfo.MemoryEstimate `json:"base_memory,omitempty"`
-	RecommendedBackend string                    `json:"recommended_backend"`
-	RuntimeOptions     map[string]string         `json:"runtime_options"`
-	RunArgs            []string                  `json:"run_args"`
-	ChatArgs           []string                  `json:"chat_args"`
-	Warnings           []string                  `json:"warnings,omitempty"`
-	VocabSize          int                       `json:"vocab_size"`
-	UpdatedTokens      int                       `json:"updated_tokens"`
-	TrainTokens        int                       `json:"train_tokens"`
-	TopTokens          []NativeTokenSummary      `json:"top_tokens,omitempty"`
-	CreatedAt          time.Time                 `json:"created_at"`
+	Version            int                        `json:"version"`
+	Type               string                     `json:"type"`
+	BaseModel          string                     `json:"base_model"`
+	AdapterPath        string                     `json:"adapter_path"`
+	Method             string                     `json:"method"`
+	DatasetFormat      string                     `json:"dataset_format"`
+	TrainFile          string                     `json:"train_file"`
+	EvalFile           string                     `json:"eval_file,omitempty"`
+	LearningRate       float64                    `json:"learning_rate,omitempty"`
+	Epochs             int                        `json:"epochs,omitempty"`
+	MaxContext         int                        `json:"max_context,omitempty"`
+	TrainRows          int                        `json:"train_rows,omitempty"`
+	EvalRows           int                        `json:"eval_rows,omitempty"`
+	DuplicateRows      int                        `json:"duplicate_rows,omitempty"`
+	BaseFormat         string                     `json:"base_format,omitempty"`
+	BaseMemory         *modelinfo.MemoryEstimate  `json:"base_memory,omitempty"`
+	Tokenizer          *modelinfo.TokenizerReport `json:"tokenizer,omitempty"`
+	RecommendedBackend string                     `json:"recommended_backend"`
+	RuntimeOptions     map[string]string          `json:"runtime_options"`
+	RunArgs            []string                   `json:"run_args"`
+	ChatArgs           []string                   `json:"chat_args"`
+	Warnings           []string                   `json:"warnings,omitempty"`
+	VocabSize          int                        `json:"vocab_size"`
+	UpdatedTokens      int                        `json:"updated_tokens"`
+	TrainTokens        int                        `json:"train_tokens"`
+	TopTokens          []NativeTokenSummary       `json:"top_tokens,omitempty"`
+	CreatedAt          time.Time                  `json:"created_at"`
 }
 
 type NativeTokenSummary struct {
@@ -147,6 +149,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	artifact := check.Artifact
 	result.Artifact = artifact
 	result.Memory = check.Memory
+	result.Tokenizer = check.Tokenizer
 	if !nativeTrainingFormat(artifact.Format) {
 		return result, fmt.Errorf("native token-bias training requires GGUF or Hugging Face safetensors weights, got %s", artifact.Format)
 	}
@@ -343,6 +346,7 @@ func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *mode
 		DuplicateRows:      result.DuplicateRows,
 		BaseFormat:         string(artifact.Format),
 		BaseMemory:         result.Memory,
+		Tokenizer:          result.Tokenizer,
 		RecommendedBackend: backend,
 		RuntimeOptions:     map[string]string{"adapter_path": adapterPath},
 		RunArgs:            runArgs,
@@ -513,6 +517,9 @@ func writeNativeTrainingReadme(path string, manifest NativeManifest) error {
 	if manifest.BaseMemory != nil && manifest.BaseMemory.TotalBytes > 0 {
 		fmt.Fprintf(&b, "Base memory estimate: `%d bytes`\n", manifest.BaseMemory.TotalBytes)
 	}
+	if manifest.Tokenizer != nil {
+		writeNativeReadmeTokenizer(&b, manifest.Tokenizer)
+	}
 	fmt.Fprintln(&b)
 	if len(manifest.Warnings) > 0 {
 		fmt.Fprintln(&b, "Warnings:")
@@ -536,8 +543,26 @@ func writeNativeTrainingReadme(path string, manifest NativeManifest) error {
 	return os.WriteFile(path, []byte(b.String()), 0o644)
 }
 
+func writeNativeReadmeTokenizer(b *strings.Builder, report *modelinfo.TokenizerReport) {
+	fmt.Fprintf(b, "Tokenizer: `%s`", markdownInlineCode(string(report.Format)))
+	if report.Model != "" {
+		fmt.Fprintf(b, " `%s`", markdownInlineCode(report.Model))
+	}
+	if report.PreTokenizer != "" {
+		fmt.Fprintf(b, " pre-tokenizer `%s`", markdownInlineCode(report.PreTokenizer))
+	}
+	if report.VocabSize > 0 {
+		fmt.Fprintf(b, " vocab `%d`", report.VocabSize)
+	}
+	fmt.Fprintln(b)
+}
+
 func singleLineText(value string) string {
 	return strings.Join(strings.Fields(value), " ")
+}
+
+func markdownInlineCode(value string) string {
+	return strings.ReplaceAll(singleLineText(value), "`", "'")
 }
 
 func shellQuoteArgs(args []string) []string {

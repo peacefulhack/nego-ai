@@ -320,6 +320,55 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	}
 }
 
+func TestRunNativeManifestPersistsGGUFTokenizer(t *testing.T) {
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "models", "model.gguf")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	outputDir := filepath.Join(dir, "outputs", "qwen3-adapter")
+	if err := os.MkdirAll(filepath.Dir(modelPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(modelPath, tokenizerGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunNative(context.Background(), NativeOptions{
+		BaseModel:     modelPath,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		OutputDir:     outputDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Tokenizer == nil || result.Tokenizer.Format != "gguf" || result.Tokenizer.Model != "llama" || result.Tokenizer.PreTokenizer != "llama-bpe" {
+		t.Fatalf("unexpected result tokenizer: %#v", result.Tokenizer)
+	}
+	data, err := os.ReadFile(result.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest NativeManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Tokenizer == nil || manifest.Tokenizer.VocabSize != 2 || manifest.Tokenizer.PreTokenizer != "llama-bpe" {
+		t.Fatalf("unexpected manifest tokenizer: %#v", manifest.Tokenizer)
+	}
+	readme, err := os.ReadFile(result.ReadmePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(readme), "Tokenizer: `gguf` `llama` pre-tokenizer `llama-bpe` vocab `2`") {
+		t.Fatalf("expected README tokenizer summary: %s", string(readme))
+	}
+}
+
 func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models", "qwen3-gguf")
@@ -710,12 +759,13 @@ func tokenizerGGUF(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	buf.WriteString("GGUF")
-	for _, value := range []any{uint32(3), uint64(0), uint64(2)} {
+	for _, value := range []any{uint32(3), uint64(0), uint64(3)} {
 		if err := binary.Write(&buf, binary.LittleEndian, value); err != nil {
 			t.Fatal(err)
 		}
 	}
 	writeTrainingGGUFStringKV(t, &buf, "tokenizer.ggml.model", "llama")
+	writeTrainingGGUFStringKV(t, &buf, "tokenizer.ggml.pre", "llama-bpe")
 	writeTrainingGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<s>", "hello"})
 	return buf.Bytes()
 }
