@@ -263,6 +263,13 @@ func TestValidateCheckCases(t *testing.T) {
 	}
 }
 
+func TestCheckCasesHandlesNilTokenizer(t *testing.T) {
+	result := CheckCases(nil, []CheckCase{{Text: "hello", Tokens: []int{1}}})
+	if result.Passed != 0 || result.Failed != 1 || len(result.Cases[0].Errors) == 0 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
 func writeTokenizer(t *testing.T, dir, body string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(body), 0o644); err != nil {

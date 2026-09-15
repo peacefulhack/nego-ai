@@ -79,6 +79,7 @@ Implemented:
 44. `nego train native --tokenize-check` validates tokenizer fixtures before training starts.
 45. Native adapter share manifests preserve tokenizer metadata while omitting token text.
 46. Native token-bias training reports eval token coverage when an eval dataset is provided.
+47. The root `nego` package exposes tokenizer loading and fixture check helpers for app workflows.
 
 Not production-ready yet:
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gakon/nego-ai/chattemplate"
 	"github.com/gakon/nego-ai/modelinfo"
+	"github.com/gakon/nego-ai/tokenizer"
 	"github.com/gakon/nego-ai/training"
 )
 
@@ -24,6 +25,10 @@ type ModelTokenizerReport = modelinfo.TokenizerReport
 type TrainingAssessment = training.Assessment
 type NativeTrainingOptions = training.NativeOptions
 type NativeTrainingResult = training.NativeResult
+type Tokenizer = tokenizer.Tokenizer
+type TokenizerTextCodec = tokenizer.TextCodec
+type TokenizerCheckCase = tokenizer.CheckCase
+type TokenizerCheckResult = tokenizer.CheckResult
 
 const (
 	RoleSystem    = chattemplate.RoleSystem
@@ -63,6 +68,18 @@ func AssessTraining(baseModel string) (TrainingAssessment, error) {
 
 func TrainNative(ctx context.Context, opts NativeTrainingOptions) (NativeTrainingResult, error) {
 	return training.RunNative(ctx, opts)
+}
+
+func LoadTokenizer(path string) (*Tokenizer, error) {
+	return tokenizer.Load(path)
+}
+
+func ValidateTokenizerCheckCases(cases []TokenizerCheckCase) ([]TokenizerCheckCase, error) {
+	return tokenizer.ValidateCheckCases(cases)
+}
+
+func CheckTokenizer(tok TokenizerTextCodec, cases []TokenizerCheckCase) TokenizerCheckResult {
+	return tokenizer.CheckCases(tok, cases)
 }
 
 type GenerateRequest struct {

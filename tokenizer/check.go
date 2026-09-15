@@ -59,6 +59,13 @@ func CheckCases(tok TextCodec, cases []CheckCase) CheckResult {
 			ExpectedDecoded: c.Decoded,
 			Passed:          true,
 		}
+		if tok == nil {
+			caseResult.Passed = false
+			caseResult.Errors = append(caseResult.Errors, "tokenizer is nil")
+			result.Failed++
+			result.Cases = append(result.Cases, caseResult)
+			continue
+		}
 		ids, err := tok.Encode(c.Text)
 		if err != nil {
 			caseResult.Passed = false

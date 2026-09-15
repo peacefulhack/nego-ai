@@ -204,6 +204,23 @@ func TestRootConvenienceAPIs(t *testing.T) {
 	if !result.DryRun || result.UpdatedTokens == 0 {
 		t.Fatalf("unexpected training result: %#v", result)
 	}
+
+	tokDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tokDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":1},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := LoadTokenizer(tokDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases, err := ValidateTokenizerCheckCases([]TokenizerCheckCase{{Text: "hello", Tokens: []int{1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkResult := CheckTokenizer(tok, cases)
+	if checkResult.Passed != 1 || checkResult.Failed != 0 {
+		t.Fatalf("unexpected tokenizer check: %#v", checkResult)
+	}
 }
 
 var testBackendCounter int64

@@ -136,6 +136,13 @@ nego tokenize check ./models/model.gguf tokenizer-fixtures.json
 ids, err := tok.EncodeBatch([]string{"hello", "world"})
 ```
 
+```go
+tok, err := nego.LoadTokenizer("./models/qwen3")
+result := nego.CheckTokenizer(tok, []nego.TokenizerCheckCase{
+    {Text: "hello", Tokens: []int{1}},
+})
+```
+
 The tokenizer helper supports WordLevel vocab maps, added tokens, BPE merge rules, and Unigram/SentencePiece-style vocab arrays for development workflows.
 The CLI also falls back to GGUF vocabulary metadata when a model path has no `tokenizer.json`.
 Tokenizer check fixtures can be a JSON array or `{ "cases": [...] }` with rows like `{"name":"hello","text":"hello","tokens":[0,1],"decoded":"hello"}`.
