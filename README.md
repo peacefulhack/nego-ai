@@ -94,6 +94,19 @@ generation := info.Generation
 artifact, err := modelinfo.Resolve("./models/qwen3")
 ```
 
+The root package also exposes convenience helpers for common app workflows:
+
+```go
+check, err := nego.Check("./models/qwen3")
+assessment, err := nego.AssessTraining("./models/qwen3")
+result, err := nego.TrainNative(ctx, nego.NativeTrainingOptions{
+    BaseModel:     "./models/qwen3",
+    TrainFile:     "examples/5.train/train.jsonl",
+    DatasetFormat: "completion",
+    OutputDir:     "./outputs/qwen3-token-bias",
+})
+```
+
 ```bash
 nego inspect ./models/qwen3
 nego inspect ./models/qwen3-gguf --json

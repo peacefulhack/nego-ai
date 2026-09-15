@@ -156,6 +156,56 @@ func TestBackendInfoDiscovery(t *testing.T) {
 	}
 }
 
+func TestRootConvenienceAPIs(t *testing.T) {
+	modelPath := fakeNativeReadyGGUF(t)
+	info, err := Inspect(modelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.GGUF == nil {
+		t.Fatalf("expected GGUF info: %#v", info)
+	}
+	check, err := Check(modelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if check.Artifact == nil || check.Artifact.Format != "gguf" {
+		t.Fatalf("unexpected check: %#v", check)
+	}
+	artifact, err := ResolveArtifact(modelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if artifact.RecommendedRunBackend == "" {
+		t.Fatalf("unexpected artifact: %#v", artifact)
+	}
+	assessment, err := AssessTraining(modelPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assessment.Methods) == 0 {
+		t.Fatalf("unexpected assessment: %#v", assessment)
+	}
+	dir := t.TempDir()
+	trainFile := filepath.Join(dir, "train.jsonl")
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := TrainNative(context.Background(), NativeTrainingOptions{
+		BaseModel:     modelPath,
+		TrainFile:     trainFile,
+		DatasetFormat: "completion",
+		OutputDir:     filepath.Join(dir, "adapter"),
+		DryRun:        true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.DryRun || result.UpdatedTokens == 0 {
+		t.Fatalf("unexpected training result: %#v", result)
+	}
+}
+
 var testBackendCounter int64
 
 func testBackendName(prefix string) string {

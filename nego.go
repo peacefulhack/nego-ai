@@ -17,6 +17,13 @@ import (
 
 type Role = chattemplate.Role
 type Message = chattemplate.Message
+type ModelInfo = modelinfo.Info
+type ModelArtifact = modelinfo.Artifact
+type ModelCheckReport = modelinfo.CheckReport
+type ModelTokenizerReport = modelinfo.TokenizerReport
+type TrainingAssessment = training.Assessment
+type NativeTrainingOptions = training.NativeOptions
+type NativeTrainingResult = training.NativeResult
 
 const (
 	RoleSystem    = chattemplate.RoleSystem
@@ -37,6 +44,26 @@ const (
 	BackendPureGo     = "pure-go"
 	BackendNativeAuto = "native-auto"
 )
+
+func Inspect(path string) (*ModelInfo, error) {
+	return modelinfo.Inspect(path)
+}
+
+func Check(path string) (*ModelCheckReport, error) {
+	return modelinfo.Check(path)
+}
+
+func ResolveArtifact(path string) (*ModelArtifact, error) {
+	return modelinfo.Resolve(path)
+}
+
+func AssessTraining(baseModel string) (TrainingAssessment, error) {
+	return training.Assess(baseModel)
+}
+
+func TrainNative(ctx context.Context, opts NativeTrainingOptions) (NativeTrainingResult, error) {
+	return training.RunNative(ctx, opts)
+}
 
 type GenerateRequest struct {
 	Prompt        string
