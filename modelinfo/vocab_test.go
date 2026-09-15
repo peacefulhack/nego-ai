@@ -9,7 +9,7 @@ import (
 
 func TestReadGGUFVocabParsesTokenizerMetadata(t *testing.T) {
 	var buf bytes.Buffer
-	writeGGUFHeader(t, &buf, 3, 0, 10)
+	writeGGUFHeader(t, &buf, 3, 0, 15)
 	writeGGUFStringKV(t, &buf, "tokenizer.ggml.model", "llama")
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.tokens", []string{"<unk>", "hello", "world"})
 	writeGGUFFloat32ArrayKV(t, &buf, "tokenizer.ggml.scores", []float32{0, -1, -2})
@@ -17,8 +17,13 @@ func TestReadGGUFVocabParsesTokenizerMetadata(t *testing.T) {
 	writeGGUFStringArrayKV(t, &buf, "tokenizer.ggml.merges", []string{"h e", "he llo"})
 	writeGGUFUint32KV(t, &buf, "tokenizer.ggml.bos_token_id", 1)
 	writeGGUFUint32KV(t, &buf, "tokenizer.ggml.eos_token_id", 2)
+	writeGGUFUint32KV(t, &buf, "tokenizer.ggml.eot_token_id", 3)
+	writeGGUFUint32KV(t, &buf, "tokenizer.ggml.eom_token_id", 4)
 	writeGGUFBoolKV(t, &buf, "tokenizer.ggml.add_bos_token", true)
 	writeGGUFBoolKV(t, &buf, "tokenizer.ggml.add_eos_token", false)
+	writeGGUFStringKV(t, &buf, "tokenizer.ggml.pre", "qwen2")
+	writeGGUFBoolKV(t, &buf, "tokenizer.ggml.add_space_prefix", true)
+	writeGGUFBoolKV(t, &buf, "tokenizer.ggml.remove_extra_whitespaces", true)
 	writeGGUFStringKV(t, &buf, "tokenizer.chat_template", "{{ .Prompt }}")
 
 	vocab, err := ReadGGUFVocab(bytes.NewReader(buf.Bytes()), "model.gguf")
@@ -27,6 +32,12 @@ func TestReadGGUFVocabParsesTokenizerMetadata(t *testing.T) {
 	}
 	if vocab.Model != "llama" || vocab.BOSTokenID != 1 || vocab.EOSTokenID != 2 || !vocab.AddBOS || vocab.AddEOS {
 		t.Fatalf("unexpected vocab metadata: %#v", vocab)
+	}
+	if vocab.EOTTokenID != 3 || vocab.EOMTokenID != 4 {
+		t.Fatalf("unexpected special token metadata: %#v", vocab)
+	}
+	if vocab.PreTokenizer != "qwen2" || !vocab.AddSpace || !vocab.RemoveSpaces {
+		t.Fatalf("unexpected pre-tokenizer metadata: %#v", vocab)
 	}
 	if strings.Join(vocab.Tokens, ",") != "<unk>,hello,world" {
 		t.Fatalf("unexpected tokens: %#v", vocab.Tokens)

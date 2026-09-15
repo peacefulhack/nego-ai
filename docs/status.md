@@ -64,6 +64,7 @@ Implemented:
 29. `nego check`, `modelinfo.Check`, and `nego train capabilities` include a quick local memory summary when model dimensions are available.
 30. Native training results, adapter manifests, and generated adapter READMEs persist the base model memory estimate when available.
 31. Native GGUF prompt and training tokenization honor `tokenizer.ggml.add_bos_token` / `add_eos_token` defaults.
+32. GGUF tokenizer inspection reads pre-tokenizer, whitespace, EOT, and EOM metadata used by common converted model files.
 
 Not production-ready yet:
 

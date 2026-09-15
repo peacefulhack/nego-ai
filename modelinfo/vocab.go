@@ -18,8 +18,13 @@ type GGUFVocab struct {
 	EOSTokenID   uint32    `json:"eos_token_id,omitempty"`
 	UNKTokenID   uint32    `json:"unk_token_id,omitempty"`
 	PADTokenID   uint32    `json:"pad_token_id,omitempty"`
+	EOTTokenID   uint32    `json:"eot_token_id,omitempty"`
+	EOMTokenID   uint32    `json:"eom_token_id,omitempty"`
 	AddBOS       bool      `json:"add_bos_token,omitempty"`
 	AddEOS       bool      `json:"add_eos_token,omitempty"`
+	PreTokenizer string    `json:"pre_tokenizer,omitempty"`
+	AddSpace     bool      `json:"add_space_prefix,omitempty"`
+	RemoveSpaces bool      `json:"remove_extra_whitespaces,omitempty"`
 	ChatTemplate string    `json:"chat_template,omitempty"`
 }
 
@@ -123,6 +128,18 @@ func readGGUFVocabValue(r io.Reader, key string, typ uint32, vocab *GGUFVocab) e
 			return err
 		}
 		vocab.PADTokenID = value
+	case "tokenizer.ggml.eot_token_id":
+		value, err := readGGUFUint32Value(r, typ, key)
+		if err != nil {
+			return err
+		}
+		vocab.EOTTokenID = value
+	case "tokenizer.ggml.eom_token_id":
+		value, err := readGGUFUint32Value(r, typ, key)
+		if err != nil {
+			return err
+		}
+		vocab.EOMTokenID = value
 	case "tokenizer.ggml.add_bos_token":
 		value, err := readGGUFBoolValue(r, typ, key)
 		if err != nil {
@@ -135,6 +152,24 @@ func readGGUFVocabValue(r io.Reader, key string, typ uint32, vocab *GGUFVocab) e
 			return err
 		}
 		vocab.AddEOS = value
+	case "tokenizer.ggml.pre":
+		value, err := readGGUFStringValue(r, typ, key)
+		if err != nil {
+			return err
+		}
+		vocab.PreTokenizer = value
+	case "tokenizer.ggml.add_space_prefix":
+		value, err := readGGUFBoolValue(r, typ, key)
+		if err != nil {
+			return err
+		}
+		vocab.AddSpace = value
+	case "tokenizer.ggml.remove_extra_whitespaces":
+		value, err := readGGUFBoolValue(r, typ, key)
+		if err != nil {
+			return err
+		}
+		vocab.RemoveSpaces = value
 	case "tokenizer.chat_template":
 		value, err := readGGUFStringValue(r, typ, key)
 		if err != nil {
