@@ -197,6 +197,22 @@ func (m *Model) Adapter() *adapters.TokenBiasAdapter {
 	return m.adapter
 }
 
+func (m *Model) RuntimeStats() nego.RuntimeStats {
+	m.tensorMu.Lock()
+	defer m.tensorMu.Unlock()
+	return nego.RuntimeStats{
+		Backend:                BackendName,
+		Path:                   m.path,
+		Device:                 "cpu",
+		TensorCacheEnabled:     m.cache,
+		CachedTensors:          len(m.float32),
+		CachedTensorBytes:      m.cacheBytes,
+		MaxTensorCacheBytes:    m.cacheLimit,
+		AdapterLoaded:          m.adapter != nil,
+		ExperimentalGeneration: m.generate,
+	}
+}
+
 func (m *Model) TensorReader(name string) (*modelinfo.SafetensorsTensorReader, modelinfo.SafetensorsTensor, error) {
 	if m.store == nil {
 		return nil, modelinfo.SafetensorsTensor{}, fmt.Errorf("native-hf safetensors store is not loaded")

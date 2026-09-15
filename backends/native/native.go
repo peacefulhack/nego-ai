@@ -262,6 +262,21 @@ func (m *Model) Adapter() *adapters.TokenBiasAdapter {
 	return m.adapter
 }
 
+func (m *Model) RuntimeStats() nego.RuntimeStats {
+	m.tensorMu.Lock()
+	defer m.tensorMu.Unlock()
+	return nego.RuntimeStats{
+		Backend:             BackendName,
+		Path:                m.path,
+		Device:              "cpu",
+		TensorCacheEnabled:  m.cacheTensors,
+		CachedTensors:       len(m.float32),
+		CachedTensorBytes:   m.cacheBytes,
+		MaxTensorCacheBytes: m.maxCacheBytes,
+		AdapterLoaded:       m.adapter != nil,
+	}
+}
+
 func (m *Model) ReadTensor(name string) ([]byte, modelinfo.GGUFTensor, error) {
 	if m.tensors == nil {
 		return nil, modelinfo.GGUFTensor{}, fmt.Errorf("native tensor store is closed")

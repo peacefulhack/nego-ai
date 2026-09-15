@@ -73,6 +73,13 @@ func TestNativeHFBackendLoadsSafetensorsModel(t *testing.T) {
 	if values[0] == 99 {
 		t.Fatal("LoadTensorFloat32 should return a copy of cached values")
 	}
+	stats, ok := nego.RuntimeStatsOf(model)
+	if !ok {
+		t.Fatal("expected native-hf model to expose runtime stats")
+	}
+	if stats.Backend != BackendName || stats.Device != "cpu" || !stats.TensorCacheEnabled || stats.CachedTensors == 0 || stats.CachedTensorBytes == 0 || stats.ExperimentalGeneration {
+		t.Fatalf("unexpected runtime stats: %#v", stats)
+	}
 	_, err = model.Generate(context.Background(), nego.GenerateRequest{Prompt: "hello"})
 	if err == nil || !strings.Contains(err.Error(), "native-hf experimental generation is disabled") {
 		t.Fatalf("unexpected error: %v", err)

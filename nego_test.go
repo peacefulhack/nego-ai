@@ -54,6 +54,19 @@ func TestLoadModelUsesRegisteredBackend(t *testing.T) {
 	}
 }
 
+func TestRuntimeStatsOfUsesOptionalCapability(t *testing.T) {
+	stats, ok := RuntimeStatsOf(mockStatsModel{})
+	if !ok {
+		t.Fatal("expected runtime stats provider")
+	}
+	if stats.Backend != "mock" || stats.Device != "cpu" || stats.CachedTensors != 2 {
+		t.Fatalf("unexpected stats: %#v", stats)
+	}
+	if _, ok := RuntimeStatsOf(mockModel{}); ok {
+		t.Fatal("did not expect runtime stats from plain mock model")
+	}
+}
+
 func TestEmbedUsesOptionalCapability(t *testing.T) {
 	resp, err := Embed(context.Background(), embeddingModel{}, EmbeddingRequest{Input: []string{"hello"}})
 	if err != nil {
@@ -273,6 +286,14 @@ func (mockModel) StreamChat(context.Context, ChatRequest) (Stream, error) {
 
 func (mockModel) Close() error {
 	return nil
+}
+
+type mockStatsModel struct {
+	mockModel
+}
+
+func (mockStatsModel) RuntimeStats() RuntimeStats {
+	return RuntimeStats{Backend: "mock", Device: "cpu", CachedTensors: 2}
 }
 
 type mockStream struct {

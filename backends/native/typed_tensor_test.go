@@ -27,6 +27,13 @@ func TestLoadTensorFloat32(t *testing.T) {
 	if len(values) != 128 {
 		t.Fatalf("unexpected value count: %d", len(values))
 	}
+	stats, ok := nego.RuntimeStatsOf(model)
+	if !ok {
+		t.Fatal("expected native model to expose runtime stats")
+	}
+	if stats.Backend != BackendName || stats.Device != "cpu" || !stats.TensorCacheEnabled || stats.CachedTensors != 1 || stats.CachedTensorBytes != 512 {
+		t.Fatalf("unexpected runtime stats: %#v", stats)
+	}
 }
 
 func TestLoadTensorFloat32ReturnsCopyFromCache(t *testing.T) {
@@ -95,6 +102,13 @@ func TestLoadTensorFloat32CanDisableCache(t *testing.T) {
 	}
 	if &first[0] == &second[0] {
 		t.Fatal("expected cache_tensors=false to avoid reusing the same float32 buffer")
+	}
+	stats, ok := nego.RuntimeStatsOf(model)
+	if !ok {
+		t.Fatal("expected native model to expose runtime stats")
+	}
+	if stats.TensorCacheEnabled || stats.CachedTensors != 0 || stats.CachedTensorBytes != 0 {
+		t.Fatalf("unexpected no-cache runtime stats: %#v", stats)
 	}
 }
 

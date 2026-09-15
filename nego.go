@@ -173,6 +173,30 @@ type BackendDescriber interface {
 	Info() BackendInfo
 }
 
+type RuntimeStats struct {
+	Backend                string `json:"backend"`
+	Path                   string `json:"path,omitempty"`
+	Device                 string `json:"device,omitempty"`
+	TensorCacheEnabled     bool   `json:"tensor_cache_enabled"`
+	CachedTensors          int    `json:"cached_tensors"`
+	CachedTensorBytes      uint64 `json:"cached_tensor_bytes"`
+	MaxTensorCacheBytes    uint64 `json:"max_tensor_cache_bytes,omitempty"`
+	AdapterLoaded          bool   `json:"adapter_loaded,omitempty"`
+	ExperimentalGeneration bool   `json:"experimental_generation,omitempty"`
+}
+
+type RuntimeStatsProvider interface {
+	RuntimeStats() RuntimeStats
+}
+
+func RuntimeStatsOf(model Model) (RuntimeStats, bool) {
+	provider, ok := model.(RuntimeStatsProvider)
+	if !ok {
+		return RuntimeStats{}, false
+	}
+	return provider.RuntimeStats(), true
+}
+
 type EmbeddingModel interface {
 	Embed(ctx context.Context, req EmbeddingRequest) (*EmbeddingResponse, error)
 }

@@ -82,6 +82,9 @@ Implemented:
 47. The root `nego` package exposes tokenizer loading and fixture check helpers for app workflows.
 48. Numbered examples include a local-only chat walkthrough that uses the downloaded model path.
 49. Native training run logs store eval token coverage aggregates without dataset row contents.
+50. `nego runs compare` includes native training eval coverage deltas.
+51. `nego train latest` and root package helpers can discover the newest reusable native adapter output.
+52. Pure-Go runtime backends expose runtime stats for CPU device, tensor cache usage, and adapter state.
 
 Not production-ready yet:
 
