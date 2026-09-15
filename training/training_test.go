@@ -253,6 +253,9 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if result.AdapterPath == "" || result.TrainRows != 1 || result.TrainTokens != 4 || result.UpdatedTokens != 2 || result.TrainBudget == nil || len(result.TopTokens) != 2 {
 		t.Fatalf("unexpected result: %#v", result)
 	}
+	if result.Memory == nil || result.Memory.TotalBytes == 0 {
+		t.Fatalf("expected base memory estimate: %#v", result.Memory)
+	}
 	if result.TopTokens[0].Text != "hello" || result.TopTokens[0].Count != 2 {
 		t.Fatalf("unexpected top tokens: %#v", result.TopTokens)
 	}
@@ -270,7 +273,7 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.AdapterPath != "adapter.json" || manifest.RuntimeOptions["adapter_path"] != "adapter.json" || len(manifest.TopTokens) != 2 {
+	if manifest.Type != "nego-native-adapter" || manifest.RecommendedBackend != "native" || manifest.AdapterPath != "adapter.json" || manifest.RuntimeOptions["adapter_path"] != "adapter.json" || len(manifest.TopTokens) != 2 || manifest.BaseMemory == nil {
 		t.Fatalf("unexpected manifest: %#v", manifest)
 	}
 	if manifest.LearningRate != 0.2 || manifest.Epochs != 2 || manifest.MaxContext != 8 || manifest.TrainRows != 1 || manifest.BaseFormat != "gguf" {
@@ -299,6 +302,9 @@ func TestRunNativeCreatesTokenBiasAdapter(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), "nego run "+outputDir) || !strings.Contains(string(readme), "nego chat "+outputDir) {
 		t.Fatalf("unexpected README: %s", string(readme))
+	}
+	if !strings.Contains(string(readme), "Base memory estimate:") {
+		t.Fatalf("expected README memory estimate: %s", string(readme))
 	}
 	if !strings.Contains(string(readme), "Warnings:") || !strings.Contains(string(readme), "native generation is not ready yet") {
 		t.Fatalf("expected README warning: %s", string(readme))

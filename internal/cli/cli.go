@@ -1282,6 +1282,9 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	}
 	fmt.Fprintf(w, "Train tokens:   %d\n", result.TrainTokens)
 	fmt.Fprintf(w, "Updated tokens: %d\n", result.UpdatedTokens)
+	if result.Memory != nil {
+		writeCheckMemory(w, result.Memory)
+	}
 	printNativeTrainingTopTokens(w, result.TopTokens)
 	if result.DryRun {
 		if result.AdapterPath != "" {

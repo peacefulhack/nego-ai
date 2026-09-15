@@ -2009,6 +2009,7 @@ func TestTrainNativeCommandCreatesAdapter(t *testing.T) {
 		!strings.Contains(stdout.String(), "Manifest:") ||
 		!strings.Contains(stdout.String(), "Guide:") ||
 		!strings.Contains(stdout.String(), "Train budget:") ||
+		!strings.Contains(stdout.String(), "Memory:") ||
 		!strings.Contains(stdout.String(), "Top tokens:") ||
 		!strings.Contains(stdout.String(), "Run:            nego run") ||
 		!strings.Contains(stdout.String(), outputDir) ||
@@ -2110,6 +2111,7 @@ func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
 	if !strings.Contains(stdout.String(), "Native training dry run passed") ||
 		!strings.Contains(stdout.String(), "Planned adapter:") ||
 		!strings.Contains(stdout.String(), "Writes:         no") ||
+		!strings.Contains(stdout.String(), "Memory:") ||
 		!strings.Contains(stdout.String(), "Top tokens:") ||
 		strings.Contains(stdout.String(), "Manifest:") {
 		t.Fatalf("unexpected output: %q", stdout.String())
@@ -2142,12 +2144,15 @@ func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
 		Result  struct {
 			DryRun      bool   `json:"dry_run"`
 			AdapterPath string `json:"adapter_path"`
+			Memory      struct {
+				TotalBytes uint64 `json:"total_bytes"`
+			} `json:"memory"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if !body.Success || !body.Result.DryRun || body.Result.AdapterPath != "" {
+	if !body.Success || !body.Result.DryRun || body.Result.AdapterPath != "" || body.Result.Memory.TotalBytes == 0 {
 		t.Fatalf("unexpected json: %s", stdout.String())
 	}
 }

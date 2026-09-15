@@ -62,6 +62,7 @@ Implemented:
 27. Native GGUF spec, readiness, memory, and manifest checks honor `attention.key_length` / `attention.value_length` metadata for Qwen-style projection dimensions.
 28. Pure-Go runtime backends can cap decoded float32 tensor cache memory with `max_tensor_cache_bytes` / `--max-tensor-cache-bytes`.
 29. `nego check`, `modelinfo.Check`, and `nego train capabilities` include a quick local memory summary when model dimensions are available.
+30. Native training results, adapter manifests, and generated adapter READMEs persist the base model memory estimate when available.
 
 Not production-ready yet:
 

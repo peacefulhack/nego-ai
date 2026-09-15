@@ -71,36 +71,38 @@ type NativeResult struct {
 	TopTokens     []NativeTokenSummary       `json:"top_tokens,omitempty"`
 	Duration      time.Duration              `json:"duration"`
 	Artifact      *modelinfo.Artifact        `json:"artifact,omitempty"`
+	Memory        *modelinfo.MemoryEstimate  `json:"memory,omitempty"`
 	Adapter       *adapters.TokenBiasAdapter `json:"adapter,omitempty"`
 	Warnings      []string                   `json:"warnings,omitempty"`
 }
 
 type NativeManifest struct {
-	Version            int                  `json:"version"`
-	Type               string               `json:"type"`
-	BaseModel          string               `json:"base_model"`
-	AdapterPath        string               `json:"adapter_path"`
-	Method             string               `json:"method"`
-	DatasetFormat      string               `json:"dataset_format"`
-	TrainFile          string               `json:"train_file"`
-	EvalFile           string               `json:"eval_file,omitempty"`
-	LearningRate       float64              `json:"learning_rate,omitempty"`
-	Epochs             int                  `json:"epochs,omitempty"`
-	MaxContext         int                  `json:"max_context,omitempty"`
-	TrainRows          int                  `json:"train_rows,omitempty"`
-	EvalRows           int                  `json:"eval_rows,omitempty"`
-	DuplicateRows      int                  `json:"duplicate_rows,omitempty"`
-	BaseFormat         string               `json:"base_format,omitempty"`
-	RecommendedBackend string               `json:"recommended_backend"`
-	RuntimeOptions     map[string]string    `json:"runtime_options"`
-	RunArgs            []string             `json:"run_args"`
-	ChatArgs           []string             `json:"chat_args"`
-	Warnings           []string             `json:"warnings,omitempty"`
-	VocabSize          int                  `json:"vocab_size"`
-	UpdatedTokens      int                  `json:"updated_tokens"`
-	TrainTokens        int                  `json:"train_tokens"`
-	TopTokens          []NativeTokenSummary `json:"top_tokens,omitempty"`
-	CreatedAt          time.Time            `json:"created_at"`
+	Version            int                       `json:"version"`
+	Type               string                    `json:"type"`
+	BaseModel          string                    `json:"base_model"`
+	AdapterPath        string                    `json:"adapter_path"`
+	Method             string                    `json:"method"`
+	DatasetFormat      string                    `json:"dataset_format"`
+	TrainFile          string                    `json:"train_file"`
+	EvalFile           string                    `json:"eval_file,omitempty"`
+	LearningRate       float64                   `json:"learning_rate,omitempty"`
+	Epochs             int                       `json:"epochs,omitempty"`
+	MaxContext         int                       `json:"max_context,omitempty"`
+	TrainRows          int                       `json:"train_rows,omitempty"`
+	EvalRows           int                       `json:"eval_rows,omitempty"`
+	DuplicateRows      int                       `json:"duplicate_rows,omitempty"`
+	BaseFormat         string                    `json:"base_format,omitempty"`
+	BaseMemory         *modelinfo.MemoryEstimate `json:"base_memory,omitempty"`
+	RecommendedBackend string                    `json:"recommended_backend"`
+	RuntimeOptions     map[string]string         `json:"runtime_options"`
+	RunArgs            []string                  `json:"run_args"`
+	ChatArgs           []string                  `json:"chat_args"`
+	Warnings           []string                  `json:"warnings,omitempty"`
+	VocabSize          int                       `json:"vocab_size"`
+	UpdatedTokens      int                       `json:"updated_tokens"`
+	TrainTokens        int                       `json:"train_tokens"`
+	TopTokens          []NativeTokenSummary      `json:"top_tokens,omitempty"`
+	CreatedAt          time.Time                 `json:"created_at"`
 }
 
 type NativeTokenSummary struct {
@@ -138,16 +140,18 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.MaxContext = normalized.MaxContext
 	result.DryRun = normalized.DryRun
 	reportNativeProgress(normalized, NativeProgress{Stage: "resolve", Message: "resolving base model"})
-	artifact, err := modelinfo.Resolve(normalized.BaseModel)
+	check, err := modelinfo.Check(normalized.BaseModel)
 	if err != nil {
 		return result, fmt.Errorf("resolve base model: %w", err)
 	}
+	artifact := check.Artifact
 	result.Artifact = artifact
+	result.Memory = check.Memory
 	if !nativeTrainingFormat(artifact.Format) {
 		return result, fmt.Errorf("native token-bias training requires GGUF or Hugging Face safetensors weights, got %s", artifact.Format)
 	}
 	reportNativeProgress(normalized, NativeProgress{Stage: "check", Message: "checking base runtime compatibility"})
-	runtimeWarnings := nativeBaseRuntimeWarnings(normalized.BaseModel, artifact)
+	runtimeWarnings := nativeBaseRuntimeWarnings(check, artifact)
 	reportNativeProgress(normalized, NativeProgress{Stage: "tokenizer", Message: "loading training tokenizer"})
 	tok, err := loadNativeTrainingTokenizer(normalized.BaseModel, artifact)
 	if err != nil {
@@ -288,9 +292,8 @@ func nativeTrainingWarnings(extra ...string) []string {
 	return warnings
 }
 
-func nativeBaseRuntimeWarnings(baseModel string, artifact *modelinfo.Artifact) []string {
-	report, err := modelinfo.Check(baseModel)
-	if err != nil {
+func nativeBaseRuntimeWarnings(report *modelinfo.CheckReport, artifact *modelinfo.Artifact) []string {
+	if report == nil {
 		return nil
 	}
 	backend := nativeTrainingRuntimeBackend(artifact)
@@ -337,6 +340,7 @@ func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *mode
 		EvalRows:           result.EvalRows,
 		DuplicateRows:      result.DuplicateRows,
 		BaseFormat:         string(artifact.Format),
+		BaseMemory:         result.Memory,
 		RecommendedBackend: backend,
 		RuntimeOptions:     map[string]string{"adapter_path": adapterPath},
 		RunArgs:            runArgs,
@@ -504,6 +508,9 @@ func writeNativeTrainingReadme(path string, manifest NativeManifest) error {
 	fmt.Fprintf(&b, "Base model: `%s`\n", manifest.BaseModel)
 	fmt.Fprintf(&b, "Adapter: `%s`\n", manifest.AdapterPath)
 	fmt.Fprintf(&b, "Backend: `%s`\n", manifest.RecommendedBackend)
+	if manifest.BaseMemory != nil && manifest.BaseMemory.TotalBytes > 0 {
+		fmt.Fprintf(&b, "Base memory estimate: `%d bytes`\n", manifest.BaseMemory.TotalBytes)
+	}
 	fmt.Fprintln(&b)
 	if len(manifest.Warnings) > 0 {
 		fmt.Fprintln(&b, "Warnings:")

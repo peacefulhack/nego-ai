@@ -357,6 +357,7 @@ model, err := nego.LoadModel(ctx, nego.ModelOptions{
 
 This writes a small token-bias adapter from the dataset. Full LoRA/backprop training remains planned.
 If the base model can be tokenized but local generation is not ready yet, native training still completes and reports a runtime readiness warning.
+Native training results and adapter manifests include the base model memory estimate when available.
 The output directory also includes `manifest.json` and `README.md` so the
 trained adapter can be inspected or reused by local tooling. You can run a
 native training output directory directly. Native training output includes
