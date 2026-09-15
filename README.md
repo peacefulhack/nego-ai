@@ -41,6 +41,7 @@ Numbered runnable examples live in [examples](examples):
 
 ```bash
 go run ./examples/1.download
+go run ./examples/2.chat ./models/qwen3
 go run ./examples/3.prepare-dataset
 go run ./examples/4.eval
 go run ./examples/5.train

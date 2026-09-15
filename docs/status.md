@@ -80,6 +80,7 @@ Implemented:
 45. Native adapter share manifests preserve tokenizer metadata while omitting token text.
 46. Native token-bias training reports eval token coverage when an eval dataset is provided.
 47. The root `nego` package exposes tokenizer loading and fixture check helpers for app workflows.
+48. Numbered examples include a local-only chat walkthrough that uses the downloaded model path.
 
 Not production-ready yet:
 
