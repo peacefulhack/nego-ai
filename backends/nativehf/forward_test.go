@@ -162,7 +162,7 @@ func TestValidateGenerationContext(t *testing.T) {
 	}
 }
 
-func writeTinyForwardModel(t *testing.T) string {
+func writeTinyForwardModel(t testing.TB) string {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(`{"model_type":"qwen3","architectures":["Qwen3ForCausalLM"],"vocab_size":2,"max_position_embeddings":64,"hidden_size":2,"num_hidden_layers":1,"intermediate_size":2,"num_attention_heads":1,"num_key_value_heads":1,"head_dim":2,"rms_norm_eps":0}`), 0o644); err != nil {
@@ -182,7 +182,7 @@ type f32TensorFixture struct {
 	values []float32
 }
 
-func tinyForwardSafetensorsFixture(t *testing.T) []byte {
+func tinyForwardSafetensorsFixture(t testing.TB) []byte {
 	t.Helper()
 	identity := []float32{1, 0, 0, 1}
 	zeros := []float32{0, 0, 0, 0}
@@ -206,7 +206,7 @@ func tinyForwardSafetensorsFixture(t *testing.T) []byte {
 	return f32SafetensorsFixture(t, tensors)
 }
 
-func f32SafetensorsFixture(t *testing.T, tensors map[string]f32TensorFixture) []byte {
+func f32SafetensorsFixture(t testing.TB, tensors map[string]f32TensorFixture) []byte {
 	t.Helper()
 	var header strings.Builder
 	var payload []byte
@@ -237,7 +237,7 @@ func f32SafetensorsFixture(t *testing.T, tensors map[string]f32TensorFixture) []
 	return out
 }
 
-func shapeElementCount(t *testing.T, shape []uint64) uint64 {
+func shapeElementCount(t testing.TB, shape []uint64) uint64 {
 	t.Helper()
 	total := uint64(1)
 	for _, dim := range shape {
