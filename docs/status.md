@@ -91,6 +91,7 @@ Implemented:
 56. `nego runs list --runtime` adds scan-friendly runtime device/cache/adapter columns.
 57. Native GGUF benchmarks cover tiny forward, generation, and cached tensor decode paths for CPU optimization baselines.
 58. Native-HF benchmarks cover tiny safetensors forward, generation, and cached tensor decode paths.
+59. Curated tokenizer fixture profiles generate repeatable `nego tokenize check` packs for Qwen, Llama, and generic local models.
 
 Not production-ready yet:
 
@@ -103,10 +104,9 @@ Not production-ready yet:
 
 ## Next Critical Phases
 
-1. Add curated Llama/Qwen tokenizer fixture packs for `nego tokenize check`.
-2. Validate native forward math against known tiny Llama/Qwen GGUF and safetensors fixtures.
-3. Run K-quant compatibility tests against small real GGUF fixtures.
-4. Add optimized CPU execution, batching, and memory reuse for larger local models.
-5. Add GPU execution behind a clean backend interface once CPU correctness is stable.
-6. Add full LoRA/backprop training and optimizer checkpoints for GGUF or safetensors artifacts.
-7. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
+1. Validate native forward math against known tiny Llama/Qwen GGUF and safetensors fixtures.
+2. Run K-quant compatibility tests against small real GGUF fixtures.
+3. Add optimized CPU execution, batching, and memory reuse for larger local models.
+4. Add GPU execution behind a clean backend interface once CPU correctness is stable.
+5. Add full LoRA/backprop training and optimizer checkpoints for GGUF or safetensors artifacts.
+6. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.

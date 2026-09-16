@@ -1,9 +1,21 @@
 {
+  "profile": "qwen",
+  "description": "Qwen-style multilingual and chat-marker cases for local tokenizer regression checks.",
   "cases": [
     {
-      "name": "hello round trip",
-      "text": "hello",
-      "decoded": "hello"
+      "name": "plain english",
+      "text": "Hello world",
+      "decoded": "Hello world"
+    },
+    {
+      "name": "multilingual",
+      "text": "Halo dunia. 你好，世界。",
+      "decoded": "Halo dunia. 你好，世界。"
+    },
+    {
+      "name": "qwen chat markers",
+      "text": "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n",
+      "decoded": "<|im_start|>user\nHello<|im_end|>\n<|im_start|>assistant\n"
     }
   ]
 }

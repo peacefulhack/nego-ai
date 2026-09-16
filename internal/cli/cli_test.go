@@ -23,6 +23,7 @@ import (
 	"github.com/gakon/nego-ai/modelinfo"
 	"github.com/gakon/nego-ai/runs"
 	"github.com/gakon/nego-ai/share"
+	"github.com/gakon/nego-ai/tokenizer"
 	"github.com/gakon/nego-ai/training"
 )
 
@@ -533,6 +534,78 @@ func TestTokenizeCheckCommandReportsFailuresJSON(t *testing.T) {
 	}
 	if result.Passed != 0 || result.Failed != 1 || len(result.Cases) != 1 || result.Cases[0].Passed || len(result.Cases[0].Errors) != 2 {
 		t.Fatalf("unexpected result: %s", stdout.String())
+	}
+}
+
+func TestTokenizeFixturesCommandListsProfiles(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"tokenize", "fixtures", "--list"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"basic", "llama", "qwen"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("expected %q in profiles: %q", want, stdout.String())
+		}
+	}
+}
+
+func TestTokenizeFixturesCommandWritesCheckableFixture(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "tokenizer-fixtures.json")
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"tokenize", "fixtures", "qwen", "--out", out}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture tokenizer.FixtureProfile
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if fixture.Name != "qwen" || len(fixture.Cases) == 0 || fixture.Cases[0].Decoded == nil {
+		t.Fatalf("unexpected fixture: %#v", fixture)
+	}
+}
+
+func TestTokenizeFixturesCommandCanFillModelTokenIDs(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{
+		"model": {
+			"type": "WordLevel",
+			"vocab": {
+				"<unk>": 0
+			},
+			"unk_token": "<unk>"
+		}
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "tokenizer-fixtures.json")
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"tokenize", "fixtures", "basic", "--model", modelDir, "--out", out}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var fixture tokenizer.FixtureProfile
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Cases) == 0 || len(fixture.Cases[0].Tokens) == 0 || fixture.Cases[0].Decoded == nil {
+		t.Fatalf("expected model-filled fixture: %#v", fixture)
 	}
 }
 

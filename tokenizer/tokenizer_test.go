@@ -270,6 +270,37 @@ func TestCheckCasesHandlesNilTokenizer(t *testing.T) {
 	}
 }
 
+func TestBuildFixtureProfile(t *testing.T) {
+	fixture, err := BuildFixtureProfile("qwen", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fixture.Name != "qwen" || len(fixture.Cases) == 0 {
+		t.Fatalf("unexpected fixture: %#v", fixture)
+	}
+	if fixture.Cases[0].Decoded == nil || *fixture.Cases[0].Decoded != fixture.Cases[0].Text {
+		t.Fatalf("expected default decoded text, got %#v", fixture.Cases[0])
+	}
+
+	fixture, err = BuildFixtureProfile("basic", fixtureCodec{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fixture.Cases[0].Tokens) == 0 || fixture.Cases[0].Decoded == nil {
+		t.Fatalf("expected token ids and decoded text: %#v", fixture.Cases[0])
+	}
+}
+
+type fixtureCodec struct{}
+
+func (fixtureCodec) Encode(text string) ([]int, error) {
+	return []int{len(text)}, nil
+}
+
+func (fixtureCodec) Decode(ids []int) (string, error) {
+	return "decoded", nil
+}
+
 func writeTokenizer(t *testing.T, dir, body string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "tokenizer.json"), []byte(body), 0o644); err != nil {

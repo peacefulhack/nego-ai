@@ -258,17 +258,27 @@ Show token IDs:
 nego tokenize ./models/qwen3 "Explain Go in simple terms."
 ```
 
-Validate tokenizer regression fixtures:
-
-```json
-[
-  {"name":"hello","text":"hello","tokens":[0,1],"decoded":"hello"}
-]
-```
+Create tokenizer regression fixtures from a curated profile:
 
 ```bash
-nego tokenize check ./models/qwen3 tokenizer-fixtures.json
-nego tokenize check ./models/qwen3 tokenizer-fixtures.json --json
+nego tokenize fixtures --list
+nego tokenize fixtures qwen --out examples/5.train/tokenizer-fixtures.json
+```
+
+Lock the expected token IDs to the downloaded local model when you want a stricter
+regression baseline:
+
+```bash
+nego tokenize fixtures qwen \
+  --model ./models/qwen3 \
+  --out examples/5.train/tokenizer-fixtures.json
+```
+
+Validate the fixture pack:
+
+```bash
+nego tokenize check ./models/qwen3 examples/5.train/tokenizer-fixtures.json
+nego tokenize check ./models/qwen3 examples/5.train/tokenizer-fixtures.json --json
 ```
 
 Check whether a prompt fits a context window:

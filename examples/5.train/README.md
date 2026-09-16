@@ -27,7 +27,19 @@ go run ./cmd/nego dataset render examples/5.train/train.jsonl --model ./models/q
 go run ./cmd/nego dataset tokens examples/5.train/train.jsonl --model ./models/qwen3 --format completion --max-context 4096
 ```
 
-4. Optionally validate tokenizer fixture cases before training:
+4. Generate and validate tokenizer fixture cases before training:
+
+```bash
+go run ./cmd/nego tokenize fixtures qwen \
+  --model ./models/qwen3 \
+  --out examples/5.train/tokenizer-fixtures.json
+
+go run ./cmd/nego tokenize check ./models/qwen3 examples/5.train/tokenizer-fixtures.json
+```
+
+Use `basic`, `qwen`, or `llama` as the profile. Passing `--model` records
+the local model's token IDs so the fixture becomes a stricter regression
+baseline.
 
 ```bash
 go run ./cmd/nego train native ./models/qwen3 \

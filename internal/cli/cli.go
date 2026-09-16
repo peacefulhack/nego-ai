@@ -330,7 +330,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native", "no-manifest", "dry-run":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native", "no-manifest", "dry-run", "list":
 		return true
 	default:
 		return false
@@ -404,6 +404,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "  nego cache usage [flags]")
 	fmt.Fprintln(w, "  nego cache gc --yes [flags]")
 	fmt.Fprintln(w, "  nego tokenize <model-path> <text> [flags]")
+	fmt.Fprintln(w, "  nego tokenize fixtures <profile> [--out <fixtures.json>] [--model <model-path>]")
 	fmt.Fprintln(w, "  nego tokenize check <model-path> <fixtures.json> [flags]")
 	fmt.Fprintln(w, "  nego tokens <model-path> <text>")
 	fmt.Fprintln(w, "  nego context <model-path> <text> [flags]")
@@ -1961,6 +1962,9 @@ func runTokenize(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "check" {
 		return runTokenizeCheck(args[1:], stdout, stderr)
 	}
+	if len(args) > 0 && args[0] == "fixtures" {
+		return runTokenizeFixtures(args[1:], stdout, stderr)
+	}
 	var jsonOutput bool
 	fs := flag.NewFlagSet("tokenize", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -2170,6 +2174,81 @@ const maxTokenizeCheckBytes = 8 << 20
 type tokenizeCheckCase = tokenizer.CheckCase
 type tokenizeCheckCaseResult = tokenizer.CheckCaseResult
 type tokenizeCheckResult = tokenizer.CheckResult
+
+func runTokenizeFixtures(args []string, stdout, stderr io.Writer) int {
+	var out string
+	var modelPath string
+	var list bool
+	fs := flag.NewFlagSet("tokenize fixtures", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&out, "out", "", "fixture JSON output path")
+	fs.StringVar(&modelPath, "model", "", "optional model path used to fill expected token ids")
+	fs.BoolVar(&list, "list", false, "list available fixture profiles")
+	parseArgs, positionals := splitFlags(args)
+	if err := fs.Parse(parseArgs); err != nil {
+		return 2
+	}
+	if list {
+		for _, name := range tokenizer.FixtureProfileNames() {
+			fmt.Fprintln(stdout, name)
+		}
+		return 0
+	}
+	if len(positionals) != 1 {
+		fmt.Fprintln(stderr, "usage: nego tokenize fixtures <profile> [--out <fixtures.json>] [--model <model-path>]")
+		return 2
+	}
+	var tok tokenizer.TextCodec
+	if modelPath != "" {
+		loaded, err := loadCLITokenizer(modelPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			return 1
+		}
+		tok = loaded
+	}
+	fixture, err := tokenizer.BuildFixtureProfile(positionals[0], tok)
+	if err != nil {
+		fmt.Fprintf(stderr, "nego: %v\n", err)
+		return 1
+	}
+	if out != "" {
+		if err := writeTokenizeFixture(out, fixture); err != nil {
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			return 1
+		}
+	}
+	if out == "" {
+		encoder := json.NewEncoder(stdout)
+		encoder.SetIndent("", "  ")
+		_ = encoder.Encode(fixture)
+		return 0
+	}
+	fmt.Fprintf(stdout, "Tokenizer fixtures: %s\n", out)
+	fmt.Fprintf(stdout, "Profile:            %s\n", fixture.Name)
+	fmt.Fprintf(stdout, "Cases:              %d\n", len(fixture.Cases))
+	if modelPath != "" {
+		fmt.Fprintf(stdout, "Model:              %s\n", modelPath)
+	}
+	return 0
+}
+
+func writeTokenizeFixture(path string, fixture tokenizer.FixtureProfile) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("fixture output path is required")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(fixture)
+}
 
 func runTokenizeCheck(args []string, stdout, stderr io.Writer) int {
 	var jsonOutput bool
