@@ -94,6 +94,7 @@ Implemented:
 59. Curated tokenizer fixture profiles generate repeatable `nego tokenize check` packs for Qwen, Llama, and generic local models.
 60. Native GGUF and native-HF tiny forward tests validate golden logits, not only output shape or winning token.
 61. Native quantized GGML tensor compatibility tests cover byte sizing and float32 decode for Q4/Q5/Q8 and K-quant layouts.
+62. Native training can enforce a minimum evaluation token coverage gate before writing adapter outputs.
 
 Not production-ready yet:
 

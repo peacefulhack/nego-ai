@@ -41,24 +41,25 @@ type Entry struct {
 }
 
 type Training struct {
-	Method        string        `json:"method,omitempty"`
-	TrainFile     string        `json:"train_file,omitempty"`
-	EvalFile      string        `json:"eval_file,omitempty"`
-	DatasetFormat string        `json:"dataset_format,omitempty"`
-	OutputDir     string        `json:"output_dir,omitempty"`
-	AdapterPath   string        `json:"adapter_path,omitempty"`
-	ManifestPath  string        `json:"manifest_path,omitempty"`
-	Artifact      string        `json:"artifact,omitempty"`
-	DryRun        bool          `json:"dry_run,omitempty"`
-	LearningRate  float64       `json:"learning_rate,omitempty"`
-	Epochs        int           `json:"epochs,omitempty"`
-	MaxContext    int           `json:"max_context,omitempty"`
-	TrainRows     int           `json:"train_rows,omitempty"`
-	EvalRows      int           `json:"eval_rows,omitempty"`
-	DuplicateRows int           `json:"duplicate_rows,omitempty"`
-	VocabSize     int           `json:"vocab_size,omitempty"`
-	EvalCoverage  *EvalCoverage `json:"eval_coverage,omitempty"`
-	TopTokenIDs   []int         `json:"top_token_ids,omitempty"`
+	Method          string        `json:"method,omitempty"`
+	TrainFile       string        `json:"train_file,omitempty"`
+	EvalFile        string        `json:"eval_file,omitempty"`
+	DatasetFormat   string        `json:"dataset_format,omitempty"`
+	OutputDir       string        `json:"output_dir,omitempty"`
+	AdapterPath     string        `json:"adapter_path,omitempty"`
+	ManifestPath    string        `json:"manifest_path,omitempty"`
+	Artifact        string        `json:"artifact,omitempty"`
+	DryRun          bool          `json:"dry_run,omitempty"`
+	LearningRate    float64       `json:"learning_rate,omitempty"`
+	Epochs          int           `json:"epochs,omitempty"`
+	MaxContext      int           `json:"max_context,omitempty"`
+	MinEvalCoverage float64       `json:"min_eval_coverage,omitempty"`
+	TrainRows       int           `json:"train_rows,omitempty"`
+	EvalRows        int           `json:"eval_rows,omitempty"`
+	DuplicateRows   int           `json:"duplicate_rows,omitempty"`
+	VocabSize       int           `json:"vocab_size,omitempty"`
+	EvalCoverage    *EvalCoverage `json:"eval_coverage,omitempty"`
+	TopTokenIDs     []int         `json:"top_token_ids,omitempty"`
 }
 
 type EvalCoverage struct {

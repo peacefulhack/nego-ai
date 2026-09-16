@@ -20,21 +20,22 @@ import (
 const maxNativeManifestBytes = 1 << 20
 
 type NativeOptions struct {
-	BaseModel     string               `json:"base_model"`
-	TrainFile     string               `json:"train_file"`
-	EvalFile      string               `json:"eval_file,omitempty"`
-	DatasetFormat string               `json:"dataset_format,omitempty"`
-	OutputDir     string               `json:"output_dir"`
-	Method        string               `json:"method,omitempty"`
-	LearningRate  float64              `json:"learning_rate,omitempty"`
-	Epochs        int                  `json:"epochs,omitempty"`
-	MaxContext    int                  `json:"max_context,omitempty"`
-	DryRun        bool                 `json:"dry_run,omitempty"`
-	Progress      func(NativeProgress) `json:"-"`
-	DedupeKeys    []string             `json:"dedupe_keys,omitempty"`
-	DedupeTrim    bool                 `json:"dedupe_trim,omitempty"`
-	DedupeFold    bool                 `json:"dedupe_fold,omitempty"`
-	FailOnDupes   bool                 `json:"fail_on_duplicates,omitempty"`
+	BaseModel       string               `json:"base_model"`
+	TrainFile       string               `json:"train_file"`
+	EvalFile        string               `json:"eval_file,omitempty"`
+	DatasetFormat   string               `json:"dataset_format,omitempty"`
+	OutputDir       string               `json:"output_dir"`
+	Method          string               `json:"method,omitempty"`
+	LearningRate    float64              `json:"learning_rate,omitempty"`
+	Epochs          int                  `json:"epochs,omitempty"`
+	MaxContext      int                  `json:"max_context,omitempty"`
+	MinEvalCoverage float64              `json:"min_eval_coverage,omitempty"`
+	DryRun          bool                 `json:"dry_run,omitempty"`
+	Progress        func(NativeProgress) `json:"-"`
+	DedupeKeys      []string             `json:"dedupe_keys,omitempty"`
+	DedupeTrim      bool                 `json:"dedupe_trim,omitempty"`
+	DedupeFold      bool                 `json:"dedupe_fold,omitempty"`
+	FailOnDupes     bool                 `json:"fail_on_duplicates,omitempty"`
 }
 
 type NativeProgress struct {
@@ -47,35 +48,36 @@ type NativeProgress struct {
 }
 
 type NativeResult struct {
-	BaseModel     string                     `json:"base_model"`
-	TrainFile     string                     `json:"train_file"`
-	EvalFile      string                     `json:"eval_file,omitempty"`
-	DatasetFormat string                     `json:"dataset_format"`
-	OutputDir     string                     `json:"output_dir"`
-	AdapterPath   string                     `json:"adapter_path"`
-	ManifestPath  string                     `json:"manifest_path,omitempty"`
-	ReadmePath    string                     `json:"readme_path,omitempty"`
-	Method        string                     `json:"method"`
-	LearningRate  float64                    `json:"learning_rate,omitempty"`
-	Epochs        int                        `json:"epochs"`
-	MaxContext    int                        `json:"max_context,omitempty"`
-	DryRun        bool                       `json:"dry_run,omitempty"`
-	TrainRows     int                        `json:"train_rows"`
-	EvalRows      int                        `json:"eval_rows,omitempty"`
-	DuplicateRows int                        `json:"duplicate_rows,omitempty"`
-	TrainBudget   *TokenBudgetSummary        `json:"train_budget,omitempty"`
-	EvalBudget    *TokenBudgetSummary        `json:"eval_budget,omitempty"`
-	EvalCoverage  *NativeEvalSummary         `json:"eval_coverage,omitempty"`
-	TrainTokens   int                        `json:"train_tokens"`
-	VocabSize     int                        `json:"vocab_size"`
-	UpdatedTokens int                        `json:"updated_tokens"`
-	TopTokens     []NativeTokenSummary       `json:"top_tokens,omitempty"`
-	Duration      time.Duration              `json:"duration"`
-	Artifact      *modelinfo.Artifact        `json:"artifact,omitempty"`
-	Memory        *modelinfo.MemoryEstimate  `json:"memory,omitempty"`
-	Tokenizer     *modelinfo.TokenizerReport `json:"tokenizer,omitempty"`
-	Adapter       *adapters.TokenBiasAdapter `json:"adapter,omitempty"`
-	Warnings      []string                   `json:"warnings,omitempty"`
+	BaseModel       string                     `json:"base_model"`
+	TrainFile       string                     `json:"train_file"`
+	EvalFile        string                     `json:"eval_file,omitempty"`
+	DatasetFormat   string                     `json:"dataset_format"`
+	OutputDir       string                     `json:"output_dir"`
+	AdapterPath     string                     `json:"adapter_path"`
+	ManifestPath    string                     `json:"manifest_path,omitempty"`
+	ReadmePath      string                     `json:"readme_path,omitempty"`
+	Method          string                     `json:"method"`
+	LearningRate    float64                    `json:"learning_rate,omitempty"`
+	Epochs          int                        `json:"epochs"`
+	MaxContext      int                        `json:"max_context,omitempty"`
+	MinEvalCoverage float64                    `json:"min_eval_coverage,omitempty"`
+	DryRun          bool                       `json:"dry_run,omitempty"`
+	TrainRows       int                        `json:"train_rows"`
+	EvalRows        int                        `json:"eval_rows,omitempty"`
+	DuplicateRows   int                        `json:"duplicate_rows,omitempty"`
+	TrainBudget     *TokenBudgetSummary        `json:"train_budget,omitempty"`
+	EvalBudget      *TokenBudgetSummary        `json:"eval_budget,omitempty"`
+	EvalCoverage    *NativeEvalSummary         `json:"eval_coverage,omitempty"`
+	TrainTokens     int                        `json:"train_tokens"`
+	VocabSize       int                        `json:"vocab_size"`
+	UpdatedTokens   int                        `json:"updated_tokens"`
+	TopTokens       []NativeTokenSummary       `json:"top_tokens,omitempty"`
+	Duration        time.Duration              `json:"duration"`
+	Artifact        *modelinfo.Artifact        `json:"artifact,omitempty"`
+	Memory          *modelinfo.MemoryEstimate  `json:"memory,omitempty"`
+	Tokenizer       *modelinfo.TokenizerReport `json:"tokenizer,omitempty"`
+	Adapter         *adapters.TokenBiasAdapter `json:"adapter,omitempty"`
+	Warnings        []string                   `json:"warnings,omitempty"`
 }
 
 type NativeManifest struct {
@@ -90,6 +92,7 @@ type NativeManifest struct {
 	LearningRate       float64                    `json:"learning_rate,omitempty"`
 	Epochs             int                        `json:"epochs,omitempty"`
 	MaxContext         int                        `json:"max_context,omitempty"`
+	MinEvalCoverage    float64                    `json:"min_eval_coverage,omitempty"`
 	TrainRows          int                        `json:"train_rows,omitempty"`
 	EvalRows           int                        `json:"eval_rows,omitempty"`
 	DuplicateRows      int                        `json:"duplicate_rows,omitempty"`
@@ -132,15 +135,16 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	}
 	start := time.Now()
 	result := NativeResult{
-		BaseModel:     opts.BaseModel,
-		TrainFile:     opts.TrainFile,
-		EvalFile:      opts.EvalFile,
-		DatasetFormat: opts.DatasetFormat,
-		OutputDir:     opts.OutputDir,
-		Method:        opts.Method,
-		Epochs:        opts.Epochs,
-		MaxContext:    opts.MaxContext,
-		DryRun:        opts.DryRun,
+		BaseModel:       opts.BaseModel,
+		TrainFile:       opts.TrainFile,
+		EvalFile:        opts.EvalFile,
+		DatasetFormat:   opts.DatasetFormat,
+		OutputDir:       opts.OutputDir,
+		Method:          opts.Method,
+		Epochs:          opts.Epochs,
+		MaxContext:      opts.MaxContext,
+		MinEvalCoverage: opts.MinEvalCoverage,
+		DryRun:          opts.DryRun,
 	}
 	normalized, err := normalizeNativeOptions(opts)
 	if err != nil {
@@ -152,6 +156,7 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 	result.LearningRate = normalized.LearningRate
 	result.Epochs = normalized.Epochs
 	result.MaxContext = normalized.MaxContext
+	result.MinEvalCoverage = normalized.MinEvalCoverage
 	result.DryRun = normalized.DryRun
 	reportNativeProgress(normalized, NativeProgress{Stage: "resolve", Message: "resolving base model"})
 	check, err := modelinfo.Check(normalized.BaseModel)
@@ -270,6 +275,10 @@ func RunNative(ctx context.Context, opts NativeOptions) (NativeResult, error) {
 			return result, fmt.Errorf("eval file %q cannot be scored: %w", normalized.EvalFile, err)
 		}
 		result.EvalCoverage = coverage
+		if normalized.MinEvalCoverage > 0 && coverage.Coverage < normalized.MinEvalCoverage {
+			result.Duration = time.Since(start)
+			return result, fmt.Errorf("eval coverage %.2f%% is below minimum %.2f%%", coverage.Coverage*100, normalized.MinEvalCoverage*100)
+		}
 	}
 	result.Warnings = nativeTrainingWarnings(append(append([]string(nil), warnings...), runtimeWarnings...)...)
 	if normalized.DryRun {
@@ -362,6 +371,7 @@ func buildNativeManifest(opts NativeOptions, result NativeResult, artifact *mode
 		LearningRate:       result.LearningRate,
 		Epochs:             result.Epochs,
 		MaxContext:         result.MaxContext,
+		MinEvalCoverage:    result.MinEvalCoverage,
 		TrainRows:          result.TrainRows,
 		EvalRows:           result.EvalRows,
 		DuplicateRows:      result.DuplicateRows,
@@ -650,6 +660,12 @@ func normalizeNativeOptions(opts NativeOptions) (NativeOptions, error) {
 	}
 	if opts.MaxContext < 0 {
 		return opts, fmt.Errorf("max context must be greater than or equal to 0")
+	}
+	if opts.MinEvalCoverage < 0 || opts.MinEvalCoverage > 1 {
+		return opts, fmt.Errorf("min eval coverage must be between 0 and 1")
+	}
+	if opts.MinEvalCoverage > 0 && opts.EvalFile == "" {
+		return opts, fmt.Errorf("min eval coverage requires an eval file")
 	}
 	opts.DedupeKeys = normalizeDedupeKeys(opts.DedupeKeys)
 	if _, err := os.Stat(opts.BaseModel); err != nil {

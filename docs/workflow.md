@@ -534,15 +534,19 @@ nego train native ./models/qwen3 \
 
 nego train native ./models/qwen3 \
   --train-file examples/5.train/train.jsonl \
+  --eval-file examples/5.train/test.jsonl \
   --dataset-format completion \
   --max-context 4096 \
+  --min-eval-coverage 0.50 \
   --out ./outputs/qwen3-token-bias \
   --log runs.jsonl
 
 nego train native ./models/qwen3-gguf \
   --train-file examples/5.train/train.jsonl \
+  --eval-file examples/5.train/test.jsonl \
   --dataset-format completion \
   --max-context 4096 \
+  --min-eval-coverage 0.50 \
   --out ./outputs/qwen3-token-bias
 ```
 

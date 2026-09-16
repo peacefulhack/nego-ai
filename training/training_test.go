@@ -381,6 +381,50 @@ func TestRunNativeManifestPersistsGGUFTokenizer(t *testing.T) {
 	}
 }
 
+func TestRunNativeFailsBelowMinimumEvalCoverage(t *testing.T) {
+	dir := t.TempDir()
+	modelDir := filepath.Join(dir, "models", "qwen3-gguf")
+	trainFile := filepath.Join(dir, "data", "train.jsonl")
+	evalFile := filepath.Join(dir, "data", "test.jsonl")
+	outputDir := filepath.Join(dir, "outputs", "qwen3-adapter")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.gguf"), minimalGGUF(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "tokenizer.json"), []byte(`{"model":{"type":"WordLevel","vocab":{"hello":0,"▁world":1,"later":2,"▁later":3},"unk_token":"hello"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(trainFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"hello world"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evalFile, []byte(`{"prompt":"hi","completion":"hello later"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := RunNative(context.Background(), NativeOptions{
+		BaseModel:       modelDir,
+		TrainFile:       trainFile,
+		EvalFile:        evalFile,
+		DatasetFormat:   "completion",
+		OutputDir:       outputDir,
+		MinEvalCoverage: 0.75,
+	})
+	if err == nil || !strings.Contains(err.Error(), "below minimum") {
+		t.Fatalf("expected minimum coverage error, got %v", err)
+	}
+	if result.EvalCoverage == nil || result.EvalCoverage.Coverage != 0.5 || result.MinEvalCoverage != 0.75 {
+		t.Fatalf("unexpected result coverage: %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
+		t.Fatalf("adapter should not be written when coverage gate fails: %v", err)
+	}
+}
+
 func TestRunNativeDryRunDoesNotWriteAdapter(t *testing.T) {
 	dir := t.TempDir()
 	modelDir := filepath.Join(dir, "models", "qwen3-gguf")

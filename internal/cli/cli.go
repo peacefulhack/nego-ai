@@ -1099,6 +1099,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	var outputDir string
 	var method string
 	var learningRate float64
+	var minEvalCoverage float64
 	var epochs int
 	var maxContext int
 	var jsonOutput bool
@@ -1117,6 +1118,7 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	fs.StringVar(&outputDir, "out", "", "output adapter directory")
 	fs.StringVar(&method, "method", "token-bias", "native training method")
 	fs.Float64Var(&learningRate, "learning-rate", 0.1, "adapter learning-rate scale")
+	fs.Float64Var(&minEvalCoverage, "min-eval-coverage", 0, "minimum eval token coverage required, as a 0..1 fraction")
 	fs.IntVar(&epochs, "epochs", 1, "number of passes over the dataset")
 	fs.IntVar(&maxContext, "max-context", 0, "maximum context tokens checked before native training")
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
@@ -1158,24 +1160,25 @@ func runTrainNative(args []string, stdout, stderr io.Writer) int {
 	}
 	started := time.Now().UTC()
 	result, err := training.RunNative(context.Background(), training.NativeOptions{
-		BaseModel:     positionals[0],
-		TrainFile:     trainFile,
-		EvalFile:      evalFile,
-		DatasetFormat: datasetFormat,
-		OutputDir:     outputDir,
-		Method:        method,
-		LearningRate:  learningRate,
-		Epochs:        epochs,
-		MaxContext:    maxContext,
-		DryRun:        dryRun,
-		Progress:      progress,
-		DedupeKeys:    expandRepeatedCommaFields(dedupeKeys),
-		DedupeTrim:    dedupeTrim,
-		DedupeFold:    dedupeFold,
-		FailOnDupes:   failOnDupes,
+		BaseModel:       positionals[0],
+		TrainFile:       trainFile,
+		EvalFile:        evalFile,
+		DatasetFormat:   datasetFormat,
+		OutputDir:       outputDir,
+		Method:          method,
+		LearningRate:    learningRate,
+		MinEvalCoverage: minEvalCoverage,
+		Epochs:          epochs,
+		MaxContext:      maxContext,
+		DryRun:          dryRun,
+		Progress:        progress,
+		DedupeKeys:      expandRepeatedCommaFields(dedupeKeys),
+		DedupeTrim:      dedupeTrim,
+		DedupeFold:      dedupeFold,
+		FailOnDupes:     failOnDupes,
 	})
 	if logPath != "" {
-		entry := nativeTrainingLogEntry(result, positionals[0], trainFile, evalFile, datasetFormat, outputDir, method, learningRate, epochs, maxContext, dryRun, started, err)
+		entry := nativeTrainingLogEntry(result, positionals[0], trainFile, evalFile, datasetFormat, outputDir, method, learningRate, minEvalCoverage, epochs, maxContext, dryRun, started, err)
 		if logErr := appendRuntimeLog(logPath, entry); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 			if err == nil {
@@ -1231,7 +1234,7 @@ func runTrainingTokenizeCheck(modelPath, fixturePath string, jsonOutput bool, st
 	return result, nil
 }
 
-func nativeTrainingLogEntry(result training.NativeResult, baseModel, trainFile, evalFile, datasetFormat, outputDir, method string, learningRate float64, epochs, maxContext int, dryRun bool, started time.Time, trainErr error) runs.Entry {
+func nativeTrainingLogEntry(result training.NativeResult, baseModel, trainFile, evalFile, datasetFormat, outputDir, method string, learningRate, minEvalCoverage float64, epochs, maxContext int, dryRun bool, started time.Time, trainErr error) runs.Entry {
 	artifact := ""
 	if result.Artifact != nil {
 		artifact = string(result.Artifact.Format)
@@ -1248,24 +1251,25 @@ func nativeTrainingLogEntry(result training.NativeResult, baseModel, trainFile, 
 		StartedAt:  started,
 		DurationMS: time.Since(started).Milliseconds(),
 		Training: &runs.Training{
-			Method:        firstNonEmptyString(result.Method, method),
-			TrainFile:     trainFile,
-			EvalFile:      evalFile,
-			DatasetFormat: firstNonEmptyString(result.DatasetFormat, datasetFormat),
-			OutputDir:     firstNonEmptyString(result.OutputDir, outputDir),
-			AdapterPath:   result.AdapterPath,
-			ManifestPath:  result.ManifestPath,
-			Artifact:      artifact,
-			DryRun:        dryRun || result.DryRun,
-			LearningRate:  result.LearningRate,
-			Epochs:        firstPositive(result.Epochs, epochs),
-			MaxContext:    firstPositive(result.MaxContext, maxContext),
-			TrainRows:     result.TrainRows,
-			EvalRows:      result.EvalRows,
-			DuplicateRows: result.DuplicateRows,
-			VocabSize:     result.VocabSize,
-			EvalCoverage:  trainingRunEvalCoverage(result.EvalCoverage),
-			TopTokenIDs:   topTokenIDs,
+			Method:          firstNonEmptyString(result.Method, method),
+			TrainFile:       trainFile,
+			EvalFile:        evalFile,
+			DatasetFormat:   firstNonEmptyString(result.DatasetFormat, datasetFormat),
+			OutputDir:       firstNonEmptyString(result.OutputDir, outputDir),
+			AdapterPath:     result.AdapterPath,
+			ManifestPath:    result.ManifestPath,
+			Artifact:        artifact,
+			DryRun:          dryRun || result.DryRun,
+			LearningRate:    result.LearningRate,
+			MinEvalCoverage: firstPositiveFloat(result.MinEvalCoverage, minEvalCoverage),
+			Epochs:          firstPositive(result.Epochs, epochs),
+			MaxContext:      firstPositive(result.MaxContext, maxContext),
+			TrainRows:       result.TrainRows,
+			EvalRows:        result.EvalRows,
+			DuplicateRows:   result.DuplicateRows,
+			VocabSize:       result.VocabSize,
+			EvalCoverage:    trainingRunEvalCoverage(result.EvalCoverage),
+			TopTokenIDs:     topTokenIDs,
 		},
 	}
 	if trainErr != nil {
@@ -1290,6 +1294,15 @@ func trainingRunEvalCoverage(summary *training.NativeEvalSummary) *runs.EvalCove
 }
 
 func firstPositive(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstPositiveFloat(values ...float64) float64 {
 	for _, value := range values {
 		if value > 0 {
 			return value
@@ -1355,6 +1368,9 @@ func printNativeTrainingResult(w io.Writer, result training.NativeResult) {
 	fmt.Fprintf(w, "Epochs:         %d\n", result.Epochs)
 	if result.MaxContext > 0 {
 		fmt.Fprintf(w, "Max context:    %d\n", result.MaxContext)
+	}
+	if result.MinEvalCoverage > 0 {
+		fmt.Fprintf(w, "Min eval cov:   %.2f%%\n", result.MinEvalCoverage*100)
 	}
 	if result.DuplicateRows > 0 {
 		fmt.Fprintf(w, "Duplicates:     %d\n", result.DuplicateRows)
@@ -5694,6 +5710,9 @@ func writeTrainingRunInfo(w io.Writer, info runs.Training) {
 	}
 	if info.MaxContext > 0 {
 		fmt.Fprintf(w, "  Max context:   %d\n", info.MaxContext)
+	}
+	if info.MinEvalCoverage > 0 {
+		fmt.Fprintf(w, "  Min eval cov:  %.2f%%\n", info.MinEvalCoverage*100)
 	}
 	if info.TrainRows > 0 {
 		fmt.Fprintf(w, "  Train rows:    %d\n", info.TrainRows)

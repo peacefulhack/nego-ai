@@ -2551,6 +2551,45 @@ func TestTrainNativeCommandWritesRunLog(t *testing.T) {
 	}
 }
 
+func TestTrainNativeCommandFailsBelowMinEvalCoverage(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	dir := t.TempDir()
+	trainFile := filepath.Join(dir, "train.jsonl")
+	evalFile := filepath.Join(dir, "test.jsonl")
+	outputDir := filepath.Join(dir, "adapter")
+	if err := os.WriteFile(trainFile, []byte(`{"prompt":"hi","completion":"secret completion"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evalFile, []byte(`{"prompt":"hi","completion":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{
+		"train",
+		"native",
+		modelPath,
+		"--train-file",
+		trainFile,
+		"--eval-file",
+		evalFile,
+		"--dataset-format",
+		"completion",
+		"--min-eval-coverage",
+		"1",
+		"--out",
+		outputDir,
+	}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "below minimum") {
+		t.Fatalf("expected coverage gate error, got %q", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "adapter.json")); !os.IsNotExist(err) {
+		t.Fatalf("adapter should not be written when coverage gate fails: %v", err)
+	}
+}
+
 func TestTrainNativeDryRunCommandDoesNotWriteAdapter(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	dir := t.TempDir()

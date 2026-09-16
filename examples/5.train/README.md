@@ -75,6 +75,7 @@ go run ./cmd/nego train native ./models/qwen3 \
   --eval-file examples/5.train/test.jsonl \
   --dataset-format completion \
   --max-context 4096 \
+  --min-eval-coverage 0.50 \
   --out ./outputs/qwen3-token-bias
 ```
 
