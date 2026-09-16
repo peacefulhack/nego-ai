@@ -2754,9 +2754,11 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 
 func runStatus(args []string, stdout, stderr io.Writer) int {
 	var jsonOutput bool
+	var runtimeStats bool
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.BoolVar(&runtimeStats, "runtime-stats", false, "load the pure-Go backend and include runtime cache/device stats")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -2770,12 +2772,56 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
+	var stats nego.RuntimeStats
+	if runtimeStats {
+		if !jsonOutput {
+			fmt.Fprintln(stderr, "Loading runtime for stats...")
+		}
+		loadedStats, err := loadStatusRuntimeStats(positionals[0])
+		if err != nil {
+			fmt.Fprintf(stderr, "nego: %v\n", err)
+			return 1
+		}
+		stats = loadedStats
+	}
 	if jsonOutput {
+		if runtimeStats {
+			_ = json.NewEncoder(stdout).Encode(struct {
+				Artifact     *modelinfo.Artifact `json:"artifact"`
+				RuntimeStats nego.RuntimeStats   `json:"runtime_stats"`
+			}{
+				Artifact:     artifact,
+				RuntimeStats: stats,
+			})
+			return 0
+		}
 		_ = json.NewEncoder(stdout).Encode(artifact)
 		return 0
 	}
 	writeArtifactStatus(stdout, artifact)
+	if runtimeStats {
+		writeRuntimeStats(stdout, stats)
+	}
 	return 0
+}
+
+func loadStatusRuntimeStats(path string) (nego.RuntimeStats, error) {
+	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
+		Backend: nego.BackendNativeAuto,
+		Path:    path,
+		Options: map[string]string{
+			"allow_incomplete": "true",
+		},
+	})
+	if err != nil {
+		return nego.RuntimeStats{}, fmt.Errorf("load runtime stats: %w", err)
+	}
+	defer model.Close()
+	stats, ok := nego.RuntimeStatsOf(model)
+	if !ok {
+		return nego.RuntimeStats{}, fmt.Errorf("backend does not expose runtime stats")
+	}
+	return stats, nil
 }
 
 func writeArtifactStatus(w io.Writer, artifact *modelinfo.Artifact) {
@@ -2807,6 +2853,33 @@ func writeArtifactStatus(w io.Writer, artifact *modelinfo.Artifact) {
 			fmt.Fprintf(w, "  - %s\n", warning)
 		}
 	}
+}
+
+func writeRuntimeStats(w io.Writer, stats nego.RuntimeStats) {
+	fmt.Fprintln(w, "Runtime stats:")
+	if stats.Backend != "" {
+		fmt.Fprintf(w, "  Backend:      %s\n", stats.Backend)
+	}
+	if stats.Device != "" {
+		fmt.Fprintf(w, "  Device:       %s\n", stats.Device)
+	}
+	fmt.Fprintf(w, "  Cache:        %s\n", enabledDisabled(stats.TensorCacheEnabled))
+	fmt.Fprintf(w, "  Tensors:      %d\n", stats.CachedTensors)
+	fmt.Fprintf(w, "  Cached bytes: %s\n", humanBytesUint(stats.CachedTensorBytes))
+	if stats.MaxTensorCacheBytes > 0 {
+		fmt.Fprintf(w, "  Cache limit:  %s\n", humanBytesUint(stats.MaxTensorCacheBytes))
+	}
+	fmt.Fprintf(w, "  Adapter:      %s\n", yesNo(stats.AdapterLoaded))
+	if stats.ExperimentalGeneration {
+		fmt.Fprintln(w, "  Generation:   experimental")
+	}
+}
+
+func enabledDisabled(value bool) string {
+	if value {
+		return "enabled"
+	}
+	return "disabled"
 }
 
 func writeArtifactCapabilities(w io.Writer, label string, capabilities []modelinfo.ArtifactCapability) {

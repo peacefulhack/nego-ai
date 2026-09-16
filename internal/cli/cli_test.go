@@ -947,6 +947,24 @@ func TestStatusCommandSummarizesArtifact(t *testing.T) {
 	}
 }
 
+func TestStatusCommandShowsRuntimeStats(t *testing.T) {
+	modelPath := fakeInspectGGUF(t)
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"status", modelPath, "--runtime-stats"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"Runtime stats:", "Backend:      native", "Device:       cpu", "Cache:        enabled", "Adapter:      no"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(stderr.String(), "Loading runtime for stats") {
+		t.Fatalf("expected load progress on stderr, got %q", stderr.String())
+	}
+}
+
 func TestStatusCommandJSON(t *testing.T) {
 	modelPath := fakeInspectGGUF(t)
 	var stdout, stderr bytes.Buffer
@@ -963,6 +981,31 @@ func TestStatusCommandJSON(t *testing.T) {
 	}
 	if body.Format != "gguf" || body.RecommendedRunBackend == "" {
 		t.Fatalf("unexpected status json: %s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"status", modelPath, "--runtime-stats", "--json"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("runtime json code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	var runtimeBody struct {
+		Artifact struct {
+			Format string `json:"format"`
+		} `json:"artifact"`
+		RuntimeStats struct {
+			Backend string `json:"backend"`
+			Device  string `json:"device"`
+		} `json:"runtime_stats"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &runtimeBody); err != nil {
+		t.Fatal(err)
+	}
+	if runtimeBody.Artifact.Format != "gguf" || runtimeBody.RuntimeStats.Backend != "native" || runtimeBody.RuntimeStats.Device != "cpu" {
+		t.Fatalf("unexpected runtime status json: %s", stdout.String())
+	}
+	if stderr.String() != "" {
+		t.Fatalf("json runtime stats should not write progress, got %q", stderr.String())
 	}
 }
 

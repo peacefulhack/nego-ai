@@ -117,6 +117,7 @@ nego inspect ./models/qwen3
 nego inspect ./models/qwen3-gguf --json
 nego check ./models/qwen3-gguf
 nego status ./models/qwen3-gguf
+nego status ./models/qwen3-gguf --runtime-stats
 nego models list --status
 nego memory ./models/qwen3 --context 4096
 ```

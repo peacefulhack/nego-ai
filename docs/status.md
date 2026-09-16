@@ -85,6 +85,7 @@ Implemented:
 50. `nego runs compare` includes native training eval coverage deltas.
 51. `nego train latest` and root package helpers can discover the newest reusable native adapter output.
 52. Pure-Go runtime backends expose runtime stats for CPU device, tensor cache usage, and adapter state.
+53. `nego status --runtime-stats` loads the pure-Go backend and prints runtime device/cache/adapter stats.
 
 Not production-ready yet:
 

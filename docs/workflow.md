@@ -72,10 +72,13 @@ Start with the short status view after any download:
 ```bash
 nego status ./models/qwen3
 nego status ./models/qwen3-gguf
+nego status ./models/qwen3-gguf --runtime-stats
 ```
 
 This tells you the detected artifact format, the recommended run backend, the
 recommended training path, and any current blockers.
+Use `--runtime-stats` when you also want to load the pure-Go backend and see
+CPU device mode, tensor cache state, cached tensor bytes, and adapter state.
 
 Check model files, config, generation defaults, safetensors/GGUF metadata, and model card metadata:
 
@@ -555,6 +558,7 @@ Load the adapter for native generation:
 
 ```bash
 nego status ./outputs/qwen3-token-bias
+nego status ./outputs/qwen3-token-bias --runtime-stats
 nego inspect ./outputs/qwen3-token-bias
 nego check ./outputs/qwen3-token-bias
 
