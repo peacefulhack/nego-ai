@@ -146,7 +146,7 @@ func TestStreamChatRunsForwardLoop(t *testing.T) {
 	}
 }
 
-func fakeBlockGGUF(t *testing.T) string {
+func fakeBlockGGUF(t testing.TB) string {
 	t.Helper()
 	var buf bytes.Buffer
 	buf.WriteString("GGUF")
@@ -194,7 +194,7 @@ func fakeBlockGGUF(t *testing.T) string {
 	return path
 }
 
-func writeF32TensorDir(t *testing.T, buf *bytes.Buffer, name string, shape []uint64, offset *uint64) {
+func writeF32TensorDir(t testing.TB, buf *bytes.Buffer, name string, shape []uint64, offset *uint64) {
 	t.Helper()
 	writeTensor(t, buf, name, shape, 0, *offset)
 	elements := uint64(1)
@@ -204,7 +204,7 @@ func writeF32TensorDir(t *testing.T, buf *bytes.Buffer, name string, shape []uin
 	*offset += elements * 4
 }
 
-func writeStringArrayKV(t *testing.T, buf *bytes.Buffer, key string, values []string) {
+func writeStringArrayKV(t testing.TB, buf *bytes.Buffer, key string, values []string) {
 	t.Helper()
 	writeString(t, buf, key)
 	for _, value := range []any{uint32(9), uint32(8), uint64(len(values))} {

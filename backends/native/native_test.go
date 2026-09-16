@@ -301,7 +301,7 @@ func fakeUnsupportedRequiredGGUF(t *testing.T) string {
 	return path
 }
 
-func writeStringKV(t *testing.T, buf *bytes.Buffer, key, value string) {
+func writeStringKV(t testing.TB, buf *bytes.Buffer, key, value string) {
 	t.Helper()
 	writeString(t, buf, key)
 	if err := binary.Write(buf, binary.LittleEndian, uint32(8)); err != nil {
@@ -310,7 +310,7 @@ func writeStringKV(t *testing.T, buf *bytes.Buffer, key, value string) {
 	writeString(t, buf, value)
 }
 
-func writeUint32KV(t *testing.T, buf *bytes.Buffer, key string, value uint32) {
+func writeUint32KV(t testing.TB, buf *bytes.Buffer, key string, value uint32) {
 	t.Helper()
 	writeString(t, buf, key)
 	if err := binary.Write(buf, binary.LittleEndian, uint32(4)); err != nil {
@@ -321,7 +321,7 @@ func writeUint32KV(t *testing.T, buf *bytes.Buffer, key string, value uint32) {
 	}
 }
 
-func writeTensor(t *testing.T, buf *bytes.Buffer, name string, shape []uint64, typ uint32, offset uint64) {
+func writeTensor(t testing.TB, buf *bytes.Buffer, name string, shape []uint64, typ uint32, offset uint64) {
 	t.Helper()
 	writeString(t, buf, name)
 	if err := binary.Write(buf, binary.LittleEndian, uint32(len(shape))); err != nil {
@@ -346,7 +346,7 @@ func padToAlignment(buf *bytes.Buffer, alignment int) {
 	}
 }
 
-func writeString(t *testing.T, buf *bytes.Buffer, value string) {
+func writeString(t testing.TB, buf *bytes.Buffer, value string) {
 	t.Helper()
 	if err := binary.Write(buf, binary.LittleEndian, uint64(len(value))); err != nil {
 		t.Fatal(err)

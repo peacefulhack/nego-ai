@@ -89,6 +89,7 @@ Implemented:
 54. Run/chat logs persist pure-Go runtime stats when the loaded backend exposes them.
 55. `nego runs compare` includes runtime cache/device comparisons when both runs logged runtime stats.
 56. `nego runs list --runtime` adds scan-friendly runtime device/cache/adapter columns.
+57. Native GGUF benchmarks cover tiny forward, generation, and cached tensor decode paths for CPU optimization baselines.
 
 Not production-ready yet:
 
