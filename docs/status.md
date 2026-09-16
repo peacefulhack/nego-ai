@@ -88,6 +88,7 @@ Implemented:
 53. `nego status --runtime-stats` loads the pure-Go backend and prints runtime device/cache/adapter stats.
 54. Run/chat logs persist pure-Go runtime stats when the loaded backend exposes them.
 55. `nego runs compare` includes runtime cache/device comparisons when both runs logged runtime stats.
+56. `nego runs list --runtime` adds scan-friendly runtime device/cache/adapter columns.
 
 Not production-ready yet:
 

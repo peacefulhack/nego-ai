@@ -1428,6 +1428,39 @@ func TestRunsListAndShow(t *testing.T) {
 	}
 }
 
+func TestRunsListRuntimeColumns(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
+	entry := runs.Entry{
+		ID:         "native-run",
+		Command:    "run",
+		Backend:    "native",
+		Path:       "model.gguf",
+		StartedAt:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		DurationMS: 5,
+		Runtime: &nego.RuntimeStats{
+			Backend:           "native",
+			Device:            "cpu",
+			CachedTensors:     2,
+			CachedTensorBytes: 512,
+			AdapterLoaded:     true,
+		},
+	}
+	if err := runs.Append(logPath, entry); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"runs", "list", logPath, "--runtime"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{"DEVICE", "CACHE", "ADAPTER", "cpu", "2/512 B", "yes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestRunsCompare(t *testing.T) {
 	logPath := filepath.Join(t.TempDir(), "runs.jsonl")
 	baseline := runs.Entry{

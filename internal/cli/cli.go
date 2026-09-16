@@ -5129,9 +5129,11 @@ func parseDatasetFilters(values []string) ([]datasets.Filter, error) {
 
 func runRunsList(args []string, stdout, stderr io.Writer) int {
 	var jsonOutput bool
+	var runtimeOutput bool
 	fs := flag.NewFlagSet("runs list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
+	fs.BoolVar(&runtimeOutput, "runtime", false, "include runtime device and cache columns")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -5154,16 +5156,45 @@ func runRunsList(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tTIME\tCOMMAND\tBACKEND\tMODEL/PATH\tSTATUS\tDURATION")
+	if runtimeOutput {
+		fmt.Fprintln(tw, "ID\tTIME\tCOMMAND\tBACKEND\tMODEL/PATH\tSTATUS\tDURATION\tDEVICE\tCACHE\tADAPTER")
+	} else {
+		fmt.Fprintln(tw, "ID\tTIME\tCOMMAND\tBACKEND\tMODEL/PATH\tSTATUS\tDURATION")
+	}
 	for _, entry := range entries {
 		target := entry.Model
 		if target == "" {
 			target = entry.Path
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%dms\n", entry.ID, entry.StartedAt.Format(time.RFC3339), entry.Command, entry.Backend, target, runEntryStatus(entry), entry.DurationMS)
+		if runtimeOutput {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%dms\t%s\t%s\t%s\n", entry.ID, entry.StartedAt.Format(time.RFC3339), entry.Command, entry.Backend, target, runEntryStatus(entry), entry.DurationMS, runListRuntimeDevice(entry.Runtime), runListRuntimeCache(entry.Runtime), runListRuntimeAdapter(entry.Runtime))
+		} else {
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%dms\n", entry.ID, entry.StartedAt.Format(time.RFC3339), entry.Command, entry.Backend, target, runEntryStatus(entry), entry.DurationMS)
+		}
 	}
 	_ = tw.Flush()
 	return 0
+}
+
+func runListRuntimeDevice(stats *nego.RuntimeStats) string {
+	if stats == nil || stats.Device == "" {
+		return "-"
+	}
+	return stats.Device
+}
+
+func runListRuntimeCache(stats *nego.RuntimeStats) string {
+	if stats == nil {
+		return "-"
+	}
+	return fmt.Sprintf("%d/%s", stats.CachedTensors, humanBytesUint(stats.CachedTensorBytes))
+}
+
+func runListRuntimeAdapter(stats *nego.RuntimeStats) string {
+	if stats == nil {
+		return "-"
+	}
+	return yesNo(stats.AdapterLoaded)
 }
 
 func runRunsShow(args []string, stdout, stderr io.Writer) int {
