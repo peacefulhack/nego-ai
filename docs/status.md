@@ -93,6 +93,7 @@ Implemented:
 58. Native-HF benchmarks cover tiny safetensors forward, generation, and cached tensor decode paths.
 59. Curated tokenizer fixture profiles generate repeatable `nego tokenize check` packs for Qwen, Llama, and generic local models.
 60. Native GGUF and native-HF tiny forward tests validate golden logits, not only output shape or winning token.
+61. Native quantized GGML tensor compatibility tests cover byte sizing and float32 decode for Q4/Q5/Q8 and K-quant layouts.
 
 Not production-ready yet:
 
@@ -105,7 +106,7 @@ Not production-ready yet:
 
 ## Next Critical Phases
 
-1. Run K-quant compatibility tests against small real GGUF fixtures.
+1. Add small real GGUF fixture compatibility checks for common Q4_K_M and Q5_K_M model files.
 2. Add optimized CPU execution, batching, and memory reuse for larger local models.
 3. Add GPU execution behind a clean backend interface once CPU correctness is stable.
 4. Add full LoRA/backprop training and optimizer checkpoints for GGUF or safetensors artifacts.
