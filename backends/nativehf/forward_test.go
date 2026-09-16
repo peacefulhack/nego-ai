@@ -29,6 +29,7 @@ func TestForwardTokenTinyHFModel(t *testing.T) {
 	if len(logits) != 2 {
 		t.Fatalf("logits length = %d", len(logits))
 	}
+	assertApproxFloat32Slice(t, logits, []float32{float32(math.Sqrt2), 0}, 1e-5)
 	if !(logits[0] > logits[1]) {
 		t.Fatalf("expected token 0 to win, logits=%v", logits)
 	}
@@ -260,4 +261,16 @@ func shapeJSON(shape []uint64) string {
 	}
 	b.WriteByte(']')
 	return b.String()
+}
+
+func assertApproxFloat32Slice(t testing.TB, got, want []float32, tolerance float64) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("slice length = %d, want %d: got=%v want=%v", len(got), len(want), got, want)
+	}
+	for i := range got {
+		if math.Abs(float64(got[i]-want[i])) > tolerance {
+			t.Fatalf("value %d = %g, want %g within %g; got=%v want=%v", i, got[i], want[i], tolerance, got, want)
+		}
+	}
 }

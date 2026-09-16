@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,7 @@ func TestForwardToken(t *testing.T) {
 	if len(logits) != 6 {
 		t.Fatalf("unexpected logits: %#v", logits)
 	}
+	assertApproxFloat32Slice(t, logits, []float32{2, 2, 2, 2, 2, 2}, 1e-4)
 }
 
 func TestForwardTokenRejectsUnreadyManifest(t *testing.T) {
@@ -214,5 +216,17 @@ func writeStringArrayKV(t testing.TB, buf *bytes.Buffer, key string, values []st
 	}
 	for _, value := range values {
 		writeString(t, buf, value)
+	}
+}
+
+func assertApproxFloat32Slice(t testing.TB, got, want []float32, tolerance float64) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("slice length = %d, want %d: got=%v want=%v", len(got), len(want), got, want)
+	}
+	for i := range got {
+		if math.Abs(float64(got[i]-want[i])) > tolerance {
+			t.Fatalf("value %d = %g, want %g within %g; got=%v want=%v", i, got[i], want[i], tolerance, got, want)
+		}
 	}
 }
