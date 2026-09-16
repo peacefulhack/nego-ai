@@ -551,8 +551,9 @@ records top updated tokens so you can catch dataset formatting mistakes before
 reusing the adapter.
 Use `--log runs.jsonl` when you want the training result to appear in
 `nego runs list runs.jsonl` and `nego runs show runs.jsonl <id>`. The training
-log stores dataset paths and summary counts, not dataset row contents. Compare
-two logged experiments with `nego runs compare runs.jsonl <baseline-id> <candidate-id>`.
+log stores dataset paths and summary counts, not dataset row contents. Run/chat
+logs include pure-Go runtime cache/device metadata when the backend exposes it.
+Compare two logged experiments with `nego runs compare runs.jsonl <baseline-id> <candidate-id>`.
 
 Load the adapter for native generation:
 

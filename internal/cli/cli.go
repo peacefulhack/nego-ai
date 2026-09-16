@@ -3262,13 +3262,13 @@ func runModel(args []string, stdout, stderr io.Writer) int {
 	out, err := model.Generate(context.Background(), nego.GenerateRequest{Prompt: prompt, MaxTokens: maxTokens, Temperature: temperature, TopK: topK, TopP: topP, RepeatPenalty: repeatPenalty, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
-		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err, runtimeStatsForLog(model))); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
 	}
 	fmt.Fprint(stdout, out.Text)
-	if err := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, out.Text, started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, nil)); err != nil {
+	if err := appendRuntimeLog(logPath, runtimeLogEntry("run", backend, path, cfg.Endpoint, cfg.Model, prompt, nil, out.Text, started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, nil, runtimeStatsForLog(model))); err != nil {
 		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 		return 1
 	}
@@ -3522,7 +3522,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	resp, err := model.Chat(context.Background(), nego.ChatRequest{Messages: messages, MaxTokens: maxTokens, Temperature: temperature, TopK: topK, TopP: topP, RepeatPenalty: repeatPenalty, Stop: stop, Seed: seed})
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
-		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err)); logErr != nil {
+		if logErr := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, "", started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, err, runtimeStatsForLog(model))); logErr != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 		}
 		return 1
@@ -3534,7 +3534,7 @@ func runChat(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
 		return 1
 	}
-	if err := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, resp.Message.Content, started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, nil)); err != nil {
+	if err := appendRuntimeLog(logPath, runtimeLogEntry("chat", backend, path, cfg.Endpoint, cfg.Model, "", messages, resp.Message.Content, started, maxTokens, temperature, topK, topP, repeatPenalty, stop, seed, options, nil, runtimeStatsForLog(model))); err != nil {
 		fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 		return 1
 	}
@@ -3610,7 +3610,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 		if err != nil {
 			fmt.Fprintln(stdout)
 			fmt.Fprintf(stderr, "nego: %v\n", err)
-			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, "", started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err)); logErr != nil {
+			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, "", started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err, runtimeStatsForLog(model))); logErr != nil {
 				fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 			}
 			return 1
@@ -3624,7 +3624,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 			_ = stream.Close()
 			fmt.Fprintln(stdout)
 			fmt.Fprintf(stderr, "nego: %v\n", err)
-			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, output.String(), started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err)); logErr != nil {
+			if logErr := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, output.String(), started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, err, runtimeStatsForLog(model))); logErr != nil {
 				fmt.Fprintf(stderr, "nego: write run log: %v\n", logErr)
 			}
 			return 1
@@ -3638,7 +3638,7 @@ func runInteractiveChat(stdin io.Reader, stdout, stderr io.Writer, model nego.Mo
 			fmt.Fprintf(stderr, "nego: save chat session: %v\n", err)
 			return 1
 		}
-		if err := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, reply, started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, nil)); err != nil {
+		if err := appendRuntimeLog(opts.logPath, runtimeLogEntry("chat", opts.backend, opts.path, opts.endpoint, opts.modelID, "", messages, reply, started, opts.maxTokens, opts.temperature, opts.topK, opts.topP, opts.repeatPenalty, opts.stop, opts.seed, opts.options, nil, runtimeStatsForLog(model))); err != nil {
 			fmt.Fprintf(stderr, "nego: write run log: %v\n", err)
 			return 1
 		}
@@ -3895,7 +3895,7 @@ func appendRuntimeLog(path string, entry runs.Entry) error {
 	return runs.Append(path, entry)
 }
 
-func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, messages []nego.Message, output string, started time.Time, maxTokens int, temperature float64, topK int, topP, repeatPenalty float64, stop []string, seed int64, options map[string]string, runErr error) runs.Entry {
+func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, messages []nego.Message, output string, started time.Time, maxTokens int, temperature float64, topK int, topP, repeatPenalty float64, stop []string, seed int64, options map[string]string, runErr error, runtimeStats ...*nego.RuntimeStats) runs.Entry {
 	entry := runs.Entry{
 		ID:            runs.NewID(),
 		Command:       command,
@@ -3920,7 +3920,19 @@ func runtimeLogEntry(command, backend, path, endpoint, modelID, prompt string, m
 	if runErr != nil {
 		entry.Error = runErr.Error()
 	}
+	if len(runtimeStats) > 0 && runtimeStats[0] != nil {
+		stats := *runtimeStats[0]
+		entry.Runtime = &stats
+	}
 	return entry
+}
+
+func runtimeStatsForLog(model nego.Model) *nego.RuntimeStats {
+	stats, ok := nego.RuntimeStatsOf(model)
+	if !ok {
+		return nil
+	}
+	return &stats
 }
 
 func sanitizeEndpoint(endpoint string) string {
@@ -5424,8 +5436,31 @@ func writeRunInfo(w io.Writer, entry runs.Entry) {
 	if entry.Output != "" {
 		fmt.Fprintf(w, "Output:\n%s\n", entry.Output)
 	}
+	if entry.Runtime != nil {
+		writeRuntimeRunInfo(w, *entry.Runtime)
+	}
 	if entry.Training != nil {
 		writeTrainingRunInfo(w, *entry.Training)
+	}
+}
+
+func writeRuntimeRunInfo(w io.Writer, info nego.RuntimeStats) {
+	fmt.Fprintln(w, "Runtime:")
+	if info.Backend != "" {
+		fmt.Fprintf(w, "  Backend:      %s\n", info.Backend)
+	}
+	if info.Device != "" {
+		fmt.Fprintf(w, "  Device:       %s\n", info.Device)
+	}
+	fmt.Fprintf(w, "  Cache:        %s\n", enabledDisabled(info.TensorCacheEnabled))
+	fmt.Fprintf(w, "  Tensors:      %d\n", info.CachedTensors)
+	fmt.Fprintf(w, "  Cached bytes: %s\n", humanBytesUint(info.CachedTensorBytes))
+	if info.MaxTensorCacheBytes > 0 {
+		fmt.Fprintf(w, "  Cache limit:  %s\n", humanBytesUint(info.MaxTensorCacheBytes))
+	}
+	fmt.Fprintf(w, "  Adapter:      %s\n", yesNo(info.AdapterLoaded))
+	if info.ExperimentalGeneration {
+		fmt.Fprintln(w, "  Generation:   experimental")
 	}
 }
 

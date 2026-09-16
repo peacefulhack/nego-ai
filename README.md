@@ -402,7 +402,8 @@ native training output directory directly. Native training output includes
 training provenance and top updated tokens so you can sanity-check what the
 dataset reinforced.
 Pass `--log runs.jsonl` to record a training experiment summary with aggregate
-eval coverage and without storing dataset row contents.
+eval coverage and without storing dataset row contents. Run/chat logs for
+pure-Go backends include runtime cache/device metadata when available.
 
 ```bash
 nego inspect ./outputs/qwen3-token-bias

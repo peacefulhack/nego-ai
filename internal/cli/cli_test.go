@@ -1880,6 +1880,34 @@ func TestRuntimeLogEntryRedactsSensitiveOptions(t *testing.T) {
 	}
 }
 
+func TestRuntimeLogEntryIncludesRuntimeStats(t *testing.T) {
+	stats := &nego.RuntimeStats{
+		Backend:             "native",
+		Device:              "cpu",
+		TensorCacheEnabled:  true,
+		CachedTensors:       2,
+		CachedTensorBytes:   128,
+		MaxTensorCacheBytes: 1024,
+		AdapterLoaded:       true,
+	}
+	entry := runtimeLogEntry("run", "native", "model.gguf", "", "", "hello", nil, "world", time.Now(), 0, 0, 0, 0, 0, nil, 0, nil, nil, stats)
+	if entry.Runtime == nil || entry.Runtime.Backend != "native" || entry.Runtime.CachedTensorBytes != 128 || !entry.Runtime.AdapterLoaded {
+		t.Fatalf("unexpected runtime stats: %#v", entry.Runtime)
+	}
+	stats.CachedTensorBytes = 256
+	if entry.Runtime.CachedTensorBytes != 128 {
+		t.Fatalf("runtime stats should be copied: %#v", entry.Runtime)
+	}
+	var stdout bytes.Buffer
+	writeRunInfo(&stdout, entry)
+	out := stdout.String()
+	for _, want := range []string{"Runtime:", "Backend:      native", "Device:       cpu", "Cached bytes: 128 B", "Adapter:      yes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expected %q in output:\n%s", want, out)
+		}
+	}
+}
+
 func TestChatSessionSanitizesEndpoint(t *testing.T) {
 	session := chatSession{}.withMessages("openai-compatible", "", "https://user:secret@example.com/v1?api_key=secret", "model", nil)
 	if session.Endpoint != "https://example.com/v1" {
