@@ -1450,6 +1450,13 @@ func TestRunsCompare(t *testing.T) {
 				UniqueCoverage:      1.0 / 3.0,
 			},
 		},
+		Runtime: &nego.RuntimeStats{
+			Backend:            "native",
+			Device:             "cpu",
+			TensorCacheEnabled: true,
+			CachedTensors:      1,
+			CachedTensorBytes:  128,
+		},
 	}
 	candidate := runs.Entry{
 		ID:         "next",
@@ -1471,6 +1478,13 @@ func TestRunsCompare(t *testing.T) {
 				UniqueCoverage:      1,
 			},
 		},
+		Runtime: &nego.RuntimeStats{
+			Backend:            "native",
+			Device:             "cpu",
+			TensorCacheEnabled: true,
+			CachedTensors:      3,
+			CachedTensorBytes:  384,
+		},
 	}
 	if err := runs.Append(logPath, baseline); err != nil {
 		t.Fatal(err)
@@ -1487,6 +1501,8 @@ func TestRunsCompare(t *testing.T) {
 		!strings.Contains(stdout.String(), "Duration delta: -8ms") ||
 		!strings.Contains(stdout.String(), "Output chars:") ||
 		!strings.Contains(stdout.String(), "Train rows:") ||
+		!strings.Contains(stdout.String(), "Runtime cache:") ||
+		!strings.Contains(stdout.String(), "Cached bytes: 128 B -> 384 B (+256 B)") ||
 		!strings.Contains(stdout.String(), "Eval coverage:") ||
 		!strings.Contains(stdout.String(), "+50.00 pp") ||
 		!strings.Contains(stdout.String(), "+66.67 pp") {
@@ -1508,6 +1524,9 @@ func TestRunsCompare(t *testing.T) {
 	}
 	if comparison.Baseline.EvalCoverage == nil || comparison.Candidate.EvalCoverage == nil {
 		t.Fatalf("expected eval coverage comparison: %#v", comparison)
+	}
+	if comparison.Baseline.Runtime == nil || comparison.Candidate.Runtime == nil || comparison.Delta.CachedTensors != 2 || comparison.Delta.CachedTensorBytes != 256 {
+		t.Fatalf("unexpected runtime comparison: %#v", comparison)
 	}
 	if comparison.Delta.EvalCoveragePercentage != 50 || int(comparison.Delta.UniqueCoveragePercentage*100) != 6666 {
 		t.Fatalf("unexpected coverage delta: %#v", comparison.Delta)

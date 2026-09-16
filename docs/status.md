@@ -87,6 +87,7 @@ Implemented:
 52. Pure-Go runtime backends expose runtime stats for CPU device, tensor cache usage, and adapter state.
 53. `nego status --runtime-stats` loads the pure-Go backend and prints runtime device/cache/adapter stats.
 54. Run/chat logs persist pure-Go runtime stats when the loaded backend exposes them.
+55. `nego runs compare` includes runtime cache/device comparisons when both runs logged runtime stats.
 
 Not production-ready yet:
 

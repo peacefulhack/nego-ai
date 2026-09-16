@@ -5257,6 +5257,7 @@ type runComparisonItem struct {
 	OutputChars  int                        `json:"output_chars,omitempty"`
 	TrainRows    int                        `json:"train_rows,omitempty"`
 	EvalRows     int                        `json:"eval_rows,omitempty"`
+	Runtime      *runComparisonRuntime      `json:"runtime,omitempty"`
 	EvalCoverage *runComparisonEvalCoverage `json:"eval_coverage,omitempty"`
 }
 
@@ -5265,8 +5266,20 @@ type runComparisonDelta struct {
 	OutputChars              int     `json:"output_chars,omitempty"`
 	TrainRows                int     `json:"train_rows,omitempty"`
 	EvalRows                 int     `json:"eval_rows,omitempty"`
+	CachedTensors            int     `json:"cached_tensors,omitempty"`
+	CachedTensorBytes        int64   `json:"cached_tensor_bytes,omitempty"`
 	EvalCoveragePercentage   float64 `json:"eval_coverage_percentage,omitempty"`
 	UniqueCoveragePercentage float64 `json:"unique_coverage_percentage,omitempty"`
+}
+
+type runComparisonRuntime struct {
+	Backend             string `json:"backend,omitempty"`
+	Device              string `json:"device,omitempty"`
+	TensorCacheEnabled  bool   `json:"tensor_cache_enabled"`
+	CachedTensors       int    `json:"cached_tensors"`
+	CachedTensorBytes   uint64 `json:"cached_tensor_bytes"`
+	MaxTensorCacheBytes uint64 `json:"max_tensor_cache_bytes,omitempty"`
+	AdapterLoaded       bool   `json:"adapter_loaded,omitempty"`
 }
 
 type runComparisonEvalCoverage struct {
@@ -5292,6 +5305,8 @@ func compareRuns(baseline, candidate runs.Entry) runComparison {
 			OutputChars:              next.OutputChars - base.OutputChars,
 			TrainRows:                next.TrainRows - base.TrainRows,
 			EvalRows:                 next.EvalRows - base.EvalRows,
+			CachedTensors:            runCachedTensors(next.Runtime) - runCachedTensors(base.Runtime),
+			CachedTensorBytes:        runCachedTensorBytes(next.Runtime) - runCachedTensorBytes(base.Runtime),
 			EvalCoveragePercentage:   runCoveragePercentage(next.EvalCoverage) - runCoveragePercentage(base.EvalCoverage),
 			UniqueCoveragePercentage: runUniqueCoveragePercentage(next.EvalCoverage) - runUniqueCoveragePercentage(base.EvalCoverage),
 		},
@@ -5317,7 +5332,23 @@ func runComparisonItemFromEntry(entry runs.Entry) runComparisonItem {
 		item.EvalRows = entry.Training.EvalRows
 		item.EvalCoverage = runComparisonEvalCoverageFromEntry(entry.Training.EvalCoverage)
 	}
+	item.Runtime = runComparisonRuntimeFromEntry(entry.Runtime)
 	return item
+}
+
+func runComparisonRuntimeFromEntry(stats *nego.RuntimeStats) *runComparisonRuntime {
+	if stats == nil {
+		return nil
+	}
+	return &runComparisonRuntime{
+		Backend:             stats.Backend,
+		Device:              stats.Device,
+		TensorCacheEnabled:  stats.TensorCacheEnabled,
+		CachedTensors:       stats.CachedTensors,
+		CachedTensorBytes:   stats.CachedTensorBytes,
+		MaxTensorCacheBytes: stats.MaxTensorCacheBytes,
+		AdapterLoaded:       stats.AdapterLoaded,
+	}
 }
 
 func runComparisonEvalCoverageFromEntry(coverage *runs.EvalCoverage) *runComparisonEvalCoverage {
@@ -5358,6 +5389,13 @@ func writeRunsComparison(w io.Writer, comparison runComparison) {
 	if comparison.Baseline.EvalRows > 0 || comparison.Candidate.EvalRows > 0 {
 		fmt.Fprintf(w, "Eval rows:      %d -> %d (%+d)\n", comparison.Baseline.EvalRows, comparison.Candidate.EvalRows, comparison.Delta.EvalRows)
 	}
+	if comparison.Baseline.Runtime != nil || comparison.Candidate.Runtime != nil {
+		fmt.Fprintln(w, "Runtime cache:")
+		fmt.Fprintf(w, "  Backend:      %s -> %s\n", formatRunRuntimeBackend(comparison.Baseline.Runtime), formatRunRuntimeBackend(comparison.Candidate.Runtime))
+		fmt.Fprintf(w, "  Device:       %s -> %s\n", formatRunRuntimeDevice(comparison.Baseline.Runtime), formatRunRuntimeDevice(comparison.Candidate.Runtime))
+		fmt.Fprintf(w, "  Tensors:      %d -> %d (%+d)\n", runCachedTensors(comparison.Baseline.Runtime), runCachedTensors(comparison.Candidate.Runtime), comparison.Delta.CachedTensors)
+		fmt.Fprintf(w, "  Cached bytes: %s -> %s (%s)\n", humanBytesUint(runCachedTensorBytesUint(comparison.Baseline.Runtime)), humanBytesUint(runCachedTensorBytesUint(comparison.Candidate.Runtime)), signedBytes(comparison.Delta.CachedTensorBytes))
+	}
 	if comparison.Baseline.EvalCoverage != nil || comparison.Candidate.EvalCoverage != nil {
 		fmt.Fprintln(w, "Eval coverage:")
 		fmt.Fprintf(w, "  Tokens:       %s -> %s (%+.2f pp)\n", formatRunCoverage(comparison.Baseline.EvalCoverage), formatRunCoverage(comparison.Candidate.EvalCoverage), comparison.Delta.EvalCoveragePercentage)
@@ -5377,6 +5415,51 @@ func signedDurationMS(value int64) string {
 		return fmt.Sprintf("+%dms", value)
 	}
 	return fmt.Sprintf("%dms", value)
+}
+
+func runCachedTensors(stats *runComparisonRuntime) int {
+	if stats == nil {
+		return 0
+	}
+	return stats.CachedTensors
+}
+
+func runCachedTensorBytes(stats *runComparisonRuntime) int64 {
+	if stats == nil {
+		return 0
+	}
+	if stats.CachedTensorBytes > uint64(^uint64(0)>>1) {
+		return int64(^uint64(0) >> 1)
+	}
+	return int64(stats.CachedTensorBytes)
+}
+
+func runCachedTensorBytesUint(stats *runComparisonRuntime) uint64 {
+	if stats == nil {
+		return 0
+	}
+	return stats.CachedTensorBytes
+}
+
+func formatRunRuntimeBackend(stats *runComparisonRuntime) string {
+	if stats == nil || stats.Backend == "" {
+		return "not available"
+	}
+	return stats.Backend
+}
+
+func formatRunRuntimeDevice(stats *runComparisonRuntime) string {
+	if stats == nil || stats.Device == "" {
+		return "not available"
+	}
+	return stats.Device
+}
+
+func signedBytes(value int64) string {
+	if value >= 0 {
+		return "+" + humanBytesUint(uint64(value))
+	}
+	return "-" + humanBytesUint(uint64(-value))
 }
 
 func runCoveragePercentage(coverage *runComparisonEvalCoverage) float64 {
