@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+
+	"github.com/gakon/nego-ai/internal/cpumath"
 )
 
 func dotFloat32(a, b []float32) (float32, error) {
@@ -21,28 +23,7 @@ func dotFloat32(a, b []float32) (float32, error) {
 }
 
 func matVecFloat32(matrix []float32, rows, cols int, vector []float32) ([]float32, error) {
-	if rows < 0 || cols < 0 {
-		return nil, fmt.Errorf("matrix dimensions must be non-negative")
-	}
-	if len(vector) != cols {
-		return nil, fmt.Errorf("vector length mismatch: %d != %d", len(vector), cols)
-	}
-	if rows != 0 && cols > int(^uint(0)>>1)/rows {
-		return nil, fmt.Errorf("matrix dimensions overflow")
-	}
-	if len(matrix) != rows*cols {
-		return nil, fmt.Errorf("matrix length mismatch: got %d, want %d", len(matrix), rows*cols)
-	}
-	out := make([]float32, rows)
-	for row := 0; row < rows; row++ {
-		start := row * cols
-		sum, err := dotFloat32(matrix[start:start+cols], vector)
-		if err != nil {
-			return nil, err
-		}
-		out[row] = sum
-	}
-	return out, nil
+	return cpumath.MatVec(matrix, rows, cols, vector)
 }
 
 func dequantizeF32(src []byte, elements int) ([]float32, error) {

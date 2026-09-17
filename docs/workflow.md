@@ -82,6 +82,22 @@ recommended training path, and any current blockers.
 Use `--runtime-stats` when you also want to load the pure-Go backend and see
 CPU device mode, tensor cache state, cached tensor bytes, and adapter state.
 
+Native GGUF and safetensors runtimes automatically parallelize large float32
+matrix-vector projections across at most eight workers, bounded by
+`GOMAXPROCS`. Small projections remain serial. Set `GOMAXPROCS=1` in the process
+environment to use the serial kernel. This requires no C compiler or external
+runtime. Rows retain their original float32 accumulation order; invalid weights
+or non-finite results return errors. Decoded weight memory requirements remain
+unchanged.
+
+To compare the kernel against the previous serial dot-product implementation:
+
+```bash
+go test ./internal/cpumath -run '^$' -bench BenchmarkMatVec -benchmem
+```
+
+These are synthetic matrix benchmarks, not end-to-end model throughput claims.
+
 Use `--runtime-smoke` to load the local pure-Go backend and attempt one generated
 token. The default prompt is `hello`; override it with `--smoke-prompt "Hello"`.
 This loads real weights and may take time and memory on larger models. A failed

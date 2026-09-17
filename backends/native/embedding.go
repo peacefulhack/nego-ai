@@ -34,16 +34,7 @@ func logitsFromOutputWeightFloat32(hidden, values []float32, tensor modelinfo.GG
 	if len(values) != dim*vocab {
 		return nil, fmt.Errorf("output tensor %q has %d values, want %d", tensor.Name, len(values), dim*vocab)
 	}
-	logits := make([]float32, vocab)
-	for token := 0; token < vocab; token++ {
-		start := token * dim
-		sum, err := dotFloat32(hidden, values[start:start+dim])
-		if err != nil {
-			return nil, err
-		}
-		logits[token] = sum
-	}
-	return logits, nil
+	return matVecFloat32(values, vocab, dim, hidden)
 }
 
 func matrixShape(tensor modelinfo.GGUFTensor, expectedDim uint64) (int, int, error) {

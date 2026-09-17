@@ -17,16 +17,7 @@ func linearFloat32(input, values []float32, tensor modelinfo.GGUFTensor) ([]floa
 	if len(values) != in*out {
 		return nil, fmt.Errorf("linear tensor %q has %d values, want %d", tensor.Name, len(values), in*out)
 	}
-	result := make([]float32, out)
-	for row := 0; row < out; row++ {
-		start := row * in
-		sum, err := dotFloat32(input, values[start:start+in])
-		if err != nil {
-			return nil, err
-		}
-		result[row] = sum
-	}
-	return result, nil
+	return matVecFloat32(values, out, in, input)
 }
 
 func mlpFloat32(input []float32, gateValues, upValues, downValues []float32, gateTensor, upTensor, downTensor modelinfo.GGUFTensor) ([]float32, error) {

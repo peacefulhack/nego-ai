@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/gakon/nego-ai/internal/cpumath"
 	"github.com/gakon/nego-ai/modelinfo"
 )
 
@@ -81,16 +82,7 @@ func logitsFromOutputWeightFloat32(hidden, values []float32, tensor modelinfo.Sa
 	if len(values) != int(vocab*dim) {
 		return nil, fmt.Errorf("output tensor %q has %d values, want %d", tensor.Name, len(values), vocab*dim)
 	}
-	logits := make([]float32, int(vocab))
-	for token := 0; token < int(vocab); token++ {
-		start := token * int(dim)
-		sum, err := dotFloat32(hidden, values[start:start+int(dim)])
-		if err != nil {
-			return nil, err
-		}
-		logits[token] = sum
-	}
-	return logits, nil
+	return cpumath.MatVec(values, int(vocab), int(dim), hidden)
 }
 
 func linearFloat32(input, values []float32, tensor modelinfo.SafetensorsTensor) ([]float32, error) {
@@ -104,16 +96,7 @@ func linearFloat32(input, values []float32, tensor modelinfo.SafetensorsTensor) 
 	if len(values) != int(rows*cols) {
 		return nil, fmt.Errorf("linear tensor %q has %d values, want %d", tensor.Name, len(values), rows*cols)
 	}
-	out := make([]float32, int(rows))
-	for row := 0; row < int(rows); row++ {
-		start := row * int(cols)
-		sum, err := dotFloat32(values[start:start+int(cols)], input)
-		if err != nil {
-			return nil, err
-		}
-		out[row] = sum
-	}
-	return out, nil
+	return cpumath.MatVec(values, int(rows), int(cols), input)
 }
 
 func mlpFloat32(input []float32, weights MLPWeights) ([]float32, error) {

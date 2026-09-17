@@ -97,12 +97,13 @@ Implemented:
 62. Native training can enforce a minimum evaluation token coverage gate before writing adapter outputs.
 63. `nego status --runtime-smoke` tests one-token pure-Go generation on a local model and reports load or generation failures in text or JSON.
 64. Native-HF RoPE uses the split-half Qwen/Llama weight layout, with regression tests for multi-token attention and Q/K normalization at head dimensions greater than two.
+65. Native GGUF and native-HF projections and logits share a pure-Go CPU matrix-vector kernel with bounded parallel rows, finite-value checks, and serial/parallel numerical parity tests.
 
 Not production-ready yet:
 
 1. Full real-world Qwen/Llama compatibility validation for common downloaded GGUF models.
 2. Compatibility validation for mixed K-quant variants such as Q4_K_M and Q5_K_M in real model files.
-3. Optimized CPU execution, batching, and memory planning.
+3. Further CPU optimization, batching, and memory planning beyond parallel matrix-vector projections.
 4. GPU execution.
 5. Production-quality native safetensors autoregressive generation for Qwen/Llama models.
 6. Full GGUF LoRA/backprop training and optimizer support.
@@ -110,7 +111,7 @@ Not production-ready yet:
 ## Next Critical Phases
 
 1. Add small real GGUF fixture compatibility checks for common Q4_K_M and Q5_K_M model files.
-2. Add optimized CPU execution, batching, and memory reuse for larger local models.
+2. Extend CPU optimization with batching and memory reuse for larger local models.
 3. Add GPU execution behind a clean backend interface once CPU correctness is stable.
 4. Add full LoRA/backprop training and optimizer checkpoints for GGUF or safetensors artifacts.
 5. Add large-file Hub upload through LFS/Xet after auth, retry, and resumability are designed.
