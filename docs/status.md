@@ -101,6 +101,7 @@ Implemented:
 66. HF ByteLevel decoding handles merged whitespace and UTF-8 bytes across token boundaries; native-HF generation uses an incremental decoder to keep streamed text valid.
 67. The numbered share example packages the actual step-5 native adapter output, includes a share manifest, and documents reuse with the same base model.
 68. Qwen2/Qwen3 HF tokenization supports NFC, the declared Qwen text split pattern, UTF-8 byte-level BPE, and literal added tokens before splitting. Independent Hugging Face fixtures cover 24 multilingual, whitespace, and chat-token cases.
+69. Native GGUF attention selects split-half RoPE for Qwen2/Qwen3 while retaining adjacent-pair RoPE for converted Llama weights. Multi-token numerical tests cover both layouts and Qwen3 Q/K normalization; this does not add support for scaled/partial RoPE or other architectures.
 
 Not production-ready yet:
 

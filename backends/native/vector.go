@@ -28,8 +28,19 @@ func mulFloat32(a, b []float32) ([]float32, error) {
 }
 
 func applyRoPEFloat32(x []float32, position int, theta float64) ([]float32, error) {
-	if len(x)%2 != 0 {
-		return nil, fmt.Errorf("rope input length must be even")
+	return applyRoPELayoutFloat32(x, position, theta, false)
+}
+
+func (s ModelSpec) applyRoPE(x []float32, position int) ([]float32, error) {
+	// GGUF Llama Q/K weights are permuted for adjacent pairs; Qwen retains
+	// the split-half (NeoX) layout. See llama_model_rope_type in llama.cpp.
+	splitHalf := s.Architecture == "qwen2" || s.Architecture == "qwen3"
+	return applyRoPELayoutFloat32(x, position, s.RopeTheta, splitHalf)
+}
+
+func applyRoPELayoutFloat32(x []float32, position int, theta float64, splitHalf bool) ([]float32, error) {
+	if len(x) == 0 || len(x)%2 != 0 {
+		return nil, fmt.Errorf("rope input length must be positive and even")
 	}
 	if position < 0 {
 		return nil, fmt.Errorf("rope position must be non-negative")
@@ -40,16 +51,20 @@ func applyRoPEFloat32(x []float32, position int, theta float64) ([]float32, erro
 	out := make([]float32, len(x))
 	dim := float64(len(x))
 	for i := 0; i < len(x); i += 2 {
-		if math.IsNaN(float64(x[i])) || math.IsInf(float64(x[i]), 0) || math.IsNaN(float64(x[i+1])) || math.IsInf(float64(x[i+1]), 0) {
+		left, right := i, i+1
+		if splitHalf {
+			left, right = i/2, i/2+len(x)/2
+		}
+		if math.IsNaN(float64(x[left])) || math.IsInf(float64(x[left]), 0) || math.IsNaN(float64(x[right])) || math.IsInf(float64(x[right]), 0) {
 			return nil, fmt.Errorf("rope input contains non-finite value")
 		}
 		freq := math.Pow(theta, -float64(i)/dim)
 		angle := float64(position) * freq
 		cos, sin := math.Cos(angle), math.Sin(angle)
-		a := float64(x[i])
-		b := float64(x[i+1])
-		out[i] = float32(a*cos - b*sin)
-		out[i+1] = float32(a*sin + b*cos)
+		a := float64(x[left])
+		b := float64(x[right])
+		out[left] = float32(a*cos - b*sin)
+		out[right] = float32(a*sin + b*cos)
 	}
 	return out, nil
 }

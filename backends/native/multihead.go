@@ -69,7 +69,7 @@ func multiHeadAttentionWithCacheFloat32(input []float32, weights AttentionWeight
 				return nil, fmt.Errorf("k norm head %d: %w", i, err)
 			}
 		}
-		rotatedK, err := applyRoPEFloat32(kHead, position, spec.RopeTheta)
+		rotatedK, err := spec.applyRoPE(kHead, position)
 		if err != nil {
 			return nil, fmt.Errorf("k rope head %d: %w", i, err)
 		}
@@ -98,7 +98,7 @@ func multiHeadAttentionWithCacheFloat32(input []float32, weights AttentionWeight
 				return nil, fmt.Errorf("q norm head %d: %w", i, err)
 			}
 		}
-		rotatedQ, err := applyRoPEFloat32(qHead, position, spec.RopeTheta)
+		rotatedQ, err := spec.applyRoPE(qHead, position)
 		if err != nil {
 			return nil, fmt.Errorf("q rope head %d: %w", i, err)
 		}
