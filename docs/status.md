@@ -96,6 +96,7 @@ Implemented:
 61. Native quantized GGML tensor compatibility tests cover byte sizing and float32 decode for Q4/Q5/Q8 and K-quant layouts.
 62. Native training can enforce a minimum evaluation token coverage gate before writing adapter outputs.
 63. `nego status --runtime-smoke` tests one-token pure-Go generation on a local model and reports load or generation failures in text or JSON.
+64. Native-HF RoPE uses the split-half Qwen/Llama weight layout, with regression tests for multi-token attention and Q/K normalization at head dimensions greater than two.
 
 Not production-ready yet:
 

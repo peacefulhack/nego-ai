@@ -248,8 +248,8 @@ func softmaxFloat32(x []float32) ([]float32, error) {
 }
 
 func applyRoPEFloat32(x []float32, position int, theta float64) ([]float32, error) {
-	if len(x)%2 != 0 {
-		return nil, fmt.Errorf("rope input length must be even")
+	if len(x) == 0 || len(x)%2 != 0 {
+		return nil, fmt.Errorf("rope input length must be positive and even")
 	}
 	if position < 0 {
 		return nil, fmt.Errorf("rope position must be non-negative")
@@ -259,17 +259,19 @@ func applyRoPEFloat32(x []float32, position int, theta float64) ([]float32, erro
 	}
 	out := make([]float32, len(x))
 	dim := float64(len(x))
-	for i := 0; i < len(x); i += 2 {
-		if math.IsNaN(float64(x[i])) || math.IsInf(float64(x[i]), 0) || math.IsNaN(float64(x[i+1])) || math.IsInf(float64(x[i+1]), 0) {
+	// HF Qwen/Llama weights use rotate_half: pair i with i + head_dim/2.
+	half := len(x) / 2
+	for i := 0; i < half; i++ {
+		if math.IsNaN(float64(x[i])) || math.IsInf(float64(x[i]), 0) || math.IsNaN(float64(x[i+half])) || math.IsInf(float64(x[i+half]), 0) {
 			return nil, fmt.Errorf("rope input contains non-finite value")
 		}
-		freq := math.Pow(theta, -float64(i)/dim)
+		freq := math.Pow(theta, -2*float64(i)/dim)
 		angle := float64(position) * freq
 		cos, sin := math.Cos(angle), math.Sin(angle)
 		a := float64(x[i])
-		b := float64(x[i+1])
+		b := float64(x[i+half])
 		out[i] = float32(a*cos - b*sin)
-		out[i+1] = float32(a*sin + b*cos)
+		out[i+half] = float32(a*sin + b*cos)
 	}
 	return out, nil
 }
