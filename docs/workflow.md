@@ -293,9 +293,18 @@ pass each ID to `decoder.Push(id)`, and append `decoder.Flush()` when generation
 ends. A chunk may be empty until the next token completes a character. Native-HF
 generation and streaming use this automatically.
 
-Full normalization and pre-tokenization parity with Hugging Face remains under
-development. Fixtures captured from Nego protect against regressions, but only
-independent reference token IDs can establish tokenizer compatibility.
+The recognized Qwen2/Qwen3 `Split` + `ByteLevel` pipeline supports optional NFC
+normalization, multilingual UTF-8 input, the Qwen splitting pattern, and literal
+added tokens before normalization. Unsupported options in this pipeline produce
+errors. Excessively long combining sequences that require x/text stream-safety
+insertions are rejected to avoid silently changing token IDs. Other tokenizer
+pipelines retain their existing limited support; arbitrary normalizers and
+pre-tokenizers are not implemented.
+
+Independent Hugging Face reference cases and optional local-model tests are
+documented in [tokenizer/testdata](../tokenizer/testdata/README.md). Fixtures
+captured from Nego only protect against regressions; they are not independent
+compatibility evidence.
 
 Create tokenizer regression fixtures from a curated profile:
 

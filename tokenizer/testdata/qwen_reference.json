@@ -1,0 +1,558 @@
+{
+  "source": "Qwen/Qwen3-0.6B local tokenizer.json",
+  "tokenizer_sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+  "reference": "huggingface/tokenizers 0.21.1",
+  "cases": [
+    {
+      "name": "hello",
+      "text": "Hello world",
+      "segments": [
+        "Hello",
+        " world"
+      ],
+      "tokens": [
+        9707,
+        1879
+      ],
+      "decoded": "Hello world"
+    },
+    {
+      "name": "leading space",
+      "text": " Hello world",
+      "segments": [
+        " Hello",
+        " world"
+      ],
+      "tokens": [
+        21927,
+        1879
+      ],
+      "decoded": " Hello world"
+    },
+    {
+      "name": "punctuation",
+      "text": "Hello, world! Isn't it? YES!!\n\nNext.",
+      "segments": [
+        "Hello",
+        ",",
+        " world",
+        "!",
+        " Isn",
+        "'t",
+        " it",
+        "?",
+        " YES",
+        "!!\n\n",
+        "Next",
+        "."
+      ],
+      "tokens": [
+        9707,
+        11,
+        1879,
+        0,
+        52196,
+        944,
+        432,
+        30,
+        14080,
+        24796,
+        5847,
+        13
+      ],
+      "decoded": "Hello, world! Isn't it? YES!!\n\nNext."
+    },
+    {
+      "name": "contractions",
+      "text": "I'm WE'RE he'll she'd CAN'T it's I've",
+      "segments": [
+        "I",
+        "'m",
+        " WE",
+        "'RE",
+        " he",
+        "'ll",
+        " she",
+        "'d",
+        " CAN",
+        "'T",
+        " it",
+        "'s",
+        " I",
+        "'ve"
+      ],
+      "tokens": [
+        40,
+        2776,
+        19677,
+        94153,
+        566,
+        3278,
+        1340,
+        4172,
+        19508,
+        17323,
+        432,
+        594,
+        358,
+        3003
+      ],
+      "decoded": "I'm WE'RE he'll she'd CAN'T it's I've"
+    },
+    {
+      "name": "digits",
+      "text": "2026 12345 -42 3.14159",
+      "segments": [
+        "2",
+        "0",
+        "2",
+        "6",
+        " ",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        " -",
+        "4",
+        "2",
+        " ",
+        "3",
+        ".",
+        "1",
+        "4",
+        "1",
+        "5",
+        "9"
+      ],
+      "tokens": [
+        17,
+        15,
+        17,
+        21,
+        220,
+        16,
+        17,
+        18,
+        19,
+        20,
+        481,
+        19,
+        17,
+        220,
+        18,
+        13,
+        16,
+        19,
+        16,
+        20,
+        24
+      ],
+      "decoded": "2026 12345 -42 3.14159"
+    },
+    {
+      "name": "indonesian",
+      "text": "Halo, apa kabar? Jelaskan goroutine dalam bahasa Indonesia.",
+      "segments": [
+        "Halo",
+        ",",
+        " apa",
+        " kabar",
+        "?",
+        " Jelaskan",
+        " goroutine",
+        " dalam",
+        " bahasa",
+        " Indonesia",
+        "."
+      ],
+      "tokens": [
+        39,
+        12529,
+        11,
+        60593,
+        73995,
+        277,
+        30,
+        619,
+        301,
+        78351,
+        45198,
+        14159,
+        29792,
+        41929,
+        15428,
+        23968,
+        13
+      ],
+      "decoded": "Halo, apa kabar? Jelaskan goroutine dalam bahasa Indonesia."
+    },
+    {
+      "name": "chinese",
+      "text": "\u4f60\u597d\uff0c\u4e16\u754c\uff01",
+      "segments": [
+        "\u4f60\u597d",
+        "\uff0c\u4e16\u754c",
+        "\uff01"
+      ],
+      "tokens": [
+        108386,
+        3837,
+        99489,
+        6313
+      ],
+      "decoded": "\u4f60\u597d\uff0c\u4e16\u754c\uff01"
+    },
+    {
+      "name": "japanese",
+      "text": "\u3053\u3093\u306b\u3061\u306f\u4e16\u754c",
+      "segments": [
+        "\u3053\u3093\u306b\u3061\u306f\u4e16\u754c"
+      ],
+      "tokens": [
+        89015,
+        99489
+      ],
+      "decoded": "\u3053\u3093\u306b\u3061\u306f\u4e16\u754c"
+    },
+    {
+      "name": "arabic",
+      "text": "\u0645\u0631\u062d\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645",
+      "segments": [
+        "\u0645\u0631\u062d\u0628\u0627",
+        " \u0628\u0627\u0644\u0639\u0627\u0644\u0645"
+      ],
+      "tokens": [
+        124122,
+        29825,
+        124671,
+        124476,
+        129634
+      ],
+      "decoded": "\u0645\u0631\u062d\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645"
+    },
+    {
+      "name": "emoji",
+      "text": "Hi \ud83d\ude00\ud83d\udc69\u200d\ud83d\udcbb!",
+      "segments": [
+        "Hi",
+        " \ud83d\ude00\ud83d\udc69\u200d\ud83d\udcbb!"
+      ],
+      "tokens": [
+        13048,
+        90316,
+        145233,
+        378,
+        235,
+        145851,
+        0
+      ],
+      "decoded": "Hi \ud83d\ude00\ud83d\udc69\u200d\ud83d\udcbb!"
+    },
+    {
+      "name": "composed",
+      "text": "caf\u00e9 na\u00efve \u00c5",
+      "segments": [
+        "caf\u00e9",
+        " na\u00efve",
+        " \u00c5"
+      ],
+      "tokens": [
+        924,
+        58858,
+        94880,
+        586,
+        79252
+      ],
+      "decoded": "caf\u00e9 na\u00efve \u00c5"
+    },
+    {
+      "name": "decomposed",
+      "text": "cafe\u0301 nai\u0308ve A\u030a",
+      "segments": [
+        "cafe",
+        "\u0301",
+        " nai",
+        "\u0308ve",
+        " A",
+        "\u030a"
+      ],
+      "tokens": [
+        924,
+        58858,
+        94880,
+        586,
+        79252
+      ],
+      "decoded": "caf\u00e9 na\u00efve \u00c5"
+    },
+    {
+      "name": "whitespace",
+      "text": "  hello   world \t \n\r\n  next  ",
+      "segments": [
+        " ",
+        " hello",
+        "  ",
+        " world",
+        " \t \n\r\n",
+        " ",
+        " next",
+        "  "
+      ],
+      "tokens": [
+        220,
+        23811,
+        256,
+        1879,
+        7018,
+        715,
+        319,
+        220,
+        1790,
+        256
+      ],
+      "decoded": "  hello   world \t \n\r\n  next  "
+    },
+    {
+      "name": "unicode whitespace",
+      "text": "\u00a0hello\u2003\u2003world\u0085end",
+      "segments": [
+        "\u00a0hello",
+        "\u2003",
+        "\u2003world",
+        "\u0085end"
+      ],
+      "tokens": [
+        4102,
+        14990,
+        378,
+        225,
+        378,
+        225,
+        14615,
+        126,
+        227,
+        408
+      ],
+      "decoded": "\u00a0hello\u2003\u2003world\u0085end"
+    },
+    {
+      "name": "whitespace only",
+      "text": " \t \r\n \n\t  ",
+      "segments": [
+        " \t \r\n \n",
+        "\t  "
+      ],
+      "tokens": [
+        7018,
+        2529,
+        715,
+        8689
+      ],
+      "decoded": " \t \r\n \n\t  "
+    },
+    {
+      "name": "tabs before letters",
+      "text": "\tword\t\tword\t word",
+      "segments": [
+        "\tword",
+        "\t",
+        "\tword",
+        "\t",
+        " word"
+      ],
+      "tokens": [
+        66298,
+        197,
+        66298,
+        197,
+        3409
+      ],
+      "decoded": "\tword\t\tword\t word"
+    },
+    {
+      "name": "punctuation newline",
+      "text": "!?\r\n\nhello\n  world",
+      "segments": [
+        "!?\r\n\n",
+        "hello",
+        "\n",
+        " ",
+        " world"
+      ],
+      "tokens": [
+        57390,
+        80823,
+        14990,
+        198,
+        220,
+        1879
+      ],
+      "decoded": "!?\r\n\nhello\n  world"
+    },
+    {
+      "name": "combining marks",
+      "text": "a\u0301\u0327\u0308!\u0301b",
+      "segments": [
+        "a",
+        "\u0301\u0327\u0308!\u0301",
+        "b"
+      ],
+      "tokens": [
+        1953,
+        136,
+        100,
+        136,
+        230,
+        0,
+        53839,
+        65
+      ],
+      "decoded": "\u00e1\u0327\u0308!\u0301b"
+    },
+    {
+      "name": "unicode numbers",
+      "text": "\u0661\u0662\u0663 \u00bd\u216b",
+      "segments": [
+        "\u0661",
+        "\u0662",
+        "\u0663",
+        " ",
+        "\u00bd",
+        "\u216b"
+      ],
+      "tokens": [
+        149,
+        94,
+        149,
+        95,
+        149,
+        96,
+        220,
+        26062,
+        70467,
+        104
+      ],
+      "decoded": "\u0661\u0662\u0663 \u00bd\u216b"
+    },
+    {
+      "name": "code",
+      "text": "func main() {\n\tfmt.Println(\"hello\")\n}\n",
+      "segments": [
+        "func",
+        " main",
+        "()",
+        " {\n",
+        "\tfmt",
+        ".Println",
+        "(\"",
+        "hello",
+        "\")\n",
+        "}\n"
+      ],
+      "tokens": [
+        2830,
+        1887,
+        368,
+        341,
+        11009,
+        12419,
+        445,
+        14990,
+        1138,
+        532
+      ],
+      "decoded": "func main() {\n\tfmt.Println(\"hello\")\n}\n"
+    },
+    {
+      "name": "chatml",
+      "text": "<|im_start|>user\nHi!<|im_end|>\n<|im_start|>assistant\n",
+      "segments": [
+        "<|",
+        "im",
+        "_start",
+        "|>",
+        "user",
+        "\n",
+        "Hi",
+        "!<|",
+        "im",
+        "_end",
+        "|>\n",
+        "<|",
+        "im",
+        "_start",
+        "|>",
+        "assistant",
+        "\n"
+      ],
+      "tokens": [
+        151644,
+        872,
+        198,
+        13048,
+        0,
+        151645,
+        198,
+        151644,
+        77091,
+        198
+      ],
+      "decoded": "<|im_start|>user\nHi!<|im_end|>\n<|im_start|>assistant\n"
+    },
+    {
+      "name": "adjacent special",
+      "text": "<think></think><|im_end|><|endoftext|>",
+      "segments": [
+        "<think",
+        "></",
+        "think",
+        "><|",
+        "im",
+        "_end",
+        "|><|",
+        "endoftext",
+        "|>"
+      ],
+      "tokens": [
+        151667,
+        151668,
+        151645,
+        151643
+      ],
+      "decoded": "<think></think><|im_end|><|endoftext|>"
+    },
+    {
+      "name": "embedded special",
+      "text": "A<|im_start|>B<|im_end|>C",
+      "segments": [
+        "A",
+        "<|",
+        "im",
+        "_start",
+        "|>",
+        "B",
+        "<|",
+        "im",
+        "_end",
+        "|>",
+        "C"
+      ],
+      "tokens": [
+        32,
+        151644,
+        33,
+        151645,
+        34
+      ],
+      "decoded": "A<|im_start|>B<|im_end|>C"
+    },
+    {
+      "name": "empty",
+      "text": "",
+      "segments": [],
+      "tokens": [],
+      "decoded": ""
+    }
+  ]
+}

@@ -20,6 +20,11 @@ Core Nego features use Go only:
 - Model artifact resolution for local run/train compatibility checks
 - Dataset utilities, eval helpers, run logs, and training job orchestration
 
+Qwen tokenizer NFC normalization uses the pure-Go module `golang.org/x/text`,
+downloaded automatically by Go. It requires no Python or C runtime. Python's
+Hugging Face `tokenizers` package is used only by an optional developer tool for
+regenerating independent tokenizer test fixtures.
+
 Some AI runtime and conversion features need third-party tools:
 
 - Local chat/run/serve with GGUF models requires `llama-cli` from [llama.cpp](https://github.com/ggml-org/llama.cpp). Set `NEGO_LLAMA_CLI` when `llama-cli` is not on PATH.

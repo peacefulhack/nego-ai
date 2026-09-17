@@ -20,6 +20,8 @@ type Tokenizer struct {
 	Merges           map[string]int
 	maxTokenLn       int
 	byteLevelDecoder bool
+	qwenEncoder      bool
+	normalizeNFC     bool
 }
 
 func Load(path string) (*Tokenizer, error) {
@@ -33,22 +35,50 @@ func Load(path string) (*Tokenizer, error) {
 	}
 	var raw struct {
 		Model struct {
-			Type     string          `json:"type"`
-			Vocab    json.RawMessage `json:"vocab"`
-			Merges   json.RawMessage `json:"merges"`
-			UnkToken string          `json:"unk_token"`
-			UnkID    *int            `json:"unk_id"`
+			Type         string          `json:"type"`
+			Vocab        json.RawMessage `json:"vocab"`
+			Merges       json.RawMessage `json:"merges"`
+			UnkToken     string          `json:"unk_token"`
+			UnkID        *int            `json:"unk_id"`
+			Dropout      *float64        `json:"dropout"`
+			Prefix       string          `json:"continuing_subword_prefix"`
+			Suffix       string          `json:"end_of_word_suffix"`
+			ByteFallback bool            `json:"byte_fallback"`
+			IgnoreMerges bool            `json:"ignore_merges"`
 		} `json:"model"`
 		AddedTokens []struct {
-			ID      int    `json:"id"`
-			Content string `json:"content"`
+			ID         int    `json:"id"`
+			Content    string `json:"content"`
+			SingleWord bool   `json:"single_word"`
+			LStrip     bool   `json:"lstrip"`
+			RStrip     bool   `json:"rstrip"`
+			Normalized bool   `json:"normalized"`
 		} `json:"added_tokens"`
 		Decoder struct {
 			Type string `json:"type"`
 		} `json:"decoder"`
+		PreTokenizer preTokenizerConfig `json:"pre_tokenizer"`
+		Normalizer   json.RawMessage    `json:"normalizer"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
+	}
+	qwen, nfc, err := qwenEncoderConfig(raw.PreTokenizer, raw.Normalizer)
+	if err != nil {
+		return nil, err
+	}
+	if qwen {
+		if raw.Decoder.Type != "ByteLevel" {
+			return nil, fmt.Errorf("unsupported Qwen decoder %q: expected ByteLevel", raw.Decoder.Type)
+		}
+		if raw.Model.Type != "BPE" || raw.Model.Dropout != nil && *raw.Model.Dropout != 0 || raw.Model.Prefix != "" || raw.Model.Suffix != "" || raw.Model.ByteFallback || raw.Model.IgnoreMerges {
+			return nil, fmt.Errorf("unsupported Qwen BPE model options")
+		}
+		for _, token := range raw.AddedTokens {
+			if token.SingleWord || token.LStrip || token.RStrip || token.Normalized {
+				return nil, fmt.Errorf("unsupported Qwen added-token matching options for token %d", token.ID)
+			}
+		}
 	}
 	modelVocab, err := parseVocab(raw.Model.Vocab)
 	if err != nil {
@@ -93,6 +123,8 @@ func Load(path string) (*Tokenizer, error) {
 		Added:            added,
 		Merges:           merges,
 		byteLevelDecoder: raw.Decoder.Type == "ByteLevel",
+		qwenEncoder:      qwen,
+		normalizeNFC:     nfc,
 	}
 	for token, id := range vocab {
 		out.IDToToken[id] = token
@@ -104,6 +136,9 @@ func Load(path string) (*Tokenizer, error) {
 }
 
 func (t *Tokenizer) Encode(text string) ([]int, error) {
+	if t.qwenEncoder {
+		return t.encodeQwen(text)
+	}
 	var ids []int
 	for _, segment := range splitSegments(text) {
 		tokenIDs, err := t.encodeSegment(segment)
@@ -252,6 +287,10 @@ func (t *Tokenizer) encodeGreedy(segment string) ([]int, error) {
 
 func (t *Tokenizer) encodeBPE(segment string) ([]int, error) {
 	pieces := t.bpeInitialPieces(segment)
+	return t.mergeBPE(pieces)
+}
+
+func (t *Tokenizer) mergeBPE(pieces []string) ([]int, error) {
 	for {
 		bestIndex := -1
 		bestRank := int(^uint(0) >> 1)

@@ -100,6 +100,7 @@ Implemented:
 65. Native GGUF and native-HF projections and logits share a pure-Go CPU matrix-vector kernel with bounded parallel rows, finite-value checks, and serial/parallel numerical parity tests.
 66. HF ByteLevel decoding handles merged whitespace and UTF-8 bytes across token boundaries; native-HF generation uses an incremental decoder to keep streamed text valid.
 67. The numbered share example packages the actual step-5 native adapter output, includes a share manifest, and documents reuse with the same base model.
+68. Qwen2/Qwen3 HF tokenization supports NFC, the declared Qwen text split pattern, UTF-8 byte-level BPE, and literal added tokens before splitting. Independent Hugging Face fixtures cover 24 multilingual, whitespace, and chat-token cases.
 
 Not production-ready yet:
 
@@ -109,7 +110,7 @@ Not production-ready yet:
 4. GPU execution.
 5. Production-quality native safetensors autoregressive generation for Qwen/Llama models.
 6. Full GGUF LoRA/backprop training and optimizer support.
-7. Full Hugging Face tokenizer normalization and pre-tokenization parity, especially for multilingual input.
+7. General Hugging Face tokenizer pipeline compatibility beyond the tested Qwen configuration; arbitrary normalizers, split patterns, and added-token matching rules remain unsupported.
 
 ## Next Critical Phases
 
