@@ -9,7 +9,7 @@ Examples are numbered to show the usual AI model development flow.
 5. [Train](5.train): create a LoRA training job for the Hugging Face model and a native token-bias adapter from a downloaded model.
 6. [Serve](6.serve): serve the local model from step 1 through Nego HTTP.
 7. [Embeddings](7.embeddings): call an embedding backend and compare vectors.
-8. [Share Trained Model](8.share-trained-model): inspect a model card template and sharing checklist.
+8. [Share Trained Model](8.share-trained-model): package the actual native adapter from step 5, with file hashes and instructions for using it with the same base model.
 
 Run examples from the repository root:
 

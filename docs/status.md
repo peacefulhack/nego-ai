@@ -99,6 +99,7 @@ Implemented:
 64. Native-HF RoPE uses the split-half Qwen/Llama weight layout, with regression tests for multi-token attention and Q/K normalization at head dimensions greater than two.
 65. Native GGUF and native-HF projections and logits share a pure-Go CPU matrix-vector kernel with bounded parallel rows, finite-value checks, and serial/parallel numerical parity tests.
 66. HF ByteLevel decoding handles merged whitespace and UTF-8 bytes across token boundaries; native-HF generation uses an incremental decoder to keep streamed text valid.
+67. The numbered share example packages the actual step-5 native adapter output, includes a share manifest, and documents reuse with the same base model.
 
 Not production-ready yet:
 
