@@ -93,7 +93,7 @@ func readGGUFVocabValue(r io.Reader, key string, typ uint32, vocab *GGUFVocab) e
 		}
 		vocab.Scores = scores
 	case "tokenizer.ggml.token_type":
-		types, err := readGGUFUint32ArrayValue(r, typ, key)
+		types, err := readGGUFTokenTypesValue(r, typ, key)
 		if err != nil {
 			return err
 		}
@@ -275,7 +275,7 @@ func readGGUFFloat32ArrayValue(r io.Reader, typ uint32, key string) ([]float32, 
 	return out, nil
 }
 
-func readGGUFUint32ArrayValue(r io.Reader, typ uint32, key string) ([]uint32, error) {
+func readGGUFTokenTypesValue(r io.Reader, typ uint32, key string) ([]uint32, error) {
 	if typ != 9 {
 		return nil, fmt.Errorf("gguf metadata %q is type %d, want array", key, typ)
 	}
@@ -283,14 +283,19 @@ func readGGUFUint32ArrayValue(r io.Reader, typ uint32, key string) ([]uint32, er
 	if err != nil {
 		return nil, err
 	}
-	if elemType != 4 {
-		return nil, fmt.Errorf("gguf metadata %q array elem type is %d, want uint32", key, elemType)
+	if elemType != 4 && elemType != 5 {
+		return nil, fmt.Errorf("gguf metadata %q array elem type is %d, want int32 or uint32", key, elemType)
 	}
 	out := make([]uint32, 0, length)
 	for i := uint64(0); i < length; i++ {
 		var value uint32
 		if err := binary.Read(r, binary.LittleEndian, &value); err != nil {
 			return nil, fmt.Errorf("read gguf metadata %q item %d: %w", key, i, err)
+		}
+		// GGUF writers commonly store token types as INT32. Keep the public
+		// unsigned representation, but never reinterpret a negative enum.
+		if elemType == 5 && int32(value) < 0 {
+			return nil, fmt.Errorf("gguf metadata %q item %d has negative token type %d", key, i, int32(value))
 		}
 		out = append(out, value)
 	}
