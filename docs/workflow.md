@@ -73,12 +73,24 @@ Start with the short status view after any download:
 nego status ./models/qwen3
 nego status ./models/qwen3-gguf
 nego status ./models/qwen3-gguf --runtime-stats
+nego status ./models/qwen3 --runtime-smoke
+nego status ./models/qwen3-gguf --runtime-smoke --runtime-stats --json
 ```
 
 This tells you the detected artifact format, the recommended run backend, the
 recommended training path, and any current blockers.
 Use `--runtime-stats` when you also want to load the pure-Go backend and see
 CPU device mode, tensor cache state, cached tensor bytes, and adapter state.
+
+Use `--runtime-smoke` to load the local pure-Go backend and attempt one generated
+token. The default prompt is `hello`; override it with `--smoke-prompt "Hello"`.
+This loads real weights and may take time and memory on larger models. A failed
+load or generation returns exit code 1 with an error in the smoke report. JSON
+mode wraps the artifact in `artifact` and adds `runtime_smoke`; combined
+`--runtime-stats` reports cache usage from the same generation attempt when the
+model loads. A passing check only confirms this short generation path, not chat
+quality, tokenizer parity, or training readiness. Empty output can be valid if
+the model immediately selects an end-of-sequence token.
 
 Check model files, config, generation defaults, safetensors/GGUF metadata, and model card metadata:
 

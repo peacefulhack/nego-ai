@@ -77,7 +77,7 @@ func RunWithIO(ctx context.Context, args []string, stdin io.Reader, stdout, stde
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
 	case "status":
-		return runStatus(args[1:], stdout, stderr)
+		return runStatus(ctx, args[1:], stdout, stderr)
 	case "memory":
 		return runMemory(args[1:], stdout, stderr)
 	case "run":
@@ -330,7 +330,7 @@ func splitFlags(args []string) ([]string, []string) {
 func isBoolFlag(arg string) bool {
 	name := strings.TrimLeft(arg, "-")
 	switch name {
-	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native", "no-manifest", "dry-run", "list":
+	case "force", "local-files-only", "quiet", "json", "yes", "no-generation-prompt", "interactive", "flash-attn", "gguf", "native", "no-manifest", "dry-run", "list", "runtime-stats", "runtime-smoke":
 		return true
 	default:
 		return false
@@ -2847,13 +2847,17 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func runStatus(args []string, stdout, stderr io.Writer) int {
+func runStatus(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	var jsonOutput bool
 	var runtimeStats bool
+	var runtimeSmoke bool
+	var smokePrompt string
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.BoolVar(&jsonOutput, "json", false, "write JSON result")
 	fs.BoolVar(&runtimeStats, "runtime-stats", false, "load the pure-Go backend and include runtime cache/device stats")
+	fs.BoolVar(&runtimeSmoke, "runtime-smoke", false, "test one-token generation with the pure-Go backend")
+	fs.StringVar(&smokePrompt, "smoke-prompt", "hello", "prompt for --runtime-smoke")
 	parseArgs, positionals := splitFlags(args)
 	if err := fs.Parse(parseArgs); err != nil {
 		return 2
@@ -2862,46 +2866,79 @@ func runStatus(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "usage: nego status <model-path> [flags]")
 		return 2
 	}
+	if flagWasSet(fs, "smoke-prompt") && !runtimeSmoke {
+		fmt.Fprintln(stderr, "nego: --smoke-prompt requires --runtime-smoke")
+		return 2
+	}
+	if runtimeSmoke && strings.TrimSpace(smokePrompt) == "" {
+		fmt.Fprintln(stderr, "nego: --smoke-prompt must not be empty")
+		return 2
+	}
 	artifact, err := modelinfo.Resolve(positionals[0])
 	if err != nil {
 		fmt.Fprintf(stderr, "nego: %v\n", err)
 		return 1
 	}
-	var stats nego.RuntimeStats
-	if runtimeStats {
+	var stats *nego.RuntimeStats
+	var smoke *statusRuntimeSmoke
+	code := 0
+	if runtimeSmoke {
+		if !jsonOutput {
+			fmt.Fprintln(stderr, "Running runtime smoke test (load model and generate one token)...")
+		}
+		result, loadedStats := runStatusRuntimeSmoke(ctx, positionals[0], smokePrompt)
+		smoke = &result
+		if runtimeStats {
+			stats = loadedStats
+		}
+		if !result.Passed {
+			code = 1
+		}
+	} else if runtimeStats {
 		if !jsonOutput {
 			fmt.Fprintln(stderr, "Loading runtime for stats...")
 		}
-		loadedStats, err := loadStatusRuntimeStats(positionals[0])
+		loadedStats, err := loadStatusRuntimeStats(ctx, positionals[0])
 		if err != nil {
 			fmt.Fprintf(stderr, "nego: %v\n", err)
 			return 1
 		}
-		stats = loadedStats
+		stats = &loadedStats
 	}
 	if jsonOutput {
-		if runtimeStats {
-			_ = json.NewEncoder(stdout).Encode(struct {
+		var payload any = artifact
+		if runtimeStats || runtimeSmoke {
+			payload = struct {
 				Artifact     *modelinfo.Artifact `json:"artifact"`
-				RuntimeStats nego.RuntimeStats   `json:"runtime_stats"`
+				RuntimeStats *nego.RuntimeStats  `json:"runtime_stats,omitempty"`
+				RuntimeSmoke *statusRuntimeSmoke `json:"runtime_smoke,omitempty"`
 			}{
 				Artifact:     artifact,
 				RuntimeStats: stats,
-			})
-			return 0
+				RuntimeSmoke: smoke,
+			}
 		}
-		_ = json.NewEncoder(stdout).Encode(artifact)
-		return 0
+		if err := json.NewEncoder(stdout).Encode(payload); err != nil {
+			fmt.Fprintf(stderr, "nego: write status: %v\n", err)
+			return 1
+		}
+		return code
 	}
 	writeArtifactStatus(stdout, artifact)
-	if runtimeStats {
-		writeRuntimeStats(stdout, stats)
+	if stats != nil {
+		writeRuntimeStats(stdout, *stats)
 	}
-	return 0
+	if smoke != nil {
+		writeRuntimeSmoke(stdout, *smoke)
+		if !smoke.Passed {
+			fmt.Fprintf(stderr, "nego: runtime smoke failed: %s\n", smoke.Error)
+		}
+	}
+	return code
 }
 
-func loadStatusRuntimeStats(path string) (nego.RuntimeStats, error) {
-	model, err := nego.LoadModel(context.Background(), nego.ModelOptions{
+func loadStatusRuntimeStats(ctx context.Context, path string) (nego.RuntimeStats, error) {
+	model, err := nego.LoadModel(ctx, nego.ModelOptions{
 		Backend: nego.BackendNativeAuto,
 		Path:    path,
 		Options: map[string]string{
