@@ -63,6 +63,15 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 	}
 	var b strings.Builder
 	emittedLen := 0
+	decoder := m.tokenizer.NewDecoder()
+	finish := func() (*nego.GenerateOutput, error) {
+		b.WriteString(decoder.Flush())
+		text := trimAtStop(b.String(), req.Stop)
+		if err := emitDelta(emit, text, &emittedLen); err != nil {
+			return nil, err
+		}
+		return &nego.GenerateOutput{Text: text}, nil
+	}
 	for i := 0; i < maxTokens; i++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -73,9 +82,9 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 		}
 		history = append(history, nextID)
 		if m.isGenerationEOSToken(nextID) {
-			return &nego.GenerateOutput{Text: b.String()}, nil
+			return finish()
 		}
-		text, err := m.tokenizer.Decode([]int{nextID})
+		text, err := decoder.Push(nextID)
 		if err != nil {
 			return nil, err
 		}
@@ -99,7 +108,7 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 			return nil, err
 		}
 	}
-	return &nego.GenerateOutput{Text: b.String()}, nil
+	return finish()
 }
 
 func validateGenerationContext(backend string, promptTokens, maxTokens int, contextLength uint64) error {

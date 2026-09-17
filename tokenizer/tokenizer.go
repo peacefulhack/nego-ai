@@ -11,14 +11,15 @@ import (
 )
 
 type Tokenizer struct {
-	Path       string
-	ModelType  string
-	UnkToken   string
-	Vocab      map[string]int
-	IDToToken  map[int]string
-	Added      []string
-	Merges     map[string]int
-	maxTokenLn int
+	Path             string
+	ModelType        string
+	UnkToken         string
+	Vocab            map[string]int
+	IDToToken        map[int]string
+	Added            []string
+	Merges           map[string]int
+	maxTokenLn       int
+	byteLevelDecoder bool
 }
 
 func Load(path string) (*Tokenizer, error) {
@@ -42,6 +43,9 @@ func Load(path string) (*Tokenizer, error) {
 			ID      int    `json:"id"`
 			Content string `json:"content"`
 		} `json:"added_tokens"`
+		Decoder struct {
+			Type string `json:"type"`
+		} `json:"decoder"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
@@ -81,13 +85,14 @@ func Load(path string) (*Tokenizer, error) {
 		return len(added[i]) > len(added[j])
 	})
 	out := &Tokenizer{
-		Path:      tokenizerPath,
-		ModelType: raw.Model.Type,
-		UnkToken:  unkToken,
-		Vocab:     vocab,
-		IDToToken: make(map[int]string, len(vocab)),
-		Added:     added,
-		Merges:    merges,
+		Path:             tokenizerPath,
+		ModelType:        raw.Model.Type,
+		UnkToken:         unkToken,
+		Vocab:            vocab,
+		IDToToken:        make(map[int]string, len(vocab)),
+		Added:            added,
+		Merges:           merges,
+		byteLevelDecoder: raw.Decoder.Type == "ByteLevel",
 	}
 	for token, id := range vocab {
 		out.IDToToken[id] = token
@@ -124,13 +129,15 @@ func (t *Tokenizer) EncodeBatch(texts []string) ([][]int, error) {
 
 func (t *Tokenizer) Decode(ids []int) (string, error) {
 	var b strings.Builder
+	decoder := t.NewDecoder()
 	for _, id := range ids {
-		token, ok := t.IDToToken[id]
-		if !ok {
-			return "", fmt.Errorf("unknown token id %d", id)
+		text, err := decoder.Push(id)
+		if err != nil {
+			return "", err
 		}
-		b.WriteString(decodeToken(token))
+		b.WriteString(text)
 	}
+	b.WriteString(decoder.Flush())
 	return b.String(), nil
 }
 

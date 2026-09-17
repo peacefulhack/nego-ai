@@ -286,6 +286,17 @@ Show token IDs:
 nego tokenize ./models/qwen3 "Explain Go in simple terms."
 ```
 
+For a tokenizer with a `ByteLevel` decoder, decode generated IDs together so
+UTF-8 characters split across tokens are reconstructed. In Go, `tok.Decode(ids)`
+handles a complete sequence. For incremental output, create `tok.NewDecoder()`,
+pass each ID to `decoder.Push(id)`, and append `decoder.Flush()` when generation
+ends. A chunk may be empty until the next token completes a character. Native-HF
+generation and streaming use this automatically.
+
+Full normalization and pre-tokenization parity with Hugging Face remains under
+development. Fixtures captured from Nego protect against regressions, but only
+independent reference token IDs can establish tokenizer compatibility.
+
 Create tokenizer regression fixtures from a curated profile:
 
 ```bash
