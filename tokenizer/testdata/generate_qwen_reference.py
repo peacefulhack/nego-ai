@@ -43,9 +43,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("model", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--no-normalizer", action="store_true",
+                        help="Reference the GGUF Qwen pipeline without HF NFC")
     args = parser.parse_args()
     source = args.model / "tokenizer.json"
     codec = tokenizers.Tokenizer.from_file(str(source))
+    if args.no_normalizer:
+        codec.normalizer = None
     config = json.loads(source.read_text(encoding="utf-8"))
     splitter = tokenizers.pre_tokenizers.Split(
         tokenizers.Regex(config["pre_tokenizer"]["pretokenizers"][0]["pattern"]["Regex"]),
@@ -67,6 +71,8 @@ def main():
         "reference": "huggingface/tokenizers " + tokenizers.__version__,
         "cases": cases,
     }
+    if args.no_normalizer:
+        result["normalizer"] = "none (GGUF Qwen profile)"
     args.output.write_text(json.dumps(result, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {len(cases)} independent reference cases to {args.output}")
 

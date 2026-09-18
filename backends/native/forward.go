@@ -125,6 +125,10 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 		}
 	}
 	sampler := NewSampler(plan.Options.Sampling)
+	decoder, err := m.vocab.NewDecoder(modelinfo.DecodeOptions{})
+	if err != nil {
+		return nil, err
+	}
 	history := append([]int(nil), plan.PromptTokenIDs...)
 	var b strings.Builder
 	emittedLen := 0
@@ -132,13 +136,17 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		nextID, text, err := sampleTokenTextWithHistory(m.applyAdapter(logits), m.vocab, sampler, history)
+		nextID, err := sampler.SampleWithHistory(m.applyAdapter(logits), history)
 		if err != nil {
 			return nil, err
 		}
 		history = append(history, nextID)
 		if isEOSToken(m.vocab, nextID) {
-			return &nego.GenerateOutput{Text: b.String()}, nil
+			break
+		}
+		text, err := decoder.Push(nextID)
+		if err != nil {
+			return nil, err
 		}
 		b.WriteString(text)
 		out := b.String()
@@ -160,7 +168,12 @@ func (m *Model) generateTextWithEmitter(ctx context.Context, req nego.GenerateRe
 			return nil, err
 		}
 	}
-	return &nego.GenerateOutput{Text: b.String()}, nil
+	b.WriteString(decoder.Flush())
+	out := trimAtStop(b.String(), plan.Options.Stop)
+	if err := emitDelta(emit, out, &emittedLen); err != nil {
+		return nil, err
+	}
+	return &nego.GenerateOutput{Text: out}, nil
 }
 
 func validateGenerationContext(backend string, promptTokens, maxTokens int, contextLength uint64) error {

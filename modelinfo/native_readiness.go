@@ -314,7 +314,11 @@ func nativeReadinessWarnings(info *Info, readiness *NativeRuntimeReadiness) []st
 	}
 	if info != nil && info.GGUF != nil {
 		if pre := metadataString(info.GGUF.Metadata, "tokenizer.ggml.pre"); pre != "" {
-			warnings = append(warnings, fmt.Sprintf("native GGUF tokenization for pre-tokenizer %q is approximate; validate token IDs before training or comparing outputs", pre))
+			if pre == "qwen2" && metadataString(info.GGUF.Metadata, "tokenizer.ggml.model") == "gpt2" {
+				warnings = append(warnings, "native GGUF qwen2 tokenization uses byte-level BPE without HF NFC; validate token IDs for this model revision")
+			} else {
+				warnings = append(warnings, fmt.Sprintf("native GGUF tokenization for pre-tokenizer %q is approximate; validate token IDs before training or comparing outputs", pre))
+			}
 		}
 	}
 	if readiness.Ready {

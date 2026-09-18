@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/gakon/nego-ai/tokenizer"
 )
 
 type DecodeOptions struct {
@@ -11,20 +13,69 @@ type DecodeOptions struct {
 }
 
 func (v *GGUFVocab) Decode(ids []int, options DecodeOptions) (string, error) {
-	if v == nil {
-		return "", fmt.Errorf("gguf vocab is nil")
+	decoder, err := v.NewDecoder(options)
+	if err != nil {
+		return "", err
 	}
 	var b strings.Builder
 	for _, id := range ids {
-		if id < 0 || id >= len(v.Tokens) {
-			return "", fmt.Errorf("token id %d is out of range", id)
+		text, err := decoder.Push(id)
+		if err != nil {
+			return "", err
 		}
-		if options.SkipSpecial && v.isSpecialToken(id) {
-			continue
-		}
-		writeDecodedToken(&b, v.Tokens[id])
+		b.WriteString(text)
 	}
+	b.WriteString(decoder.Flush())
 	return b.String(), nil
+}
+
+// GGUFDecoder decodes generated tokens. Qwen byte-level decoding buffers partial
+// UTF-8 characters across tokens; other vocabularies retain their legacy decoding.
+// Create one decoder per stream and call Flush when generation ends.
+type GGUFDecoder struct {
+	vocab   *GGUFVocab
+	options DecodeOptions
+	qwen    *tokenizer.Decoder
+}
+
+func (v *GGUFVocab) NewDecoder(options DecodeOptions) (*GGUFDecoder, error) {
+	if v == nil {
+		return nil, fmt.Errorf("gguf vocab is nil")
+	}
+	d := &GGUFDecoder{vocab: v, options: options}
+	if v.PreTokenizer == "qwen2" {
+		tok, err := v.qwenTokenizer()
+		if err != nil {
+			return nil, err
+		}
+		d.qwen = tok.NewDecoder()
+	}
+	return d, nil
+}
+
+func (d *GGUFDecoder) Push(id int) (string, error) {
+	if d == nil || d.vocab == nil {
+		return "", fmt.Errorf("GGUF decoder is not initialized")
+	}
+	if id < 0 || id >= len(d.vocab.Tokens) {
+		return "", fmt.Errorf("token id %d is out of range", id)
+	}
+	if d.options.SkipSpecial && d.vocab.isSpecialToken(id) {
+		return "", nil
+	}
+	if d.qwen != nil {
+		return d.qwen.Push(id)
+	}
+	var b strings.Builder
+	writeDecodedToken(&b, d.vocab.Tokens[id])
+	return b.String(), nil
+}
+
+func (d *GGUFDecoder) Flush() string {
+	if d == nil || d.qwen == nil {
+		return ""
+	}
+	return d.qwen.Flush()
 }
 
 func (v *GGUFVocab) isSpecialToken(id int) bool {

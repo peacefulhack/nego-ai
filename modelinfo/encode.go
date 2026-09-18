@@ -22,6 +22,9 @@ func (v *GGUFVocab) Encode(text string, options EncodeOptions) ([]int, error) {
 	if v == nil {
 		return nil, fmt.Errorf("gguf vocab is nil")
 	}
+	if v.PreTokenizer == "qwen2" {
+		return v.encodeQwen(text, options)
+	}
 	index := v.tokenIndex()
 	merges := v.mergeRanks()
 	var ids []int

@@ -103,11 +103,12 @@ Implemented:
 68. Qwen2/Qwen3 HF tokenization supports NFC, the declared Qwen text split pattern, UTF-8 byte-level BPE, and literal added tokens before splitting. Independent Hugging Face fixtures cover 24 multilingual, whitespace, and chat-token cases.
 69. Native GGUF attention selects split-half RoPE for Qwen2/Qwen3 while retaining adjacent-pair RoPE for converted Llama weights. Multi-token numerical tests cover both layouts and Qwen3 Q/K normalization; this does not add support for scaled/partial RoPE or other architectures.
 70. GGUF vocabulary parsing accepts signed INT32 token-type arrays used by real converters, retains UINT32 compatibility, and rejects negative types and malformed arrays. A local Qwen3-0.6B Q4_K_M smoke test now loads and generates; tokenizer/output quality still requires validation.
+71. GGUF `gpt2`/`qwen2` tokenization reuses the pure-Go Qwen byte-level BPE engine, handles literal special tokens, and streams complete UTF-8 characters. A real Qwen3-0.6B Q4_K_M vocabulary matches 24 independent reference cases; completion, chat, token-bias training, adapter reload, and local share packaging have been smoke-tested. See [GGUF validation](gguf-validation.md) for commands and limits.
 
 Not production-ready yet:
 
 1. Full real-world Qwen/Llama compatibility validation for common downloaded GGUF models.
-2. Compatibility validation for mixed K-quant variants such as Q4_K_M and Q5_K_M in real model files.
+2. Broader mixed K-quant compatibility beyond the smoke-tested Qwen3-0.6B Q4_K_M file, including Q5_K_M and numerical comparison with an independent runtime.
 3. Further CPU optimization, batching, and memory planning beyond parallel matrix-vector projections.
 4. GPU execution.
 5. Production-quality native safetensors autoregressive generation for Qwen/Llama models.
@@ -116,7 +117,7 @@ Not production-ready yet:
 
 ## Next Critical Phases
 
-1. Add small real GGUF fixture compatibility checks for common Q4_K_M and Q5_K_M model files.
+1. Extend real GGUF validation beyond Qwen3-0.6B Q4_K_M to Q5_K_M and Llama, including independent logits comparisons.
 2. Extend CPU optimization with batching and memory reuse for larger local models.
 3. Add GPU execution behind a clean backend interface once CPU correctness is stable.
 4. Add full LoRA/backprop training and optimizer checkpoints for GGUF or safetensors artifacts.

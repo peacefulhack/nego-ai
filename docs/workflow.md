@@ -2,7 +2,9 @@
 
 This guide shows the intended day-to-day Nego workflow from downloading a model to preparing data, chatting, evaluating, training, and preparing a model for sharing.
 
-Some late workflow steps are marked as planned because Nego does not implement direct model upload or full native fine-tuning yet. The current training command runs an external training process from a JSON job file.
+Full native fine-tuning remains planned. Current training supports either an external process from a JSON job file or a pure-Go token-bias adapter, which does not update model weights. Small-file Hub uploads and local share packaging are available.
+
+For the locally tested pure-Go download, chat, adapter-training, and share path with Qwen3 GGUF, follow [GGUF validation](gguf-validation.md).
 
 ## Numbered Flow
 
