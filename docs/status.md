@@ -106,6 +106,7 @@ Implemented:
 71. GGUF `gpt2`/`qwen2` tokenization reuses the pure-Go Qwen byte-level BPE engine, handles literal special tokens, and streams complete UTF-8 characters. A real Qwen3-0.6B Q4_K_M vocabulary matches 24 independent reference cases; completion, chat, token-bias training, adapter reload, and local share packaging have been smoke-tested. See [GGUF validation](gguf-validation.md) for commands and limits.
 72. Native GGUF grouped-query attention reuses read-only history views within each KV-head group. Synthetic 1,024-token benchmarks reduce temporary allocations from about 518 KB to 191 KB per attention step; numerical parity tests cover one, two, and four KV heads, with overflow checks for cache selection.
 73. The pure-Go `adapters.LinearLoRA` building block provides seeded low-rank initialization, forward evaluation, analytic A/B/input gradients, validated SGD updates, and bounded checkpoint save/load. Finite-difference tests validate gradients; model/CLI LoRA training is not connected yet. See [linear LoRA](lora.md).
+74. GGUF frozen output features connect to `training.FitLinearLoRA` for output-head cross-entropy training with SGD, gradient clipping, and cancellation. The native backend loads these checkpoints via `output_lora`; the numbered step-5 example was run on real Qwen3 Q4_K_M through training and chat reload. This is output-head-only LoRA, not full transformer fine-tuning; the `train native` CLI remains token-bias.
 
 Not production-ready yet:
 

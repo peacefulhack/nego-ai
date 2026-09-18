@@ -6,7 +6,7 @@ Examples are numbered to show the usual AI model development flow.
 2. [Chat](2.chat): check local model status, then chat with the Hugging Face safetensors model downloaded in step 1 through the pure-Go native-HF backend.
 3. [Prepare Dataset](3.prepare-dataset): load CSV data and emit JSONL rows.
 4. [Eval](4.eval): define an eval suite for the GGUF model downloaded in step 1; the Go example runs the same cases against a tiny in-memory model.
-5. [Train](5.train): create a LoRA training job for the Hugging Face model and a native token-bias adapter from a downloaded model.
+5. [Train](5.train): create an external training job, train a native token-bias adapter, or run [pure-Go output-head LoRA](5.train/output_lora) on the downloaded GGUF.
 6. [Serve](6.serve): serve the local model from step 1 through Nego HTTP.
 7. [Embeddings](7.embeddings): call an embedding backend and compare vectors.
 8. [Share Trained Model](8.share-trained-model): package the actual native adapter from step 5, with file hashes and instructions for using it with the same base model.
@@ -21,6 +21,7 @@ go run ./examples/3.prepare-dataset
 go run ./examples/4.eval
 go run ./examples/5.train
 go run ./examples/5.train/native_adapter
+go run ./examples/5.train/output_lora
 go run ./examples/6.serve ./models/qwen3
 go run ./examples/8.share-trained-model
 ```

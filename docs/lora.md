@@ -58,9 +58,27 @@ reject malformed dimensions, non-finite updates, and oversized files.
 
 ## Integration Status
 
-This is a numerical building block, not a claim that `nego train native` performs
-LoRA yet. The CLI still trains token-bias adapters. Connecting frozen model hidden
-states and losses to this API, attaching trained weights during inference, and
-adding optimizer checkpoints are separate steps. No GPU execution is provided.
+The GGUF backend now exposes `ForwardFeaturesWithState` for collecting frozen
+final hidden states and base logits. `training.FitLinearLoRA` trains an output-head
+adapter from those samples with next-token cross-entropy, SGD, and optional L2
+gradient clipping. `training.EvaluateLinearLoRA` evaluates a separate sample set
+without updates. Training supports cancellation between samples and retains
+completed updates on cancellation.
+
+Load a saved output-head checkpoint with the native backend option `output_lora`.
+The loader checks embedding/vocabulary dimensions; it does not fingerprint the
+base model. Always reuse the original base model and tokenizer. Feature extraction
+deliberately bypasses attached output adapters so features remain frozen-base data.
+
+Run the [step-5 output LoRA example](../examples/5.train/output_lora) for a complete
+JSONL-to-checkpoint-to-chat workflow using the downloaded Qwen3 GGUF. A local
+Q4_K_M smoke run trained six completion targets for three epochs and reduced
+training loss from 4.9817 to 4.7919, then reloaded the checkpoint for chat. This is
+a pipeline check on training data, not evidence of improved held-out quality.
+
+`nego train native` still trains token-bias adapters. Full attention-layer LoRA,
+transformer backprop, native-HF integration, Adam optimizer state, streaming
+datasets, and portable adapter manifests are not implemented by this API yet.
+No GPU execution is provided.
 
 Reference: [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685).

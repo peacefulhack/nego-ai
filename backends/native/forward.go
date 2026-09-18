@@ -52,6 +52,46 @@ func (m *Model) ForwardTokenWithState(tokenID int, state *DecodeState) ([]float3
 }
 
 func (m *Model) forwardToken(tokenID int, position int, cache *KVCache) ([]float32, error) {
+	hidden, err := m.hiddenToken(tokenID, position, cache)
+	if err != nil {
+		return nil, err
+	}
+	logits, err := m.baseOutput(hidden)
+	if err != nil {
+		return nil, err
+	}
+	if m.outputLoRA != nil {
+		return m.outputLoRA.Forward(hidden, logits)
+	}
+	return logits, nil
+}
+
+// ForwardFeaturesWithState returns final normalized hidden features and frozen
+// base logits for next-token training. It bypasses all output adapters. The
+// returned buffers belong to the caller. Use a fresh state for each sequence;
+// discard that state after any error, just as for ForwardTokenWithState.
+func (m *Model) ForwardFeaturesWithState(tokenID int, state *DecodeState) ([]float32, []float32, error) {
+	if state == nil {
+		return nil, nil, fmt.Errorf("decode state is nil")
+	}
+	if m.spec.ContextLength > 0 && (state.Position < 0 || uint64(state.Position) >= m.spec.ContextLength) {
+		return nil, nil, fmt.Errorf("native feature context exceeded")
+	}
+	hidden, err := m.hiddenToken(tokenID, state.Position, state.Cache)
+	if err != nil {
+		return nil, nil, err
+	}
+	logits, err := m.baseOutput(hidden)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := state.advance(); err != nil {
+		return nil, nil, err
+	}
+	return hidden, logits, nil
+}
+
+func (m *Model) hiddenToken(tokenID int, position int, cache *KVCache) ([]float32, error) {
 	if !m.manifest.Ready() {
 		return nil, fmt.Errorf("native tensor manifest is not ready: missing=%d shape_errors=%d", len(m.manifest.Missing), len(m.manifest.MissingShape))
 	}
@@ -81,6 +121,10 @@ func (m *Model) forwardToken(tokenID int, position int, cache *KVCache) ([]float
 	if err != nil {
 		return nil, fmt.Errorf("output rmsnorm: %w", err)
 	}
+	return hidden, nil
+}
+
+func (m *Model) baseOutput(hidden []float32) ([]float32, error) {
 	outputValues, outputTensor, err := m.outputWeights()
 	if err != nil {
 		return nil, err

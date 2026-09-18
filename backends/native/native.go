@@ -31,6 +31,7 @@ func (b Backend) Info() nego.BackendInfo {
 		Capabilities: []string{"load_gguf", "inspect_tensors", "tokenize_gguf", "generate_experimental", "stream_generate", "chat_experimental", "stream_chat", "kv_cache", "float32_tensor_cache", "legacy_quant_dequant", "k_quant_dequant", "qk_norm_attention"},
 		Required:     []string{"path"},
 		Options: []nego.BackendOption{
+			{Name: "output_lora", Description: "Nego linear LoRA checkpoint for the output projection; must match this base model and vocabulary"},
 			{Name: "template_path", Description: "directory or file path for chat template sidecars"},
 			{Name: "adapter", Description: "token-bias adapter JSON produced by native training"},
 			{Name: "adapter_path", Description: "alias for adapter"},
@@ -76,6 +77,16 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if err != nil {
 		return nil, err
 	}
+	var outputLoRA *adapters.LinearLoRA
+	if path := opts.Options["output_lora"]; path != "" {
+		outputLoRA, err = adapters.LoadLinearLoRA(path)
+		if err != nil {
+			return nil, fmt.Errorf("load output LoRA: %w", err)
+		}
+		if uint64(outputLoRA.InputSize) != spec.EmbeddingLength || outputLoRA.OutputSize != len(vocab.Tokens) {
+			return nil, fmt.Errorf("output LoRA dimensions do not match model embedding and vocabulary")
+		}
+	}
 	tensors, err := openTensorStore(modelPath, info, maxReadBytes)
 	if err != nil {
 		return nil, fmt.Errorf("open native tensor store: %w", err)
@@ -97,6 +108,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		cacheTensors:  optionBoolDefault(opts.Options, "cache_tensors", true),
 		maxCacheBytes: maxCacheBytes,
 		adapter:       adapter,
+		outputLoRA:    outputLoRA,
 		promptPath:    promptPath(opts.Path, modelPath, opts.Options),
 	}, nil
 }
@@ -165,6 +177,7 @@ type Model struct {
 	maxCacheBytes uint64
 	tensorMu      sync.Mutex
 	adapter       *adapters.TokenBiasAdapter
+	outputLoRA    *adapters.LinearLoRA
 	promptPath    string
 }
 
@@ -273,7 +286,7 @@ func (m *Model) RuntimeStats() nego.RuntimeStats {
 		CachedTensors:       len(m.float32),
 		CachedTensorBytes:   m.cacheBytes,
 		MaxTensorCacheBytes: m.maxCacheBytes,
-		AdapterLoaded:       m.adapter != nil,
+		AdapterLoaded:       m.adapter != nil || m.outputLoRA != nil,
 	}
 }
 
