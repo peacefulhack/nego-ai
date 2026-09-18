@@ -104,6 +104,7 @@ Implemented:
 69. Native GGUF attention selects split-half RoPE for Qwen2/Qwen3 while retaining adjacent-pair RoPE for converted Llama weights. Multi-token numerical tests cover both layouts and Qwen3 Q/K normalization; this does not add support for scaled/partial RoPE or other architectures.
 70. GGUF vocabulary parsing accepts signed INT32 token-type arrays used by real converters, retains UINT32 compatibility, and rejects negative types and malformed arrays. A local Qwen3-0.6B Q4_K_M smoke test now loads and generates; tokenizer/output quality still requires validation.
 71. GGUF `gpt2`/`qwen2` tokenization reuses the pure-Go Qwen byte-level BPE engine, handles literal special tokens, and streams complete UTF-8 characters. A real Qwen3-0.6B Q4_K_M vocabulary matches 24 independent reference cases; completion, chat, token-bias training, adapter reload, and local share packaging have been smoke-tested. See [GGUF validation](gguf-validation.md) for commands and limits.
+72. Native GGUF grouped-query attention reuses read-only history views within each KV-head group. Synthetic 1,024-token benchmarks reduce temporary allocations from about 518 KB to 191 KB per attention step; numerical parity tests cover one, two, and four KV heads, with overflow checks for cache selection.
 
 Not production-ready yet:
 

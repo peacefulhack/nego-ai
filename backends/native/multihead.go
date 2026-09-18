@@ -89,6 +89,14 @@ func multiHeadAttentionWithCacheFloat32(input []float32, weights AttentionWeight
 		}
 	}
 	headsPerKV := int(spec.AttentionHeadCount / spec.KVHeadCount)
+	var cacheKeys, cacheValues [][]float32
+	if cache != nil {
+		cacheKeys, cacheValues, err = cache.Layer(layer)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var keys, values [][]float32
 	concat := make([]float32, 0, len(q))
 	for i, qHead := range qHeads {
 		kvHead := i / headsPerKV
@@ -102,20 +110,21 @@ func multiHeadAttentionWithCacheFloat32(input []float32, weights AttentionWeight
 		if err != nil {
 			return nil, fmt.Errorf("q rope head %d: %w", i, err)
 		}
-		keys := [][]float32{rotatedKHeads[kvHead]}
-		values := [][]float32{vHeads[kvHead]}
-		if cache != nil {
-			cacheKeys, cacheValues, err := cache.Layer(layer)
-			if err != nil {
-				return nil, err
-			}
-			keys, err = selectCachedKVHead(cacheKeys, kvHead, keyHeadDim)
-			if err != nil {
-				return nil, err
-			}
-			values, err = selectCachedKVHead(cacheValues, kvHead, valueHeadDim)
-			if err != nil {
-				return nil, err
+		// Consecutive query heads share a KV head. Build its read-only history
+		// views once per group rather than allocating them for every query.
+		if i%headsPerKV == 0 {
+			if cache == nil {
+				keys = [][]float32{rotatedKHeads[kvHead]}
+				values = [][]float32{vHeads[kvHead]}
+			} else {
+				keys, err = selectCachedKVHead(cacheKeys, kvHead, keyHeadDim)
+				if err != nil {
+					return nil, err
+				}
+				values, err = selectCachedKVHead(cacheValues, kvHead, valueHeadDim)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 		headOut, err := attentionFloat32(rotatedQ, keys, values)
@@ -145,6 +154,9 @@ func concatHeadVectors(heads [][]float32) ([]float32, error) {
 func selectCachedKVHead(vectors [][]float32, kvHead int, headDim int) ([][]float32, error) {
 	if kvHead < 0 || headDim <= 0 {
 		return nil, fmt.Errorf("invalid kv head selection")
+	}
+	if kvHead > (int(^uint(0)>>1)-headDim)/headDim {
+		return nil, fmt.Errorf("kv head selection overflows this runtime")
 	}
 	start := kvHead * headDim
 	end := start + headDim

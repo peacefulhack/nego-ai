@@ -92,5 +92,17 @@ Unicode bytes, and chat markers. Normal tests use tiny local fixtures only.
 - GGUF Qwen does not apply the HF tokenizer's NFC normalization implicitly.
 - Context-length and tensor-cache estimates are not a guarantee that a model fits in RAM.
 
+## Attention Allocation Benchmark
+
+```powershell
+go test ./backends/native -run '^$' -bench BenchmarkCachedGroupedAttention -benchmem
+```
+
+The synthetic fixture uses eight query heads, two KV heads, head dimension 16,
+and a fixed history length. On the development Windows/amd64 machine, reusing
+per-group history views changed the 1,024-token case from approximately 517,842
+to 190,672 allocated bytes per call (63 to 51 allocations). This measures temporary
+attention allocations, not total model RAM or end-to-end tokens per second.
+
 Implementation references: [llama.cpp RoPE layouts](https://github.com/ggml-org/llama.cpp/blob/master/src/llama-model.cpp)
 and [Qwen pre-tokenization](https://github.com/ggml-org/llama.cpp/blob/master/src/llama-vocab.cpp).
