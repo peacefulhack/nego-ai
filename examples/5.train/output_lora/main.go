@@ -13,6 +13,7 @@ import (
 	nego "github.com/gakon/nego-ai"
 	"github.com/gakon/nego-ai/adapters"
 	"github.com/gakon/nego-ai/backends/native"
+	"github.com/gakon/nego-ai/backends/nativehf"
 	"github.com/gakon/nego-ai/datasets"
 	"github.com/gakon/nego-ai/modelinfo"
 	"github.com/gakon/nego-ai/training"
@@ -22,7 +23,7 @@ import (
 var exampleData []byte
 
 func main() {
-	modelPath := flag.String("model", "./models/qwen3-gguf", "local GGUF base model")
+	modelPath := flag.String("model", "./models/qwen3-gguf", "local GGUF or HF safetensors base model")
 	output := flag.String("out", "./outputs/qwen3-output-lora.json", "new output checkpoint path")
 	epochs := flag.Int("epochs", 3, "SGD epochs over frozen features")
 	flag.Parse()
@@ -42,19 +43,22 @@ func run(ctx context.Context, path, output string, epochs int) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	fmt.Println("1. Loading the downloaded GGUF model on CPU...")
-	loaded, err := nego.LoadModel(ctx, nego.ModelOptions{Backend: native.BackendName, Path: path})
+	fmt.Println("1. Loading the downloaded model on CPU...")
+	loaded, err := nego.LoadModel(ctx, nego.ModelOptions{Backend: nego.BackendPureGo, Path: path})
 	if err != nil {
 		return err
 	}
 	defer loaded.Close()
-	m := loaded.(*native.Model)
+	source, err := sourceFor(loaded)
+	if err != nil {
+		return err
+	}
 	rows, err := datasets.ReadJSONL(bytes.NewReader(exampleData))
 	if err != nil {
 		return err
 	}
 	fmt.Println("2. Collecting frozen features from train.jsonl...")
-	samples, err := collect(ctx, m, rows)
+	samples, err := collect(ctx, source, rows)
 	if err != nil {
 		return err
 	}
@@ -82,8 +86,8 @@ func run(ctx context.Context, path, output string, epochs int) error {
 	if err := loaded.Close(); err != nil {
 		return err
 	}
-	fmt.Println("5. Reloading the same base GGUF with the saved output adapter...")
-	adapted, err := nego.LoadModel(ctx, nego.ModelOptions{Backend: native.BackendName, Path: path, Options: map[string]string{"output_lora": output}})
+	fmt.Println("5. Reloading the same base model with the saved output adapter...")
+	adapted, err := nego.LoadModel(ctx, nego.ModelOptions{Backend: nego.BackendPureGo, Path: path, Options: map[string]string{"output_lora": output}})
 	if err != nil {
 		return err
 	}
@@ -97,7 +101,45 @@ func run(ctx context.Context, path, output string, epochs int) error {
 	return nil
 }
 
-func collect(ctx context.Context, m *native.Model, rows []datasets.Row) ([]training.LinearLoRASample, error) {
+type featureStep func(int) ([]float32, []float32, error)
+
+type featureSource struct {
+	encode      func(string) ([]int, error)
+	newSequence func() (featureStep, error)
+}
+
+func sourceFor(model nego.Model) (featureSource, error) {
+	switch m := model.(type) {
+	case *native.Model:
+		return featureSource{
+			encode: func(text string) ([]int, error) {
+				return m.Vocab().Encode(text, modelinfo.EncodeOptions{AddBOS: m.Vocab().AddBOS})
+			},
+			newSequence: func() (featureStep, error) {
+				state, err := native.NewDecodeState(m.Spec())
+				if err != nil {
+					return nil, err
+				}
+				return func(id int) ([]float32, []float32, error) { return m.ForwardFeaturesWithState(id, state) }, nil
+			},
+		}, nil
+	case *nativehf.Model:
+		return featureSource{
+			encode: m.Tokenizer().Encode,
+			newSequence: func() (featureStep, error) {
+				state, err := nativehf.NewDecodeState(*m.Spec())
+				if err != nil {
+					return nil, err
+				}
+				return func(id int) ([]float32, []float32, error) { return m.ForwardFeaturesWithState(id, state) }, nil
+			},
+		}, nil
+	default:
+		return featureSource{}, fmt.Errorf("this example requires a native GGUF or HF backend")
+	}
+}
+
+func collect(ctx context.Context, source featureSource, rows []datasets.Row) ([]training.LinearLoRASample, error) {
 	var samples []training.LinearLoRASample
 	for row, data := range rows {
 		prompt, ok := data["prompt"].(string)
@@ -108,12 +150,11 @@ func collect(ctx context.Context, m *native.Model, rows []datasets.Row) ([]train
 		if !ok || completion == "" {
 			return nil, fmt.Errorf("row %d needs a non-empty completion string", row+1)
 		}
-		options := modelinfo.EncodeOptions{AddBOS: m.Vocab().AddBOS}
-		prefix, err := m.Vocab().Encode(prompt+"\n", options)
+		prefix, err := source.encode(prompt + "\n")
 		if err != nil {
 			return nil, err
 		}
-		ids, err := m.Vocab().Encode(prompt+"\n"+completion, options)
+		ids, err := source.encode(prompt + "\n" + completion)
 		if err != nil {
 			return nil, err
 		}
@@ -129,7 +170,7 @@ func collect(ctx context.Context, m *native.Model, rows []datasets.Row) ([]train
 		if len(ids) > 128 || len(samples)+len(ids)-len(prefix) > 128 {
 			return nil, fmt.Errorf("example is limited to 128 tokens per row and 128 completion targets")
 		}
-		state, err := native.NewDecodeState(m.Spec())
+		forward, err := source.newSequence()
 		if err != nil {
 			return nil, err
 		}
@@ -137,7 +178,7 @@ func collect(ctx context.Context, m *native.Model, rows []datasets.Row) ([]train
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			hidden, logits, err := m.ForwardFeaturesWithState(ids[i], state)
+			hidden, logits, err := forward(ids[i])
 			if err != nil {
 				return nil, err
 			}

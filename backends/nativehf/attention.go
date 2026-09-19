@@ -26,6 +26,38 @@ func (m *Model) ForwardTokenWithState(tokenID int, state *DecodeState) ([]float3
 }
 
 func (m *Model) forwardToken(tokenID int, position int, state *DecodeState) ([]float32, error) {
+	hidden, err := m.hiddenToken(tokenID, position, state)
+	if err != nil {
+		return nil, err
+	}
+	return m.OutputLogits(hidden)
+}
+
+// ForwardFeaturesWithState returns final normalized hidden features and frozen
+// base logits, bypassing attached adapters. Returned buffers belong to the caller.
+// Use a fresh state per sequence and discard it after any error.
+func (m *Model) ForwardFeaturesWithState(tokenID int, state *DecodeState) ([]float32, []float32, error) {
+	if state == nil || m.spec == nil {
+		return nil, nil, fmt.Errorf("native-hf feature state or spec is nil")
+	}
+	if state.Position < 0 || m.spec.ContextLength > 0 && uint64(state.Position) >= m.spec.ContextLength {
+		return nil, nil, fmt.Errorf("native-hf feature context exceeded")
+	}
+	hidden, err := m.hiddenToken(tokenID, state.Position, state)
+	if err != nil {
+		return nil, nil, err
+	}
+	normalized, logits, err := m.outputFeatures(hidden)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := state.advance(); err != nil {
+		return nil, nil, err
+	}
+	return normalized, logits, nil
+}
+
+func (m *Model) hiddenToken(tokenID int, position int, state *DecodeState) ([]float32, error) {
 	if m.info == nil || m.info.HFWeights == nil {
 		return nil, fmt.Errorf("native-hf weight manifest is not loaded")
 	}
@@ -49,7 +81,7 @@ func (m *Model) forwardToken(tokenID int, position int, state *DecodeState) ([]f
 			return nil, fmt.Errorf("block %d: %w", i, err)
 		}
 	}
-	return m.OutputLogits(hidden)
+	return hidden, nil
 }
 
 func transformerBlockFloat32(input []float32, weights BlockWeights, spec modelinfo.HFModelSpec, layer, position int, state *DecodeState) ([]float32, error) {

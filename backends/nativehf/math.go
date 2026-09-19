@@ -23,15 +23,26 @@ func (m *Model) EmbedToken(tokenID int) ([]float32, error) {
 }
 
 func (m *Model) OutputLogits(hidden []float32) ([]float32, error) {
+	normalized, logits, err := m.outputFeatures(hidden)
+	if err != nil {
+		return nil, err
+	}
+	if m.outputLoRA != nil {
+		return m.outputLoRA.Forward(normalized, logits)
+	}
+	return logits, nil
+}
+
+func (m *Model) outputFeatures(hidden []float32) ([]float32, []float32, error) {
 	if m.spec == nil {
-		return nil, fmt.Errorf("native-hf model spec is not loaded")
+		return nil, nil, fmt.Errorf("native-hf model spec is not loaded")
 	}
 	if m.info == nil || m.info.HFWeights == nil {
-		return nil, fmt.Errorf("native-hf weight manifest is not loaded")
+		return nil, nil, fmt.Errorf("native-hf weight manifest is not loaded")
 	}
 	norm, err := m.loadTensorValues(m.info.HFWeights.OutputNorm)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	outputName := m.info.HFWeights.Output
 	if m.info.HFWeights.TiedOutput {
@@ -39,13 +50,17 @@ func (m *Model) OutputLogits(hidden []float32) ([]float32, error) {
 	}
 	output, err := m.loadTensorValues(outputName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	normalized, err := rmsNormFloat32(hidden, norm.Values, m.spec.RMSNormEpsilon)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return logitsFromOutputWeightFloat32(normalized, output.Values, output.Tensor)
+	logits, err := logitsFromOutputWeightFloat32(normalized, output.Values, output.Tensor)
+	if err != nil {
+		return nil, nil, err
+	}
+	return normalized, logits, nil
 }
 
 func embeddingLookupFloat32(values []float32, tensor modelinfo.SafetensorsTensor, tokenID int, embeddingLength uint64) ([]float32, error) {

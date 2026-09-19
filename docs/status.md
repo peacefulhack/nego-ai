@@ -107,6 +107,7 @@ Implemented:
 72. Native GGUF grouped-query attention reuses read-only history views within each KV-head group. Synthetic 1,024-token benchmarks reduce temporary allocations from about 518 KB to 191 KB per attention step; numerical parity tests cover one, two, and four KV heads, with overflow checks for cache selection.
 73. The pure-Go `adapters.LinearLoRA` building block provides seeded low-rank initialization, forward evaluation, analytic A/B/input gradients, validated SGD updates, and bounded checkpoint save/load. Finite-difference tests validate gradients; model/CLI LoRA training is not connected yet. See [linear LoRA](lora.md).
 74. GGUF frozen output features connect to `training.FitLinearLoRA` for output-head cross-entropy training with SGD, gradient clipping, and cancellation. The native backend loads these checkpoints via `output_lora`; the numbered step-5 example was run on real Qwen3 Q4_K_M through training and chat reload. This is output-head-only LoRA, not full transformer fine-tuning; the `train native` CLI remains token-bias.
+75. Native-HF safetensors supports the same frozen-feature and `output_lora` APIs. The step-5 example selects either native format, masks prompt targets, and resets sequence history per row; real local Qwen3 safetensors training and checkpoint chat reload have been smoke-tested.
 
 Not production-ready yet:
 

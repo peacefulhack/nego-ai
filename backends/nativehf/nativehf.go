@@ -29,6 +29,7 @@ func (b Backend) Info() nego.BackendInfo {
 		Capabilities: []string{"load_safetensors", "inspect_tensors", "load_tokenizer", "load_adapter", "generate_experimental", "stream_generate", "stream_chat"},
 		Required:     []string{"path"},
 		Options: []nego.BackendOption{
+			{Name: "output_lora", Description: "Nego output-head LoRA checkpoint matching this base model and vocabulary"},
 			{Name: "adapter", Description: "token-bias adapter JSON produced by native training"},
 			{Name: "adapter_path", Description: "alias for adapter"},
 			{Name: "experimental_generation", Description: "enable or disable the experimental native-hf generation path"},
@@ -71,6 +72,16 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 	if err != nil {
 		return nil, err
 	}
+	var outputLoRA *adapters.LinearLoRA
+	if path := opts.Options["output_lora"]; path != "" {
+		outputLoRA, err = adapters.LoadLinearLoRA(path)
+		if err != nil {
+			return nil, fmt.Errorf("load output LoRA: %w", err)
+		}
+		if uint64(outputLoRA.InputSize) != info.HFSpec.EmbeddingLength || uint64(outputLoRA.OutputSize) != info.HFSpec.VocabSize {
+			return nil, fmt.Errorf("output LoRA dimensions do not match model embedding and vocabulary")
+		}
+	}
 	return &Model{
 		path:       opts.Path,
 		info:       info,
@@ -81,6 +92,7 @@ func (b Backend) Load(_ context.Context, opts nego.ModelOptions) (nego.Model, er
 		cache:      optionBoolDefault(opts.Options, "cache_tensors", true),
 		cacheLimit: maxCacheBytes,
 		adapter:    adapter,
+		outputLoRA: outputLoRA,
 		generate:   optionBoolDefault(opts.Options, "experimental_generation", true),
 	}, nil
 }
@@ -102,6 +114,7 @@ type Model struct {
 	cacheBytes uint64
 	cacheLimit uint64
 	adapter    *adapters.TokenBiasAdapter
+	outputLoRA *adapters.LinearLoRA
 	generate   bool
 }
 
@@ -208,7 +221,7 @@ func (m *Model) RuntimeStats() nego.RuntimeStats {
 		CachedTensors:          len(m.float32),
 		CachedTensorBytes:      m.cacheBytes,
 		MaxTensorCacheBytes:    m.cacheLimit,
-		AdapterLoaded:          m.adapter != nil,
+		AdapterLoaded:          m.adapter != nil || m.outputLoRA != nil,
 		ExperimentalGeneration: m.generate,
 	}
 }

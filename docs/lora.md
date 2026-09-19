@@ -58,14 +58,14 @@ reject malformed dimensions, non-finite updates, and oversized files.
 
 ## Integration Status
 
-The GGUF backend now exposes `ForwardFeaturesWithState` for collecting frozen
+The GGUF and native-HF backends expose `ForwardFeaturesWithState` for collecting frozen
 final hidden states and base logits. `training.FitLinearLoRA` trains an output-head
 adapter from those samples with next-token cross-entropy, SGD, and optional L2
 gradient clipping. `training.EvaluateLinearLoRA` evaluates a separate sample set
 without updates. Training supports cancellation between samples and retains
 completed updates on cancellation.
 
-Load a saved output-head checkpoint with the native backend option `output_lora`.
+Load a saved output-head checkpoint with either backend's `output_lora` option.
 The loader checks embedding/vocabulary dimensions; it does not fingerprint the
 base model. Always reuse the original base model and tokenizer. Feature extraction
 deliberately bypasses attached output adapters so features remain frozen-base data.
@@ -77,8 +77,12 @@ training loss from 4.9817 to 4.7919, then reloaded the checkpoint for chat. This
 a pipeline check on training data, not evidence of improved held-out quality.
 
 `nego train native` still trains token-bias adapters. Full attention-layer LoRA,
-transformer backprop, native-HF integration, Adam optimizer state, streaming
+transformer backprop, Adam optimizer state, streaming
 datasets, and portable adapter manifests are not implemented by this API yet.
 No GPU execution is provided.
+
+The same step-5 example also ran on the original local HF safetensors Qwen3 model:
+six target tokens, three epochs, training loss 4.7967 -> 4.6226, followed by saved
+adapter reload and chat. The two base formats require separately trained adapters.
 
 Reference: [LoRA: Low-Rank Adaptation of Large Language Models](https://arxiv.org/abs/2106.09685).
